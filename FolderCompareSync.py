@@ -22,7 +22,7 @@ from datetime import datetime
 import threading
 from collections import defaultdict
 
-class FileMetadata:
+class FileMetadata_class:
     """
     Stores and calculates metadata for a single file or directory.
     
@@ -90,7 +90,7 @@ class FileMetadata:
                 self._sha512 = "ERROR"
         return self._sha512
 
-class ComparisonResult:
+class ComparisonResult_class:
     """
     Represents the comparison result between a file/folder in left and right trees.
     
@@ -107,8 +107,8 @@ class ComparisonResult:
         
         Args:
             rel_path: Relative path from tree root (Path object)
-            left_meta: FileMetadata object for left tree version
-            right_meta: FileMetadata object for right tree version
+            left_meta: FileMetadata_class object for left tree version
+            right_meta: FileMetadata_class object for right tree version
         """
         self.rel_path = rel_path
         self.left_meta = left_meta
@@ -201,7 +201,7 @@ class FolderCompareSync_class:
         # Application data storage
         self.left_path = tk.StringVar()          # Path to left folder being compared
         self.right_path = tk.StringVar()         # Path to right folder being compared
-        self.comparison_results = []             # List of all ComparisonResult objects
+        self.comparison_results = []             # List of all ComparisonResult_class objects
         self.filtered_results = []               # Subset of results that have differences (for display)
         self.overwrite_mode = tk.BooleanVar(value=False)  # Whether to overwrite existing files during copy
         
@@ -369,7 +369,7 @@ class FolderCompareSync_class:
         
         This method:
         1. Scans both folder trees to find all files and subdirectories
-        2. Creates ComparisonResult objects for each unique path
+        2. Creates ComparisonResult_class objects for each unique path
         3. Updates the UI with results when complete
         
         Runs in a separate thread to avoid blocking the UI.
@@ -404,11 +404,11 @@ class FolderCompareSync_class:
                 right_full = right_root / rel_path
                 
                 # Create metadata objects (these handle non-existent files gracefully)
-                left_meta = FileMetadata(left_full)
-                right_meta = FileMetadata(right_full)
+                left_meta = FileMetadata_class(left_full)
+                right_meta = FileMetadata_class(right_full)
                 
                 # Create comparison result object
-                result = ComparisonResult(rel_path, left_meta, right_meta)
+                result = ComparisonResult_class(rel_path, left_meta, right_meta)
                 results.append(result)
             
             # Store results for use by other methods
@@ -508,7 +508,7 @@ class FolderCompareSync_class:
         Create a formatted status string for display in the tree.
         
         Args:
-            meta: FileMetadata object
+            meta: FileMetadata_class object
             
         Returns:
             String: Formatted status (e.g., "1.2 MB - 2024-01-15 14:30" or "Missing")
@@ -561,7 +561,7 @@ class FolderCompareSync_class:
         if not item:
             return
         
-        # Find the corresponding ComparisonResult object
+        # Find the corresponding ComparisonResult_class object
         item_text = self.tree.item(item, 'text')  # Get the path from tree display
         result = None
         for r in self.filtered_results:
