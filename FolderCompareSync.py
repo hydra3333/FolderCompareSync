@@ -49,6 +49,9 @@ CHANGELOG:
 Version 0.2.3 (2024-08-02):
 - ADDED: Smart window sizing - automatically sizes to 98%(width) and 93%(height) of screen resolution
 - ADDED: Window positioning at top of screen for optimal taskbar clearance
+- FIXED: TypeError in tree building when files and folders have conflicting path names
+- IMPROVED: Better path conflict resolution in tree structure building
+- IMPROVED: Enhanced debug logging for tree building conflicts
 - IMPROVED: Better screen real estate utilization for dual-pane view
 - IMPROVED: Responsive design that works on all monitor sizes
 - IMPROVED: Maintains minimum window size constraints (800x600)
@@ -197,16 +200,19 @@ class FolderCompareSync_class:
         
         self.root = tk.Tk()
         self.root.title("FolderCompareSync - Folder Comparison and Syncing Tool")
-
+        
         # Get screen dimensions
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
+        
         # Use 98%(width) and 93%(height) of screen size, positioned at top
         window_width = int(screen_width * 0.98)
         window_height = int(screen_height * 0.93)
+        
         # Center horizontally, start at top vertically
         x = (screen_width - window_width) // 2
         y = 0  # Start at top of screen
+        
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
         self.root.minsize(800, 600)
         
@@ -797,23 +803,45 @@ class FolderCompareSync_class:
             if result.left_item is not None:
                 current = left_structure
                 for part in path_parts[:-1]:
-                    if part and part not in current:
-                        current[part] = {}
                     if part:
+                        if part not in current:
+                            current[part] = {}
+                        elif not isinstance(current[part], dict):
+                            # Handle conflict: file exists where we need a folder
+                            if __debug__:
+                                logger.debug(f"Path conflict in left structure: '{part}' exists as file, need as folder")
+                            current[part] = {}
                         current = current[part]
                 if path_parts[-1]:
-                    current[path_parts[-1]] = result.left_item
+                    # Only add if it doesn't conflict with existing folder
+                    final_name = path_parts[-1]
+                    if final_name in current and isinstance(current[final_name], dict):
+                        if __debug__:
+                            logger.debug(f"Cannot add file '{final_name}' - folder exists with same name")
+                    else:
+                        current[final_name] = result.left_item
             
             # Build right structure  
             if result.right_item is not None:
                 current = right_structure
                 for part in path_parts[:-1]:
-                    if part and part not in current:
-                        current[part] = {}
                     if part:
+                        if part not in current:
+                            current[part] = {}
+                        elif not isinstance(current[part], dict):
+                            # Handle conflict: file exists where we need a folder
+                            if __debug__:
+                                logger.debug(f"Path conflict in right structure: '{part}' exists as file, need as folder")
+                            current[part] = {}
                         current = current[part]
                 if path_parts[-1]:
-                    current[path_parts[-1]] = result.right_item
+                    # Only add if it doesn't conflict with existing folder
+                    final_name = path_parts[-1]
+                    if final_name in current and isinstance(current[final_name], dict):
+                        if __debug__:
+                            logger.debug(f"Cannot add file '{final_name}' - folder exists with same name")
+                    else:
+                        current[final_name] = result.right_item
                     
         # Also need to add missing items as placeholders
         missing_left = 0
@@ -829,24 +857,32 @@ class FolderCompareSync_class:
                 missing_left += 1
                 current = left_structure
                 for part in path_parts[:-1]:
-                    if part and part not in current:
-                        current[part] = {}
                     if part:
+                        if part not in current:
+                            current[part] = {}
+                        elif not isinstance(current[part], dict):
+                            current[part] = {}
                         current = current[part]
                 if path_parts[-1]:
-                    current[path_parts[-1]] = None  # Placeholder for missing item
+                    final_name = path_parts[-1]
+                    if final_name not in current or not isinstance(current[final_name], dict):
+                        current[final_name] = None  # Placeholder for missing item
                     
             # Add missing right items
             if result.right_item is None and result.left_item is not None:
                 missing_right += 1
                 current = right_structure
                 for part in path_parts[:-1]:
-                    if part and part not in current:
-                        current[part] = {}
                     if part:
+                        if part not in current:
+                            current[part] = {}
+                        elif not isinstance(current[part], dict):
+                            current[part] = {}
                         current = current[part]
                 if path_parts[-1]:
-                    current[path_parts[-1]] = None  # Placeholder for missing item
+                    final_name = path_parts[-1]
+                    if final_name not in current or not isinstance(current[final_name], dict):
+                        current[final_name] = None  # Placeholder for missing item
         
         if __debug__:
             logger.debug(f"Added {missing_left} missing left placeholders, {missing_right} missing right placeholders")
@@ -1093,7 +1129,7 @@ def main():
     
     try:
         app = FolderCompareSync_class()
-        # uncomment the line "app.set_debug_loglevel(True)" to MANUALLY Enable debug mode logging regardless of commandline
+        # uncomment to MANUALLY Enable debug mode logging for testing
         #app.set_debug_loglevel(True)
         app.run()
     except Exception as e:
