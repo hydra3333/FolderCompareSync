@@ -13,8 +13,48 @@ Author: hydra3333
 License: AGPL-3.0
 GitHub: https://github.com/hydra3333/FolderCompareSync
 
-A CUMULATIVE CHANGELOG FOR EVERY NEW UPDATE
-===========================================
+DEBUG & LOGGING:
+================
+This application uses Python's built-in __debug__ flag and logging for debugging:
+
+1. __debug__ is a built-in Python constant and is:
+   - True by default (debug mode) when "-O" on the python commandline is omitted  :  python FolderCompareSync.py
+   - False when running with "-O" flag (optimized mode) on the python commandline :  python -O FolderCompareSync.py
+   - i.e. using "-O" turns off debugging via __debug__
+   - Controls assert statements and debug-only code
+
+2. Running the application:
+   - Debug mode (verbose):     python FolderCompareSync.py
+   - Optimized mode (quiet):   python -O FolderCompareSync.py
+   
+3. Logging output:
+   - Console: Real-time debug/info messages
+   - File: foldercomparesync.log (detailed log for troubleshooting)
+
+4. Turn debug loglevel on/off within section of code within any Class Method:
+    # debug some specific section of code
+    self.set_debug_mode(True)  # Turn on debug logging
+    ...
+    self.set_debug_mode(False)  # Turn off debug logging
+
+    # If you hit an error and want more detail:
+    if some_error_condition:
+        self.set_debug_mode(True)  # Turn on debug logging
+        logger.debug("Now getting detailed debug info...")
+        ...
+        self.set_debug_mode(False)  # Turn off debug logging
+
+CHANGELOG:
+==========
+Version 0.2.1 (2024-08-02):
+- ADDED: Comprehensive logging system with __debug__ support
+- ADDED: Debug mode explanation and usage instructions
+- ADDED: Strategic debug logging throughout key functions
+- ADDED: Assert statements for critical conditions
+- ADDED: Log file output (foldercomparesync.log)
+- IMPROVED: Error reporting with detailed stack traces
+- IMPROVED: Performance monitoring with timing logs
+
 Version 0.2.0 (2024-08-02):
 - FIXED: TypeError when building trees due to NoneType comparison results
 - FIXED: Missing item handling - now properly shows placeholders for missing files/folders
@@ -32,12 +72,12 @@ Version 0.1.0 (2024-08-01):
 - Checkbox selection system with parent/child logic
 - Background comparison threading
 - Safety mode for copy operations (preview only)
-
 """
 
 import os
 import sys
 import hashlib
+import time
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
@@ -45,6 +85,26 @@ from typing import Dict, List, Optional, Set, Tuple, Any
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
+import logging
+
+# Setup logging loglevel based on __debug__ flag
+# using "-O" on the python commandline turns __debug__ on:  python -O FolderCompareSync.py
+if __debug__:
+    log_level = logging.DEBUG
+    log_format = '%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+else:
+    log_level = logging.INFO
+    log_format = '%(asctime)s - %(levelname)s - %(message)s'
+
+logging.basicConfig(
+    level=log_level,
+    format=log_format,
+    handlers=[
+        logging.FileHandler(os.path.join(os.path.dirname(__file__), 'foldercomparesync.log'), mode='w'),   # Overwrite log each run
+        logging.StreamHandler()  # Console output
+    ]
+)
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -110,6 +170,14 @@ class FolderCompareSync_class:
     """Main application class for folder comparison and syncing"""
     
     def __init__(self):
+        logger.info("Initializing FolderCompareSync application")
+        global log_level
+        if __debug__:
+            if log_level == logging.DEBUG:
+                logger.debug("Debug mode enabled - Debug log_level active")
+            else:
+                logger.debug("Debug mode enabled - non-Debug log_level active")
+        
         self.root = tk.Tk()
         self.root.title("FolderCompareSync - Folder Comparison and Syncing Tool")
         self.root.geometry("1200x800")
@@ -141,8 +209,42 @@ class FolderCompareSync_class:
         self.status_var = tk.StringVar(value="Ready")
         self.summary_var = tk.StringVar(value="Summary: No comparison performed")
         
-        self.setup_ui()
+        if __debug__:
+            logger.debug("Application state initialized")
         
+        self.setup_ui()
+        logger.info("Application initialization complete")
+
+    def set_debug_loglevel(self, enabled: bool):
+        """
+        Toggle debug loglevel in logging on/off during runtime
+        Args:
+            enabled (bool): True to enable debug logging, False to disable
+        Usage:
+            # Enable debug logging
+            app.set_debug_loglevel(True)
+            # Disable debug logging  
+            app.set_debug_loglevel(False)
+        Can be called from:
+            - Button/menu callback: lambda: self.set_debug_loglevel(True)
+            - Keyboard shortcut handler
+            - Error handler to get more details
+            - Any method within the class: self.set_debug_loglevel(True)
+        """
+        global log_level
+        if enabled:
+            log_level = logging.DEBUG
+            logger.info("🔍 Debug logging enabled - Debug output activated")
+        else:
+            log_level = logging.INFO
+            logger.info("🔇 Debug logging disabled - Info mode activated")
+        logger.setLevel(log_level)
+        # Update status to show updated current mode
+        if hasattr(self, 'status_var'):
+            current_status = self.status_var.get()
+            mode = "DEBUG" if enabled else "NORMAL"
+            self.status_var.set(f"{current_status} ({mode})")
+
     def setup_ui(self):
         """Initialize the user interface"""
         # Main container
@@ -318,8 +420,13 @@ class FolderCompareSync_class:
             
     def toggle_item_selection(self, item_id, side):
         """Toggle selection state of an item and handle parent/child logic"""
+        if __debug__:
+            logger.debug(f"Toggling selection for item {item_id} on {side} side")
+            
         selected_set = self.selected_left if side == 'left' else self.selected_right
         tree = self.left_tree if side == 'left' else self.right_tree
+        
+        was_selected = item_id in selected_set
         
         if item_id in selected_set:
             # Unticking - remove from selection and untick all parents
@@ -330,6 +437,10 @@ class FolderCompareSync_class:
             # Ticking - add to selection and tick all children
             selected_set.add(item_id)
             self.tick_children(item_id, side)
+            
+        if __debug__:
+            action = "unticked" if was_selected else "ticked"
+            logger.debug(f"Item {action}, {side} selection count: {len(selected_set)}")
             
         self.update_tree_display()
         self.update_summary()
@@ -417,24 +528,42 @@ class FolderCompareSync_class:
             
     def start_comparison(self):
         """Start folder comparison in background thread"""
+        logger.info("Starting folder comparison")
+        
         if not self.left_folder.get() or not self.right_folder.get():
+            logger.error("Comparison failed: Both folders must be selected")
             messagebox.showerror("Error", "Please select both folders to compare")
             return
             
         if not os.path.exists(self.left_folder.get()):
+            logger.error(f"Left folder does not exist: {self.left_folder.get()}")
             messagebox.showerror("Error", "Left folder does not exist")
             return
             
         if not os.path.exists(self.right_folder.get()):
+            logger.error(f"Right folder does not exist: {self.right_folder.get()}")
             messagebox.showerror("Error", "Right folder does not exist")
             return
+        
+        if __debug__:
+            logger.debug(f"Left folder: {self.left_folder.get()}")
+            logger.debug(f"Right folder: {self.right_folder.get()}")
+            logger.debug(f"Compare criteria: existence={self.compare_existence.get()}, "
+                        f"size={self.compare_size.get()}, "
+                        f"date_created={self.compare_date_created.get()}, "
+                        f"date_modified={self.compare_date_modified.get()}, "
+                        f"sha512={self.compare_sha512.get()}")
             
         # Start comparison in background thread
         self.status_var.set("Comparing folders...")
+        logger.info("Starting background comparison thread")
         threading.Thread(target=self.perform_comparison, daemon=True).start()
         
     def perform_comparison(self):
         """Perform the actual folder comparison"""
+        start_time = time.time()
+        logger.info("Beginning folder comparison operation")
+        
         try:
             # Clear previous results
             self.comparison_results.clear()
@@ -443,15 +572,33 @@ class FolderCompareSync_class:
             self.path_to_item_left.clear()
             self.path_to_item_right.clear()
             
+            if __debug__:
+                logger.debug("Cleared previous comparison results")
+            
             # Build file lists for both folders
+            logger.info("Scanning left folder for files...")
             left_files = self.build_file_list(self.left_folder.get())
+            logger.info(f"Found {len(left_files)} items in left folder")
+            
+            logger.info("Scanning right folder for files...")
             right_files = self.build_file_list(self.right_folder.get())
+            logger.info(f"Found {len(right_files)} items in right folder")
             
             # Get all unique relative paths
             all_paths = set(left_files.keys()) | set(right_files.keys())
+            logger.info(f"Comparing {len(all_paths)} unique paths")
+            
+            if __debug__:
+                logger.debug(f"Left-only paths: {len(left_files.keys() - right_files.keys())}")
+                logger.debug(f"Right-only paths: {len(right_files.keys() - left_files.keys())}")
+                logger.debug(f"Common paths: {len(left_files.keys() & right_files.keys())}")
             
             # Compare each path
-            for rel_path in all_paths:
+            differences_found = 0
+            for i, rel_path in enumerate(all_paths):
+                if __debug__ and i % 100 == 0:  # Log progress every 100 items
+                    logger.debug(f"Comparison progress: {i}/{len(all_paths)} ({100*i/len(all_paths):.1f}%)")
+                
                 left_item = left_files.get(rel_path)
                 right_item = right_files.get(rel_path)
                 
@@ -463,29 +610,60 @@ class FolderCompareSync_class:
                     differences=differences
                 )
                 
+                if differences:
+                    differences_found += 1
+                    if __debug__:
+                        logger.debug(f"Difference found in '{rel_path}': {differences}")
+            
+            elapsed_time = time.time() - start_time
+            logger.info(f"Comparison completed in {elapsed_time:.2f} seconds")
+            logger.info(f"Found {differences_found} items with differences")
+                
             # Update UI in main thread
             self.root.after(0, self.update_comparison_ui)
             
         except Exception as e:
+            logger.error(f"Comparison failed with exception: {type(e).__name__}: {str(e)}")
+            if __debug__:
+                import traceback
+                logger.debug("Full exception traceback:")
+                logger.debug(traceback.format_exc())
             self.root.after(0, lambda: self.show_error(f"Comparison failed: {str(e)}"))
             
     def build_file_list(self, root_path: str) -> Dict[str, FileMetadata_class]:
         """Build a dictionary of relative_path -> FileMetadata for all files in folder"""
+        if __debug__:
+            logger.debug(f"Building file list for: {root_path}")
+        
+        assert os.path.exists(root_path), f"Root path must exist: {root_path}"
+        
         files = {}
         root = Path(root_path)
+        file_count = 0
+        dir_count = 0
+        error_count = 0
         
         try:
             # Include the root directory itself if it's empty
             if not any(root.iterdir()):
-                # Root is empty, but we still want to show it
-                pass
+                if __debug__:
+                    logger.debug(f"Root directory is empty: {root_path}")
                 
             for path in root.rglob('*'):
                 try:
                     rel_path = path.relative_to(root).as_posix()
                     metadata = FileMetadata_class.from_path(str(path), self.compare_sha512.get())
                     files[rel_path] = metadata
-                except Exception:
+                    
+                    if path.is_file():
+                        file_count += 1
+                    else:
+                        dir_count += 1
+                        
+                except Exception as e:
+                    error_count += 1
+                    if __debug__:
+                        logger.debug(f"Skipping file due to error: {path} - {e}")
                     continue  # Skip files we can't process
                     
             # Also scan for empty directories that might not be caught by rglob('*')
@@ -496,11 +674,22 @@ class FolderCompareSync_class:
                         if rel_path not in files:  # Only add if not already added
                             metadata = FileMetadata_class.from_path(str(path), False)
                             files[rel_path] = metadata
-                except Exception:
+                            dir_count += 1
+                except Exception as e:
+                    error_count += 1
+                    if __debug__:
+                        logger.debug(f"Skipping directory due to error: {path} - {e}")
                     continue
                     
-        except Exception:
-            pass  # Handle permission errors, etc.
+        except Exception as e:
+            logger.error(f"Error scanning directory {root_path}: {e}")
+            if __debug__:
+                import traceback
+                logger.debug(traceback.format_exc())
+            
+        logger.info(f"Scanned {root_path}: {file_count} files, {dir_count} directories, {error_count} errors")
+        if __debug__:
+            logger.debug(f"Total items found: {len(files)}")
             
         return files
         
@@ -535,11 +724,19 @@ class FolderCompareSync_class:
         
     def update_comparison_ui(self):
         """Update UI with comparison results"""
+        logger.info("Updating UI with comparison results")
+        
         # Clear existing tree content
+        left_items = len(self.left_tree.get_children())
+        right_items = len(self.right_tree.get_children())
+        
         for item in self.left_tree.get_children():
             self.left_tree.delete(item)
         for item in self.right_tree.get_children():
             self.right_tree.delete(item)
+            
+        if __debug__:
+            logger.debug(f"Cleared {left_items} left tree items and {right_items} right tree items")
             
         # Build tree structure
         self.build_trees()
@@ -547,18 +744,27 @@ class FolderCompareSync_class:
         # Update status
         self.status_var.set("Ready")
         self.update_summary()
+        logger.info("UI update completed")
         
     def build_trees(self):
         """Build tree structures from comparison results"""
+        if __debug__:
+            logger.debug(f"Building trees from {len(self.comparison_results)} comparison results")
+        
+        start_time = time.time()
+        
         # Organize paths into tree structure
         left_structure = {}
         right_structure = {}
         
         for rel_path, result in self.comparison_results.items():
             if not rel_path:  # Skip empty paths (but this shouldn't happen now)
+                if __debug__:
+                    logger.debug("Skipping empty relative path")
                 continue
                 
             path_parts = rel_path.split('/')
+            assert len(path_parts) > 0, f"Path parts should not be empty for: {rel_path}"
             
             # Build left structure
             if result.left_item is not None:
@@ -583,6 +789,8 @@ class FolderCompareSync_class:
                     current[path_parts[-1]] = result.right_item
                     
         # Also need to add missing items as placeholders
+        missing_left = 0
+        missing_right = 0
         for rel_path, result in self.comparison_results.items():
             if not rel_path:
                 continue
@@ -591,6 +799,7 @@ class FolderCompareSync_class:
             
             # Add missing left items
             if result.left_item is None and result.right_item is not None:
+                missing_left += 1
                 current = left_structure
                 for part in path_parts[:-1]:
                     if part and part not in current:
@@ -602,6 +811,7 @@ class FolderCompareSync_class:
                     
             # Add missing right items
             if result.right_item is None and result.left_item is not None:
+                missing_right += 1
                 current = right_structure
                 for part in path_parts[:-1]:
                     if part and part not in current:
@@ -610,10 +820,18 @@ class FolderCompareSync_class:
                         current = current[part]
                 if path_parts[-1]:
                     current[path_parts[-1]] = None  # Placeholder for missing item
+        
+        if __debug__:
+            logger.debug(f"Added {missing_left} missing left placeholders, {missing_right} missing right placeholders")
             
         # Populate trees
+        logger.info("Populating tree views...")
         self.populate_tree(self.left_tree, left_structure, '', 'left', '')
         self.populate_tree(self.right_tree, right_structure, '', 'right', '')
+        
+        elapsed_time = time.time() - start_time
+        if __debug__:
+            logger.debug(f"Tree building completed in {elapsed_time:.3f} seconds")
         
     def populate_tree(self, tree, structure, parent_id, side, current_path):
         """Recursively populate tree with structure"""
@@ -771,18 +989,48 @@ class FolderCompareSync_class:
         
     def show_error(self, message):
         """Show error message to user"""
+        logger.error(f"Displaying error to user: {message}")
         messagebox.showerror("Error", message)
         self.status_var.set("Ready")
         
     def run(self):
         """Start the application"""
-        self.root.mainloop()
+        logger.info("Starting FolderCompareSync GUI application")
+        try:
+            self.root.mainloop()
+        except Exception as e:
+            logger.error(f"Application crashed: {type(e).__name__}: {str(e)}")
+            if __debug__:
+                import traceback
+                logger.debug("Crash traceback:")
+                logger.debug(traceback.format_exc())
+            raise
+        finally:
+            logger.info("Application shutdown")
 
 
 def main():
     """Main entry point"""
-    app = FolderCompareSync_class()
-    app.run()
+    logger.info("=== FolderCompareSync Starting ===")
+    if __debug__:
+        logger.debug("Python version: " + sys.version)
+        logger.debug("Platform: " + sys.platform)
+        logger.debug("Working directory: " + os.getcwd())
+    
+    try:
+        app = FolderCompareSync_class()
+        # incomment to MANUALLY Enable debug mode logging for testing
+        app.set_debug_loglevel(True)
+        app.run()
+    except Exception as e:
+        logger.error(f"Fatal error: {type(e).__name__}: {str(e)}")
+        if __debug__:
+            import traceback
+            logger.debug("Fatal error traceback:")
+            logger.debug(traceback.format_exc())
+        raise
+    finally:
+        logger.info("=== FolderCompareSync Shutdown ===")
 
 
 if __name__ == "__main__":
