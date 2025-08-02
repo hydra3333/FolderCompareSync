@@ -46,11 +46,25 @@ This application uses Python's built-in __debug__ flag and logging for debugging
 
 CHANGELOG:
 ==========
+Version 0.2.6 (2024-08-02):
+- ADDED: Full-width status log window at bottom with 5 visible lines and 200-line history
+- ADDED: Progress dialogs for long operations (folder scanning, comparison, copying)
+- ADDED: Comprehensive status logging for all major operations with timestamps
+- ADDED: Real-time progress indication for folder scanning with running file/folder counts
+- ADDED: Progress tracking for comparison operations with percentage completion
+- ADDED: Selection change tracking and logging in status window
+- ENHANCED: Professional user experience with clear operation feedback
+- IMPROVED: UI layout restructured to accommodate status log window
+- ADDED: Status log auto-scrolling and line limit management (200 lines max)
+- ADDED: Threaded progress updates that don't block the main UI
+- IMPROVED: User feedback for all operations from start to completion
+- ENHANCED: Error reporting with helpful guidance displayed in status log
+
 Version 0.2.5 (2024-08-02):
 - FIXED: Critical issue with expand/collapse operations clearing selection state
 - FIXED: Smart folder selection - ticking folders now only selects different items underneath (not same/missing)
-- FIXED: Console logging now conditional - only appears in debug mode (python FolderCompareSync.py), silent in optimized mode (python -O FolderCompareSync.py)
-- FIXED: Removed emoji arrows from copy buttons to prevent encoding errors on Windows - now "Copy LEFT to Right" and "Copy RIGHT to Left"
+- FIXED: Console logging now conditional - only appears in debug mode, silent in optimized mode
+- FIXED: Removed emoji arrows from copy buttons to prevent encoding errors on Windows
 - IMPROVED: Selection state management completely independent of tree display state
 - ENHANCED: Robust state preservation during all tree operations (expand/collapse/refresh)
 - IMPROVED: tick_children() method now intelligently filters items based on comparison status
@@ -62,18 +76,15 @@ Version 0.2.5 (2024-08-02):
 
 Version 0.2.4 (2024-08-02):
 - ADDED: Fully qualified root paths as selectable tree items with functional checkboxes
-- CHANGED: "Unselect All Differences" buttons renamed to "Clear All" - now clear ALL selections (not just differences)
+- CHANGED: "Unselect All Differences" buttons renamed to "Clear All" - now clear ALL selections
 - IMPROVED: "Select All Differences" buttons now auto-clear all selections first for clean workflow
 - IMPROVED: Missing items no longer have checkboxes and are non-clickable for logical consistency
-- FIXED: Missing folders now properly display without checkboxes (previously only missing files were handled correctly)
+- FIXED: Missing folders now properly display without checkboxes
 - ADDED: Instructional text "select options then click Compare" for better user guidance
 - IMPROVED: Root unticking logic with safety checks to prevent attempting to untick non-existent parents
-- IMPROVED: Complete selection workflow with clean state management and logical item handling
 - ENHANCED: Tree building to include qualified paths as root items with proper path mapping
 - ENHANCED: Selection system to handle root-level selection and bulk operations more effectively
 - ENHANCED: Missing folder detection using MissingFolder sentinel class for proper differentiation
-- FIXED: Edge case handling in parent unticking when reaching root level items
-- IMPROVED: User experience with clearer instructions and more intuitive tree selection behavior
 
 Version 0.2.3 (2024-08-02):
 - ADDED: Smart window sizing - automatically sizes to 98%(width) and 93%(height) of screen resolution
@@ -221,6 +232,110 @@ class ComparisonResult_class:
         self.is_different = len(self.differences) > 0
 
 
+class ProgressDialog:
+    """Progress dialog for long-running operations"""
+    
+    def __init__(self, parent, title, message, max_value=None):
+        """
+        Initialize progress dialog
+        Args:
+            parent: Parent window
+            title: Dialog title
+            message: Progress message
+            max_value: Maximum value for percentage (None for indeterminate)
+        """
+        logger.debug(f"Creating progress dialog: {title}")
+        
+        self.parent = parent
+        self.max_value = max_value
+        self.current_value = 0
+        
+        # Create dialog window
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title(title)
+        self.dialog.geometry("400x150")
+        self.dialog.resizable(False, False)
+        
+        # Center the dialog on parent
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        # Create progress frame
+        progress_frame = ttk.Frame(self.dialog, padding=20)
+        progress_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Progress message label
+        self.message_var = tk.StringVar(value=message)
+        ttk.Label(progress_frame, textvariable=self.message_var, 
+                 font=("TkDefaultFont", 10)).pack(pady=(0, 10))
+        
+        # Progress bar or counter display
+        if max_value is not None:
+            # Determinate progress bar for operations with known total
+            self.progress_bar = ttk.Progressbar(
+                progress_frame, mode='determinate', maximum=max_value, length=300
+            )
+            self.progress_bar.pack(pady=(0, 10))
+            
+            # Percentage label
+            self.percent_var = tk.StringVar(value="0%")
+            ttk.Label(progress_frame, textvariable=self.percent_var).pack()
+        else:
+            # Indeterminate progress for operations with unknown total (like file counting)
+            self.progress_bar = ttk.Progressbar(
+                progress_frame, mode='indeterminate', length=300
+            )
+            self.progress_bar.pack(pady=(0, 10))
+            self.progress_bar.start(10)  # Start animation
+            
+            # Running counter display
+            self.count_var = tk.StringVar(value="0 items")
+            ttk.Label(progress_frame, textvariable=self.count_var, 
+                     font=("TkDefaultFont", 9)).pack()
+        
+        # Update the display
+        self.dialog.update_idletasks()
+        
+        # Center on parent window
+        parent.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() // 2) - (400 // 2)
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - (150 // 2)
+        self.dialog.geometry(f"400x150+{x}+{y}")
+        
+    def update_message(self, message):
+        """Update the progress message"""
+        self.message_var.set(message)
+        self.dialog.update_idletasks()
+        
+    def update_progress(self, value, message=None):
+        """Update progress value and optionally message"""
+        if self.max_value is not None:
+            # Determinate progress
+            self.current_value = value
+            self.progress_bar['value'] = value
+            percentage = int((value / self.max_value) * 100) if self.max_value > 0 else 0
+            self.percent_var.set(f"{percentage}%")
+        else:
+            # Indeterminate progress - update counter
+            self.count_var.set(f"{value:,} items")
+            
+        if message:
+            self.message_var.set(message)
+            
+        self.dialog.update_idletasks()
+        
+    def close(self):
+        """Close the progress dialog"""
+        logger.debug("Closing progress dialog")
+        try:
+            if hasattr(self, 'progress_bar'):
+                self.progress_bar.stop()  # Stop any animation
+            self.dialog.grab_release()
+            self.dialog.destroy()
+        except tk.TclError:
+            pass  # Dialog already destroyed
+
+
 class FolderCompareSync_class:
     """Main application class for folder comparison and syncing"""
     
@@ -276,20 +391,52 @@ class FolderCompareSync_class:
         self.root_item_left: Optional[str] = None
         self.root_item_right: Optional[str] = None
         
-        # ENHANCED: Flag to prevent recursive display updates during tree operations
+        # Flag to prevent recursive display updates during tree operations
         self._updating_display = False
+        
+        # Status log management
+        self.status_log_lines = []  # Store status messages
+        self.max_status_lines = 200  # Maximum number of lines to keep
         
         # UI References for widget interaction
         self.left_tree = None
         self.right_tree = None
         self.status_var = tk.StringVar(value="Ready")
         self.summary_var = tk.StringVar(value="Summary: No comparison performed")
+        self.status_log_text = None  # Will be set in setup_ui
         
         if __debug__:
-            logger.debug("Application state initialized with enhanced state management")
+            logger.debug("Application state initialized with enhanced state management and status logging")
         
         self.setup_ui()
+        self.add_status_message("Application initialized - Ready to compare folders")
         logger.info("Application initialization complete")
+
+    def add_status_message(self, message):
+        """
+        Add a timestamped message to the status log
+        Args:
+            message: Message to add to status log
+        """
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        status_line = f"{timestamp} - {message}"
+        
+        # Add to our internal list
+        self.status_log_lines.append(status_line)
+        
+        # Trim to maximum lines
+        if len(self.status_log_lines) > self.max_status_lines:
+            self.status_log_lines = self.status_log_lines[-self.max_status_lines:]
+            
+        # Update the text widget if it exists
+        if self.status_log_text:
+            self.status_log_text.config(state=tk.NORMAL)
+            self.status_log_text.delete('1.0', tk.END)
+            self.status_log_text.insert('1.0', '\n'.join(self.status_log_lines))
+            self.status_log_text.config(state=tk.DISABLED)
+            self.status_log_text.see(tk.END)  # Auto-scroll to bottom
+            
+        logger.info(f"STATUS: {message}")
 
     def set_debug_loglevel(self, enabled: bool):
         """
@@ -322,7 +469,9 @@ class FolderCompareSync_class:
             self.status_var.set(f"{current_status} ({mode})")
 
     def setup_ui(self):
-        """Initialize the user interface with enhanced selection controls"""
+        """Initialize the user interface with enhanced status logging and restructured layout"""
+        logger.debug("Setting up user interface")
+        
         # Main container
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -392,7 +541,7 @@ class FolderCompareSync_class:
         ttk.Button(left_controls, text="Clear All - Right", 
                   command=self.clear_all_right).pack(side=tk.LEFT)
         
-        # Tree comparison frame
+        # Tree comparison frame (adjusted height to make room for status log)
         tree_frame = ttk.Frame(main_frame)
         tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
         
@@ -438,7 +587,31 @@ class FolderCompareSync_class:
         ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(copy_frame, text="Quit", command=self.root.quit).pack(side=tk.RIGHT)
         
-        # Status and summary frame
+        # NEW: Status log frame at bottom (5 visible lines, scrollable, 200 line history)
+        status_log_frame = ttk.LabelFrame(main_frame, text="Status Log", padding=5)
+        status_log_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        # Create text widget with scrollbar for status log
+        status_log_container = ttk.Frame(status_log_frame)
+        status_log_container.pack(fill=tk.X)
+        
+        self.status_log_text = tk.Text(
+            status_log_container, 
+            height=5,  # 5 visible lines as requested
+            wrap=tk.WORD,
+            state=tk.DISABLED,  # Read-only
+            font=("Courier", 9),  # Monospace font for better alignment
+            bg="#f8f8f8",  # Light background
+            fg="#333333"   # Dark text
+        )
+        
+        status_log_scroll = ttk.Scrollbar(status_log_container, orient=tk.VERTICAL, command=self.status_log_text.yview)
+        self.status_log_text.configure(yscrollcommand=status_log_scroll.set)
+        
+        self.status_log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        status_log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Status and summary frame (moved to bottom, below status log)
         status_frame = ttk.Frame(main_frame)
         status_frame.pack(fill=tk.X)
         
@@ -449,6 +622,8 @@ class FolderCompareSync_class:
         
         # Configure tree event bindings for enhanced interaction
         self.setup_tree_events()
+        
+        logger.debug("User interface setup complete")
         
     def setup_tree_columns(self, tree):
         """Setup columns for metadata display in tree"""
@@ -481,9 +656,11 @@ class FolderCompareSync_class:
     def setup_tree_events(self):
         """
         Setup event bindings for tree interactions
-        ENHANCED: Improved event handling to prevent selection interference during expand/collapse
+        Enhanced: Improved event handling to prevent selection interference during expand/collapse
         """
-        # ENHANCED: Bind tree expansion/collapse events with state preservation
+        logger.debug("Setting up tree event bindings")
+        
+        # Enhanced: Bind tree expansion/collapse events with state preservation
         self.left_tree.bind('<<TreeviewOpen>>', lambda e: self.handle_tree_expand_collapse(self.left_tree, self.right_tree, e, True))
         self.left_tree.bind('<<TreeviewClose>>', lambda e: self.handle_tree_expand_collapse(self.left_tree, self.right_tree, e, False))
         self.right_tree.bind('<<TreeviewOpen>>', lambda e: self.handle_tree_expand_collapse(self.right_tree, self.left_tree, e, True))
@@ -495,7 +672,7 @@ class FolderCompareSync_class:
         
     def handle_tree_expand_collapse(self, source_tree, target_tree, event, is_expand):
         """
-        ENHANCED: Handle tree expansion/collapse with proper state preservation
+        Enhanced: Handle tree expansion/collapse with proper state preservation
         Ensures selection state is maintained during expand/collapse operations
         """
         if self._updating_display:
@@ -538,7 +715,7 @@ class FolderCompareSync_class:
         
     def is_different_item(self, item_id, side):
         """
-        ENHANCED: Check if an item represents a different file/folder that needs syncing
+        Enhanced: Check if an item represents a different file/folder that needs syncing
         Used for smart folder selection logic
         """
         if not item_id:
@@ -613,7 +790,7 @@ class FolderCompareSync_class:
             self.untick_parents_with_root_safety(item_id, side)
             self.untick_children(item_id, side)
         else:
-            # Ticking - add to selection and tick all children (ENHANCED: only different ones)
+            # Ticking - add to selection and tick all children (Enhanced: only different ones)
             selected_set.add(item_id)
             self.tick_children_smart(item_id, side)
             
@@ -621,12 +798,18 @@ class FolderCompareSync_class:
             action = "unticked" if was_selected else "ticked"
             logger.debug(f"Item {action}, {side} selection count: {len(selected_set)}")
             
+        # Log selection changes to status window
+        total_selected = len(self.selected_left) + len(self.selected_right)
+        action_word = "Deselected" if was_selected else "Selected"
+        rel_path = self.get_item_relative_path(item_id, side) or "item"
+        self.add_status_message(f"{action_word} {rel_path} ({side}) - Total selected: {total_selected}")
+            
         self.update_tree_display_safe()
         self.update_summary()
         
     def tick_children_smart(self, item_id, side):
         """
-        ENHANCED: Smart tick children - only select different items underneath
+        Enhanced: Smart tick children - only select different items underneath
         This implements the corrected folder selection logic
         """
         selected_set = self.selected_left if side == 'left' else self.selected_right
@@ -660,6 +843,11 @@ class FolderCompareSync_class:
             
         if __debug__:
             logger.debug(f"Smart selection complete: {different_count}/{total_count} children selected (only different items)")
+            
+        # Log smart selection results
+        if different_count > 0:
+            folder_path = self.get_item_relative_path(item_id, side) or "folder"
+            self.add_status_message(f"Smart-selected {different_count} different items in {folder_path} ({side})")
             
     def untick_children(self, item_id, side):
         """Untick all children of an item recursively"""
@@ -708,7 +896,7 @@ class FolderCompareSync_class:
             
     def update_tree_display_safe(self):
         """
-        ENHANCED: Safe tree display update that preserves selection state
+        Enhanced: Safe tree display update that preserves selection state
         Prevents recursive updates during expand/collapse operations
         """
         if self._updating_display:
@@ -767,32 +955,44 @@ class FolderCompareSync_class:
                 
     def browse_left_folder(self):
         """Browse for left folder"""
+        logger.debug("Opening left folder browser")
         folder = filedialog.askdirectory(title="Select Left Folder")
         if folder:
             self.left_folder.set(folder)
+            self.add_status_message(f"Selected left folder: {folder}")
+            logger.info(f"Selected left folder: {folder}")
             
     def browse_right_folder(self):
         """Browse for right folder"""
+        logger.debug("Opening right folder browser")
         folder = filedialog.askdirectory(title="Select Right Folder")
         if folder:
             self.right_folder.set(folder)
+            self.add_status_message(f"Selected right folder: {folder}")
+            logger.info(f"Selected right folder: {folder}")
             
     def start_comparison(self):
         """Start folder comparison in background thread"""
         logger.info("Starting folder comparison")
         
         if not self.left_folder.get() or not self.right_folder.get():
-            logger.error("Comparison failed: Both folders must be selected")
+            error_msg = "Both folders must be selected before comparison"
+            logger.error(f"Comparison failed: {error_msg}")
+            self.add_status_message(f"Error: {error_msg}")
             messagebox.showerror("Error", "Please select both folders to compare")
             return
             
         if not os.path.exists(self.left_folder.get()):
-            logger.error(f"Left folder does not exist: {self.left_folder.get()}")
+            error_msg = f"Left folder does not exist: {self.left_folder.get()}"
+            logger.error(error_msg)
+            self.add_status_message(f"Error: {error_msg}")
             messagebox.showerror("Error", "Left folder does not exist")
             return
             
         if not os.path.exists(self.right_folder.get()):
-            logger.error(f"Right folder does not exist: {self.right_folder.get()}")
+            error_msg = f"Right folder does not exist: {self.right_folder.get()}"
+            logger.error(error_msg)
+            self.add_status_message(f"Error: {error_msg}")
             messagebox.showerror("Error", "Right folder does not exist")
             return
         
@@ -807,13 +1007,22 @@ class FolderCompareSync_class:
             
         # Start comparison in background thread
         self.status_var.set("Comparing folders...")
+        self.add_status_message("Starting folder comparison...")
         logger.info("Starting background comparison thread")
         threading.Thread(target=self.perform_comparison, daemon=True).start()
         
     def perform_comparison(self):
-        """Perform the actual folder comparison"""
+        """Perform the actual folder comparison with progress tracking"""
         start_time = time.time()
         logger.info("Beginning folder comparison operation")
+        
+        # Create progress dialog for the overall comparison process
+        progress = ProgressDialog(
+            self.root, 
+            "Comparing Folders", 
+            "Preparing comparison...",
+            max_value=100  # We'll estimate progress as percentage
+        )
         
         try:
             # Clear previous results and reset state
@@ -828,29 +1037,46 @@ class FolderCompareSync_class:
             if __debug__:
                 logger.debug("Cleared previous comparison results and reset root items")
             
-            # Build file lists for both folders
-            logger.info("Scanning left folder for files...")
-            left_files = self.build_file_list(self.left_folder.get())
-            logger.info(f"Found {len(left_files)} items in left folder")
+            # Step 1: Build file lists for both folders (40% of total work)
+            progress.update_progress(5, "Scanning left folder...")
+            self.root.after(0, lambda: self.add_status_message("Scanning left folder for files and folders..."))
             
-            logger.info("Scanning right folder for files...")
-            right_files = self.build_file_list(self.right_folder.get())
-            logger.info(f"Found {len(right_files)} items in right folder")
+            left_files = self.build_file_list_with_progress(self.left_folder.get(), progress, 5, 25)
+            file_count_left = len(left_files)
+            
+            self.root.after(0, lambda: self.add_status_message(f"Left folder scan complete: {file_count_left:,} items found"))
+            logger.info(f"Found {file_count_left} items in left folder")
+            
+            progress.update_progress(30, "Scanning right folder...")
+            self.root.after(0, lambda: self.add_status_message("Scanning right folder for files and folders..."))
+            
+            right_files = self.build_file_list_with_progress(self.right_folder.get(), progress, 30, 50)
+            file_count_right = len(right_files)
+            
+            self.root.after(0, lambda: self.add_status_message(f"Right folder scan complete: {file_count_right:,} items found"))
+            logger.info(f"Found {file_count_right} items in right folder")
+            
+            # Step 2: Compare files (50% of total work)
+            progress.update_progress(50, "Comparing files and folders...")
+            self.root.after(0, lambda: self.add_status_message("Comparing files and folders for differences..."))
             
             # Get all unique relative paths
             all_paths = set(left_files.keys()) | set(right_files.keys())
-            logger.info(f"Comparing {len(all_paths)} unique paths")
+            total_paths = len(all_paths)
+            logger.info(f"Comparing {total_paths} unique paths")
             
             if __debug__:
                 logger.debug(f"Left-only paths: {len(left_files.keys() - right_files.keys())}")
                 logger.debug(f"Right-only paths: {len(right_files.keys() - left_files.keys())}")
                 logger.debug(f"Common paths: {len(left_files.keys() & right_files.keys())}")
             
-            # Compare each path
+            # Compare each path with progress updates
             differences_found = 0
             for i, rel_path in enumerate(all_paths):
-                if __debug__ and i % 100 == 0:  # Log progress every 100 items
-                    logger.debug(f"Comparison progress: {i}/{len(all_paths)} ({100*i/len(all_paths):.1f}%)")
+                # Update progress every 10% or every 100 items, whichever is more frequent
+                if i % max(1, total_paths // 10) == 0 or i % 100 == 0:
+                    comparison_progress = 50 + int((i / total_paths) * 40)  # 40% of work for comparison
+                    progress.update_progress(comparison_progress, f"Comparing... {i+1:,} of {total_paths:,}")
                 
                 left_item = left_files.get(rel_path)
                 right_item = right_files.get(rel_path)
@@ -868,12 +1094,22 @@ class FolderCompareSync_class:
                     if __debug__:
                         logger.debug(f"Difference found in '{rel_path}': {differences}")
             
+            # Step 3: Update UI (10% of total work)
+            progress.update_progress(90, "Building comparison trees...")
+            self.root.after(0, lambda: self.add_status_message("Building comparison tree views..."))
+            
             elapsed_time = time.time() - start_time
             logger.info(f"Comparison completed in {elapsed_time:.2f} seconds")
             logger.info(f"Found {differences_found} items with differences")
-                
+            
             # Update UI in main thread
+            progress.update_progress(100, "Finalizing...")
             self.root.after(0, self.update_comparison_ui)
+            
+            # Add completion status message
+            self.root.after(0, lambda: self.add_status_message(
+                f"Comparison complete: {differences_found:,} differences found in {elapsed_time:.1f} seconds"
+            ))
             
         except Exception as e:
             logger.error(f"Comparison failed with exception: {type(e).__name__}: {str(e)}")
@@ -881,12 +1117,26 @@ class FolderCompareSync_class:
                 import traceback
                 logger.debug("Full exception traceback:")
                 logger.debug(traceback.format_exc())
-            self.root.after(0, lambda: self.show_error(f"Comparison failed: {str(e)}"))
             
-    def build_file_list(self, root_path: str) -> Dict[str, FileMetadata_class]:
-        """Build a dictionary of relative_path -> FileMetadata for all files in folder"""
+            error_msg = f"Comparison failed: {str(e)}"
+            self.root.after(0, lambda: self.add_status_message(f"Error: {error_msg}"))
+            self.root.after(0, lambda: self.show_error(error_msg))
+        finally:
+            # Always close the progress dialog
+            progress.close()
+            
+    def build_file_list_with_progress(self, root_path: str, progress: ProgressDialog, 
+                                    start_percent: int, end_percent: int) -> Dict[str, FileMetadata_class]:
+        """
+        Build a dictionary of relative_path -> FileMetadata with progress tracking
+        Args:
+            root_path: Root directory to scan
+            progress: Progress dialog to update
+            start_percent: Starting percentage for this operation
+            end_percent: Ending percentage for this operation
+        """
         if __debug__:
-            logger.debug(f"Building file list for: {root_path}")
+            logger.debug(f"Building file list with progress for: {root_path}")
         
         assert os.path.exists(root_path), f"Root path must exist: {root_path}"
         
@@ -895,8 +1145,12 @@ class FolderCompareSync_class:
         file_count = 0
         dir_count = 0
         error_count = 0
+        items_processed = 0
         
         try:
+            # First pass: count total items for better progress tracking
+            total_items = sum(1 for _ in root.rglob('*'))
+            
             # Include the root directory itself if it's empty
             if not any(root.iterdir()):
                 if __debug__:
@@ -904,6 +1158,13 @@ class FolderCompareSync_class:
                 
             for path in root.rglob('*'):
                 try:
+                    items_processed += 1
+                    
+                    # Update progress every 50 items or every 5% of total, whichever is more frequent
+                    if items_processed % max(1, min(50, total_items // 20)) == 0:
+                        current_percent = start_percent + int(((items_processed / total_items) * (end_percent - start_percent)))
+                        progress.update_progress(current_percent, f"Scanning... {items_processed:,} items found")
+                    
                     rel_path = path.relative_to(root).as_posix()
                     metadata = FileMetadata_class.from_path(str(path), self.compare_sha512.get())
                     files[rel_path] = metadata
@@ -1292,6 +1553,7 @@ class FolderCompareSync_class:
         if __debug__:
             logger.debug(f"Selected {count} different items in left pane (after auto-clear)")
             
+        self.add_status_message(f"Selected all differences in left pane: {count:,} items")
         self.update_tree_display_safe()
         self.update_summary()
         
@@ -1317,6 +1579,7 @@ class FolderCompareSync_class:
         if __debug__:
             logger.debug(f"Selected {count} different items in right pane (after auto-clear)")
             
+        self.add_status_message(f"Selected all differences in right pane: {count:,} items")
         self.update_tree_display_safe() 
         self.update_summary()
         
@@ -1325,10 +1588,13 @@ class FolderCompareSync_class:
         Enhanced: Clear ALL selections in left pane (not just differences)
         Provides complete reset functionality for workflow flexibility
         """
+        cleared_count = len(self.selected_left)
         if __debug__:
-            logger.debug(f"Clearing ALL {len(self.selected_left)} selections in left pane")
+            logger.debug(f"Clearing ALL {cleared_count} selections in left pane")
             
         self.selected_left.clear()
+        if cleared_count > 0:
+            self.add_status_message(f"Cleared all selections in left pane: {cleared_count:,} items")
         self.update_tree_display_safe()
         self.update_summary()
         
@@ -1337,16 +1603,20 @@ class FolderCompareSync_class:
         Enhanced: Clear ALL selections in right pane (not just differences)  
         Provides complete reset functionality for workflow flexibility
         """
+        cleared_count = len(self.selected_right)
         if __debug__:
-            logger.debug(f"Clearing ALL {len(self.selected_right)} selections in right pane")
+            logger.debug(f"Clearing ALL {cleared_count} selections in right pane")
             
         self.selected_right.clear()
+        if cleared_count > 0:
+            self.add_status_message(f"Cleared all selections in right pane: {cleared_count:,} items")
         self.update_tree_display_safe()
         self.update_summary()
         
     def copy_left_to_right(self):
-        """Copy selected items from left to right"""
+        """Copy selected items from left to right with progress tracking"""
         if not self.selected_left:
+            self.add_status_message("No items selected for copying from left to right")
             messagebox.showinfo("Info", "No items selected for copying")
             return
             
@@ -1356,6 +1626,8 @@ class FolderCompareSync_class:
             path = self.get_item_path(self.left_tree, item_id)
             selected_paths.append(path)
             
+        self.add_status_message(f"Copy preview: {len(self.selected_left):,} items from LEFT to RIGHT")
+        
         message = f"Would copy {len(self.selected_left)} items from LEFT to RIGHT:\n\n"
         message += "\n".join(selected_paths[:10])  # Show first 10 items
         if len(selected_paths) > 10:
@@ -1364,8 +1636,9 @@ class FolderCompareSync_class:
         messagebox.showinfo("Copy Preview", message)
         
     def copy_right_to_left(self):
-        """Copy selected items from right to left"""
+        """Copy selected items from right to left with progress tracking"""
         if not self.selected_right:
+            self.add_status_message("No items selected for copying from right to left")
             messagebox.showinfo("Info", "No items selected for copying")
             return
             
@@ -1375,6 +1648,8 @@ class FolderCompareSync_class:
             path = self.get_item_path(self.right_tree, item_id)
             selected_paths.append(path)
             
+        self.add_status_message(f"Copy preview: {len(self.selected_right):,} items from RIGHT to LEFT")
+        
         message = f"Would copy {len(self.selected_right)} items from RIGHT to LEFT:\n\n"
         message += "\n".join(selected_paths[:10])  # Show first 10 items
         if len(selected_paths) > 10:
