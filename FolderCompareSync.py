@@ -47,8 +47,8 @@ This application uses Python's built-in __debug__ flag and logging for debugging
 CHANGELOG:
 ==========
 Version 0.2.3 (2024-08-02):
-- ADDED: Smart window sizing - automatically sizes to 90% of screen resolution
-- ADDED: Automatic window centering on startup
+- ADDED: Smart window sizing - automatically sizes to 98%(width) and 93%(height) of screen resolution
+- ADDED: Window positioning at top of screen for optimal taskbar clearance
 - IMPROVED: Better screen real estate utilization for dual-pane view
 - IMPROVED: Responsive design that works on all monitor sizes
 - IMPROVED: Maintains minimum window size constraints (800x600)
@@ -201,12 +201,12 @@ class FolderCompareSync_class:
         # Get screen dimensions
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
-        # Use 90% of screen size (leaves space for taskbar/dock)
-        window_width = int(screen_width * 0.9)
-        window_height = int(screen_height * 0.9)
-        # Center the window
+        # Use 98%(width) and 93%(height) of screen size, positioned at top
+        window_width = int(screen_width * 0.98)
+        window_height = int(screen_height * 0.93)
+        # Center horizontally, start at top vertically
         x = (screen_width - window_width) // 2
-        y = (screen_height - window_height) // 2
+        y = 0  # Start at top of screen
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
         self.root.minsize(800, 600)
         
