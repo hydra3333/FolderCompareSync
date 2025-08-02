@@ -1083,49 +1083,51 @@ def main():
         logger.debug("Architecture      : " + platform.architecture()[0])
         logger.debug("Machine           : " + platform.machine())
         logger.debug("Processor         : " + platform.processor())
-        # Detailed Windows information
-        if sys.platform == "win32":
-            try:
-                win_ver = platform.win32_ver()
-                logger.debug(f"Windows version   : {win_ver[0]}")
-                logger.debug(f"Windows build     : {win_ver[1]}")
-                if win_ver[2]:  # Service pack
-                    logger.debug(f"Service pack      : {win_ver[2]}")
-                logger.debug(f"Windows type      : {win_ver[3]}")
-                
-                # Try to get Windows edition
-                try:
-                    edition = platform.win32_edition()
-                    if edition:
-                        logger.debug(f"Windows edition   : {edition}")
-                except:
-                    pass
-                # Map build numbers to version names (Windows 11 & future)
-                build_num = win_ver[1]
-                win_versions = {
-                    # Windows 11 versions
-                    "22000": "21H2 (Original release)",
-                    "22621": "22H2", 
-                    "22631": "23H2",
-                    "26100": "24H2",
-                    # Future Windows versions (anticipated)
-                    "27000": "25H1 (anticipated)",
-                    "27100": "25H2 (anticipated)"
-                }
-                if build_num in win_versions:
-                    logger.debug(f"Windows 11 version: {win_versions[build_num]}")
-                elif build_num.startswith("27") or build_num.startswith("28"):
-                    logger.debug(f"Windows version   : Future windows build {build_num}")
-                elif build_num.startswith("26") or build_num.startswith("22"):
-                    logger.debug(f"Windows 11 version: Unknown windows build {build_num}")
-                elif build_num.startswith("19"):
-                    logger.debug(f"Windows 10 build  : {build_num}")
-                else:
-                    logger.debug(f"Windows version   : Unknown windows build {build_num}")
-                # Additional system info
-                
-            except Exception as e:
-                logger.debug(f"Error getting Windows details: {e}")
+# Detailed Windows information
+if sys.platform == "win32":
+    try:
+        win_ver = platform.win32_ver()
+        logger.debug(f"Windows version   : {win_ver[0]}")
+        logger.debug(f"Windows build     : {win_ver[1]}")
+        if win_ver[2]:  # Service pack
+            logger.debug(f"Service pack      : {win_ver[2]}")
+        logger.debug(f"Windows type      : {win_ver[3]}")
+        # Try to get Windows edition
+        try:
+            edition = platform.win32_edition()
+            if edition:
+                logger.debug(f"Windows edition   : {edition}")
+        except:
+            pass
+        # Extract build number from version string like "10.0.26100"
+        version_parts = win_ver[1].split('.')
+        if len(version_parts) >= 3:
+            build_num = version_parts[2]  # Get "26100" from "10.0.26100"
+        else:
+            build_num = win_ver[1]  # Fallback to full string
+            
+        win_versions = {
+            # Windows 11 versions
+            "22000": "21H2 (Original release)",
+            "22621": "22H2", 
+            "22631": "23H2",
+            "26100": "24H2",
+            # Future Windows versions (anticipated)
+            "27000": "25H1 (anticipated)",
+            "27100": "25H2 (anticipated)"
+        }
+        if build_num in win_versions:
+            logger.debug(f"Windows 11 version: {win_versions[build_num]} (build {build_num})")
+        elif build_num.startswith("27") or build_num.startswith("28"):
+            logger.debug(f"Windows version   : Future windows build {build_num}")
+        elif build_num.startswith("26") or build_num.startswith("22"):
+            logger.debug(f"Windows 11 version: Unknown windows build {build_num}")
+        elif build_num.startswith("19"):
+            logger.debug(f"Windows 10 build  : {build_num}")
+        else:
+            logger.debug(f"Windows version   : Unknown windows build {build_num}")
+    except Exception as e:
+        logger.debug(f"Error getting Windows details: {e}")
     
     try:
         app = FolderCompareSync_class()
