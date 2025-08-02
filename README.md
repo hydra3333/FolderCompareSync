@@ -1,5 +1,7 @@
 # FolderCompareSync  
 *A Professional Folder Comparison & Synchronization Tool for Windows*
+### DOES NOT YET WORK
+### Under Construction
 
 ![Status](https://img.shields.io/badge/status-active-brightgreen)  
 ![Version](https://img.shields.io/badge/version-0.2.6-blue)  
