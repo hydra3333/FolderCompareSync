@@ -46,6 +46,17 @@ This application uses Python's built-in __debug__ flag and logging for debugging
 
 CHANGELOG:
 ==========
+Version 0.2.4 (2024-08-02):
+- ADDED: Fully qualified root paths as selectable tree items with functional checkboxes
+- ADDED: "Unselect All Differences" buttons for both left and right panes  
+- ADDED: Instructional text "select options then click Compare" for better user guidance
+- IMPROVED: Root unticking logic with safety checks to prevent attempting to untick non-existent parents
+- IMPROVED: Complete selection workflow with both select-all and unselect-all capabilities
+- IMPROVED: User experience with clearer instructions and more intuitive tree selection
+- ENHANCED: Tree building to include qualified paths as root items with proper path mapping
+- ENHANCED: Selection system to handle root-level selection and bulk operations more effectively
+- FIXED: Edge case handling in parent unticking when reaching root level items
+
 Version 0.2.3 (2024-08-02):
 - ADDED: Smart window sizing - automatically sizes to 98%(width) and 93%(height) of screen resolution
 - ADDED: Window positioning at top of screen for optimal taskbar clearance
@@ -201,7 +212,7 @@ class FolderCompareSync_class:
         self.root = tk.Tk()
         self.root.title("FolderCompareSync - Folder Comparison and Syncing Tool")
         
-        # Get screen dimensions
+        # Get screen dimensions for smart window sizing
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         
@@ -209,14 +220,14 @@ class FolderCompareSync_class:
         window_width = int(screen_width * 0.98)
         window_height = int(screen_height * 0.93)
         
-        # Center horizontally, start at top vertically
+        # Center horizontally, start at top vertically for optimal taskbar clearance
         x = (screen_width - window_width) // 2
         y = 0  # Start at top of screen
         
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
-        self.root.minsize(800, 600)
+        self.root.minsize(800, 600)  # Maintain minimum usable size
         
-        # Application state
+        # Application state variables
         self.left_folder = tk.StringVar()
         self.right_folder = tk.StringVar()
         self.compare_existence = tk.BooleanVar(value=True)
@@ -226,24 +237,29 @@ class FolderCompareSync_class:
         self.compare_sha512 = tk.BooleanVar(value=False)
         self.overwrite_mode = tk.BooleanVar(value=True)
         
-        # Data storage
+        # Data storage for comparison results and selection state
         self.comparison_results: Dict[str, ComparisonResult_class] = {}
         self.selected_left: Set[str] = set()
         self.selected_right: Set[str] = set()
         self.tree_structure: Dict[str, List[str]] = {'left': [], 'right': []}
         
-        # Path mapping for proper status determination
+        # Path mapping for proper status determination and tree navigation
+        # Maps relative_path -> tree_item_id for efficient lookups
         self.path_to_item_left: Dict[str, str] = {}  # rel_path -> tree_item_id
         self.path_to_item_right: Dict[str, str] = {}  # rel_path -> tree_item_id
         
-        # UI References
+        # NEW: Store root item IDs for special handling in selection logic
+        self.root_item_left: Optional[str] = None
+        self.root_item_right: Optional[str] = None
+        
+        # UI References for widget interaction
         self.left_tree = None
         self.right_tree = None
         self.status_var = tk.StringVar(value="Ready")
         self.summary_var = tk.StringVar(value="Summary: No comparison performed")
         
         if __debug__:
-            logger.debug("Application state initialized")
+            logger.debug("Application state initialized with enhanced root handling")
         
         self.setup_ui()
         logger.info("Application initialization complete")
@@ -279,7 +295,7 @@ class FolderCompareSync_class:
             self.status_var.set(f"{current_status} ({mode})")
 
     def setup_ui(self):
-        """Initialize the user interface"""
+        """Initialize the user interface with enhanced selection controls"""
         # Main container
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -302,35 +318,58 @@ class FolderCompareSync_class:
         
         folder_frame.columnconfigure(1, weight=1)
         
-        # Comparison options frame
+        # Comparison options frame with instructional text
         options_frame = ttk.LabelFrame(main_frame, text="Comparison Options", padding=10)
         options_frame.pack(fill=tk.X, pady=(0, 5))
         
-        # Comparison criteria checkboxes
+        # Comparison criteria checkboxes with instructional text
         criteria_frame = ttk.Frame(options_frame)
         criteria_frame.pack(fill=tk.X)
         
-        ttk.Label(criteria_frame, text="Compare Options:").pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Checkbutton(criteria_frame, text="Existence", variable=self.compare_existence).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Checkbutton(criteria_frame, text="Size", variable=self.compare_size).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Checkbutton(criteria_frame, text="Date Created", variable=self.compare_date_created).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Checkbutton(criteria_frame, text="Date Modified", variable=self.compare_date_modified).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Checkbutton(criteria_frame, text="SHA512", variable=self.compare_sha512).pack(side=tk.LEFT, padx=(0, 10))
+        # NEW: Add instructional text for better user guidance
+        instruction_frame = ttk.Frame(criteria_frame)
+        instruction_frame.pack(fill=tk.X)
         
-        # Overwrite mode and buttons
+        ttk.Label(instruction_frame, text="Compare Options:").pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Checkbutton(instruction_frame, text="Existence", variable=self.compare_existence).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Checkbutton(instruction_frame, text="Size", variable=self.compare_size).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Checkbutton(instruction_frame, text="Date Created", variable=self.compare_date_created).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Checkbutton(instruction_frame, text="Date Modified", variable=self.compare_date_modified).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Checkbutton(instruction_frame, text="SHA512", variable=self.compare_sha512).pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Add instructional text for workflow guidance
+        ttk.Label(instruction_frame, text="← select options then click Compare", 
+                 foreground="darkblue", font=("TkDefaultFont", 8, "italic")).pack(side=tk.LEFT, padx=(20, 0))
+        
+        # Overwrite mode and buttons (enhanced with new unselect buttons)
         control_frame = ttk.Frame(options_frame)
         control_frame.pack(fill=tk.X, pady=(10, 0))
         
-        ttk.Checkbutton(control_frame, text="Overwrite Mode", variable=self.overwrite_mode).pack(side=tk.LEFT, padx=(0, 20))
-        ttk.Button(control_frame, text="Compare", command=self.start_comparison).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(control_frame, text="Select All Differences - Left", command=self.select_all_left).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(control_frame, text="Select All Differences - Right", command=self.select_all_right).pack(side=tk.LEFT)
+        # Left side controls
+        left_controls = ttk.Frame(control_frame)
+        left_controls.pack(side=tk.LEFT)
+        
+        ttk.Checkbutton(left_controls, text="Overwrite Mode", variable=self.overwrite_mode).pack(side=tk.LEFT, padx=(0, 20))
+        ttk.Button(left_controls, text="Compare", command=self.start_comparison).pack(side=tk.LEFT, padx=(0, 20))
+        
+        # NEW: Enhanced selection controls with both select and unselect options
+        # Left pane selection controls
+        ttk.Button(left_controls, text="Select All Differences - Left", 
+                  command=self.select_all_left).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(left_controls, text="Unselect All Differences - Left", 
+                  command=self.unselect_all_left).pack(side=tk.LEFT, padx=(0, 15))
+        
+        # Right pane selection controls  
+        ttk.Button(left_controls, text="Select All Differences - Right", 
+                  command=self.select_all_right).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(left_controls, text="Unselect All Differences - Right", 
+                  command=self.unselect_all_right).pack(side=tk.LEFT)
         
         # Tree comparison frame
         tree_frame = ttk.Frame(main_frame)
         tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
         
-        # Left tree
+        # Left tree with enhanced structure for root path display
         left_frame = ttk.LabelFrame(tree_frame, text="LEFT", padding=5)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 2))
         
@@ -338,7 +377,7 @@ class FolderCompareSync_class:
         self.left_tree.heading('#0', text='Structure', anchor=tk.W)
         self.left_tree.column('#0', width=300, minwidth=150)
         
-        # Configure columns for metadata
+        # Configure columns for metadata display
         self.setup_tree_columns(self.left_tree)
         
         left_scroll = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=self.left_tree.yview)
@@ -346,7 +385,7 @@ class FolderCompareSync_class:
         self.left_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         left_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Right tree
+        # Right tree with enhanced structure for root path display
         right_frame = ttk.LabelFrame(tree_frame, text="RIGHT", padding=5)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(2, 0))
         
@@ -361,7 +400,7 @@ class FolderCompareSync_class:
         self.right_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         right_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Synchronize scrolling
+        # Synchronize scrolling between panes
         self.setup_synchronized_scrolling()
         
         # Copy buttons frame
@@ -381,7 +420,7 @@ class FolderCompareSync_class:
         ttk.Label(status_frame, text="Status:").pack(side=tk.RIGHT, padx=(0, 5))
         ttk.Label(status_frame, textvariable=self.status_var).pack(side=tk.RIGHT)
         
-        # Configure tree event bindings
+        # Configure tree event bindings for enhanced interaction
         self.setup_tree_events()
         
     def setup_tree_columns(self, tree):
@@ -402,25 +441,25 @@ class FolderCompareSync_class:
             self.left_tree.yview(*args)
             self.right_tree.yview(*args)
         
-        # Create a shared scrollbar command
+        # Create a shared scrollbar command for synchronized scrolling
         self.left_tree.configure(yscrollcommand=lambda *args: self.sync_scrollbar(self.right_tree, *args))
         self.right_tree.configure(yscrollcommand=lambda *args: self.sync_scrollbar(self.left_tree, *args))
         
     def sync_scrollbar(self, other_tree, *args):
         """Synchronize scrollbar between trees"""
-        # Update both trees' scroll position
+        # Update both trees' scroll position for synchronized viewing
         self.left_tree.yview_moveto(args[0])
         self.right_tree.yview_moveto(args[0])
         
     def setup_tree_events(self):
         """Setup event bindings for tree interactions"""
-        # Bind tree expansion/collapse events
+        # Bind tree expansion/collapse events for synchronized behavior
         self.left_tree.bind('<<TreeviewOpen>>', lambda e: self.sync_tree_expansion(self.left_tree, self.right_tree, e))
         self.left_tree.bind('<<TreeviewClose>>', lambda e: self.sync_tree_collapse(self.left_tree, self.right_tree, e))
         self.right_tree.bind('<<TreeviewOpen>>', lambda e: self.sync_tree_expansion(self.right_tree, self.left_tree, e))
         self.right_tree.bind('<<TreeviewClose>>', lambda e: self.sync_tree_collapse(self.right_tree, self.left_tree, e))
         
-        # Bind checkbox-like behavior (we'll implement custom checkboxes)
+        # Bind checkbox-like behavior for item selection
         self.left_tree.bind('<Button-1>', lambda e: self.handle_tree_click(self.left_tree, 'left', e))
         self.right_tree.bind('<Button-1>', lambda e: self.handle_tree_click(self.right_tree, 'right', e))
         
@@ -452,7 +491,7 @@ class FolderCompareSync_class:
             self.toggle_item_selection(item, side)
             
     def toggle_item_selection(self, item_id, side):
-        """Toggle selection state of an item and handle parent/child logic"""
+        """Toggle selection state of an item and handle parent/child logic with root safety"""
         if __debug__:
             logger.debug(f"Toggling selection for item {item_id} on {side} side")
             
@@ -462,9 +501,10 @@ class FolderCompareSync_class:
         was_selected = item_id in selected_set
         
         if item_id in selected_set:
-            # Unticking - remove from selection and untick all parents
+            # Unticking - remove from selection and untick all parents and children
             selected_set.discard(item_id)
-            self.untick_parents(item_id, side)
+            # NEW: Enhanced unticking with root safety check
+            self.untick_parents_with_root_safety(item_id, side)
             self.untick_children(item_id, side)
         else:
             # Ticking - add to selection and tick all children
@@ -479,7 +519,7 @@ class FolderCompareSync_class:
         self.update_summary()
         
     def tick_children(self, item_id, side):
-        """Tick all children of an item"""
+        """Tick all children of an item recursively"""
         selected_set = self.selected_left if side == 'left' else self.selected_right
         tree = self.left_tree if side == 'left' else self.right_tree
         
@@ -492,7 +532,7 @@ class FolderCompareSync_class:
             tick_recursive(child)
             
     def untick_children(self, item_id, side):
-        """Untick all children of an item"""
+        """Untick all children of an item recursively"""
         selected_set = self.selected_left if side == 'left' else self.selected_right
         tree = self.left_tree if side == 'left' else self.right_tree
         
@@ -504,15 +544,37 @@ class FolderCompareSync_class:
         for child in tree.get_children(item_id):
             untick_recursive(child)
             
-    def untick_parents(self, item_id, side):
-        """Untick all parents of an item"""
+    def untick_parents_with_root_safety(self, item_id, side):
+        """
+        Untick all parents of an item with safety check for root level
+        NEW: Enhanced to prevent attempting to untick parents of root items
+        """
         selected_set = self.selected_left if side == 'left' else self.selected_right
         tree = self.left_tree if side == 'left' else self.right_tree
+        root_item = self.root_item_left if side == 'left' else self.root_item_right
+        
+        if __debug__:
+            logger.debug(f"Unticking parents for item {item_id}, root_item: {root_item}")
         
         parent = tree.parent(item_id)
         while parent:
             selected_set.discard(parent)
-            parent = tree.parent(parent)
+            if __debug__:
+                logger.debug(f"Unticked parent: {parent}")
+            
+            # NEW: Safety check - if we've reached the root item, stop here
+            # Don't try to untick the parent of the root item as it doesn't exist
+            if parent == root_item:
+                if __debug__:
+                    logger.debug(f"Reached root item {root_item}, stopping parent unticking")
+                break
+                
+            next_parent = tree.parent(parent)
+            if not next_parent:  # Additional safety check for empty parent
+                if __debug__:
+                    logger.debug(f"No parent found for {parent}, stopping parent unticking")
+                break
+            parent = next_parent
             
     def update_tree_display(self):
         """Update tree display to show selection state"""
@@ -535,7 +597,7 @@ class FolderCompareSync_class:
         if current_text.startswith('☑ ') or current_text.startswith('☐ '):
             current_text = current_text[2:]
             
-        # Add checkbox indicator
+        # Add checkbox indicator based on selection state
         if item in selected_set:
             new_text = '☑ ' + current_text
         else:
@@ -598,15 +660,17 @@ class FolderCompareSync_class:
         logger.info("Beginning folder comparison operation")
         
         try:
-            # Clear previous results
+            # Clear previous results and reset state
             self.comparison_results.clear()
             self.selected_left.clear()
             self.selected_right.clear()
             self.path_to_item_left.clear()
             self.path_to_item_right.clear()
+            self.root_item_left = None
+            self.root_item_right = None
             
             if __debug__:
-                logger.debug("Cleared previous comparison results")
+                logger.debug("Cleared previous comparison results and reset root items")
             
             # Build file lists for both folders
             logger.info("Scanning left folder for files...")
@@ -771,20 +835,43 @@ class FolderCompareSync_class:
         if __debug__:
             logger.debug(f"Cleared {left_items} left tree items and {right_items} right tree items")
             
-        # Build tree structure
-        self.build_trees()
+        # Build tree structure with enhanced root handling
+        self.build_trees_with_root_paths()
         
         # Update status
         self.status_var.set("Ready")
         self.update_summary()
         logger.info("UI update completed")
         
-    def build_trees(self):
-        """Build tree structures from comparison results"""
+    def build_trees_with_root_paths(self):
+        """
+        Build tree structures from comparison results with fully qualified root paths
+        NEW: Enhanced to include root paths as selectable tree items
+        """
         if __debug__:
-            logger.debug(f"Building trees from {len(self.comparison_results)} comparison results")
+            logger.debug(f"Building trees with root paths from {len(self.comparison_results)} comparison results")
         
         start_time = time.time()
+        
+        # NEW: Create root items with fully qualified paths and functional checkboxes
+        left_root_path = self.left_folder.get()
+        right_root_path = self.right_folder.get()
+        
+        # Insert root items as top-level entries with checkboxes
+        left_root_text = f"☐ {left_root_path}"
+        right_root_text = f"☐ {right_root_path}"
+        
+        self.root_item_left = self.left_tree.insert('', tk.END, text=left_root_text, open=True,
+                                                   values=("", "", "Root"))
+        self.root_item_right = self.right_tree.insert('', tk.END, text=right_root_text, open=True,
+                                                     values=("", "", "Root"))
+        
+        # Store root path mappings for selection system
+        self.path_to_item_left[''] = self.root_item_left  # Empty path represents root
+        self.path_to_item_right[''] = self.root_item_right
+        
+        if __debug__:
+            logger.debug(f"Created root items: left={self.root_item_left}, right={self.root_item_right}")
         
         # Organize paths into tree structure
         left_structure = {}
@@ -887,14 +974,14 @@ class FolderCompareSync_class:
         if __debug__:
             logger.debug(f"Added {missing_left} missing left placeholders, {missing_right} missing right placeholders")
             
-        # Populate trees
-        logger.info("Populating tree views...")
-        self.populate_tree(self.left_tree, left_structure, '', 'left', '')
-        self.populate_tree(self.right_tree, right_structure, '', 'right', '')
+        # Populate trees under root items
+        logger.info("Populating tree views under root paths...")
+        self.populate_tree(self.left_tree, left_structure, self.root_item_left, 'left', '')
+        self.populate_tree(self.right_tree, right_structure, self.root_item_right, 'right', '')
         
         elapsed_time = time.time() - start_time
         if __debug__:
-            logger.debug(f"Tree building completed in {elapsed_time:.3f} seconds")
+            logger.debug(f"Tree building with root paths completed in {elapsed_time:.3f} seconds")
         
     def populate_tree(self, tree, structure, parent_id, side, current_path):
         """Recursively populate tree with structure"""
@@ -957,6 +1044,12 @@ class FolderCompareSync_class:
             # Remove [MISSING] indicator
             if text.endswith(' [MISSING]'):
                 text = text[:-10]
+            
+            # NEW: Stop at root item (don't include the full path in relative path calculation)
+            root_item = self.root_item_left if tree == self.left_tree else self.root_item_right
+            if current == root_item:
+                break
+                
             path_parts.append(text)
             current = tree.parent(current)
         return '/'.join(reversed(path_parts))
@@ -978,22 +1071,84 @@ class FolderCompareSync_class:
         
     def select_all_left(self):
         """Select all different items in left pane"""
+        if __debug__:
+            logger.debug("Selecting all differences in left pane")
+            
+        count = 0
         for rel_path, result in self.comparison_results.items():
             if result.is_different and result.left_item and result.left_item.exists:
                 item_id = self.find_tree_item_by_path(rel_path, 'left')
                 if item_id:
                     self.selected_left.add(item_id)
+                    count += 1
+                    
+        if __debug__:
+            logger.debug(f"Selected {count} different items in left pane")
+            
         self.update_tree_display()
         self.update_summary()
         
     def select_all_right(self):
         """Select all different items in right pane"""
+        if __debug__:
+            logger.debug("Selecting all differences in right pane")
+            
+        count = 0
         for rel_path, result in self.comparison_results.items():
             if result.is_different and result.right_item and result.right_item.exists:
                 item_id = self.find_tree_item_by_path(rel_path, 'right')
                 if item_id:
                     self.selected_right.add(item_id)
+                    count += 1
+                    
+        if __debug__:
+            logger.debug(f"Selected {count} different items in right pane")
+            
         self.update_tree_display() 
+        self.update_summary()
+        
+    def unselect_all_left(self):
+        """
+        NEW: Unselect all different items in left pane
+        Provides workflow flexibility to clear selections after reviewing differences
+        """
+        if __debug__:
+            logger.debug("Unselecting all differences in left pane")
+            
+        count = 0
+        for rel_path, result in self.comparison_results.items():
+            if result.is_different and result.left_item and result.left_item.exists:
+                item_id = self.find_tree_item_by_path(rel_path, 'left')
+                if item_id and item_id in self.selected_left:
+                    self.selected_left.discard(item_id)
+                    count += 1
+                    
+        if __debug__:
+            logger.debug(f"Unselected {count} different items in left pane")
+            
+        self.update_tree_display()
+        self.update_summary()
+        
+    def unselect_all_right(self):
+        """
+        NEW: Unselect all different items in right pane  
+        Provides workflow flexibility to clear selections after reviewing differences
+        """
+        if __debug__:
+            logger.debug("Unselecting all differences in right pane")
+            
+        count = 0
+        for rel_path, result in self.comparison_results.items():
+            if result.is_different and result.right_item and result.right_item.exists:
+                item_id = self.find_tree_item_by_path(rel_path, 'right')
+                if item_id and item_id in self.selected_right:
+                    self.selected_right.discard(item_id)
+                    count += 1
+                    
+        if __debug__:
+            logger.debug(f"Unselected {count} different items in right pane")
+            
+        self.update_tree_display()
         self.update_summary()
         
     def copy_left_to_right(self):
@@ -1083,51 +1238,52 @@ def main():
         logger.debug("Architecture      : " + platform.architecture()[0])
         logger.debug("Machine           : " + platform.machine())
         logger.debug("Processor         : " + platform.processor())
-# Detailed Windows information
-if sys.platform == "win32":
-    try:
-        win_ver = platform.win32_ver()
-        logger.debug(f"Windows version   : {win_ver[0]}")
-        logger.debug(f"Windows build     : {win_ver[1]}")
-        if win_ver[2]:  # Service pack
-            logger.debug(f"Service pack      : {win_ver[2]}")
-        logger.debug(f"Windows type      : {win_ver[3]}")
-        # Try to get Windows edition
+
+    # Detailed Windows information
+    if sys.platform == "win32":
         try:
-            edition = platform.win32_edition()
-            if edition:
-                logger.debug(f"Windows edition   : {edition}")
-        except:
-            pass
-        # Extract build number from version string like "10.0.26100"
-        version_parts = win_ver[1].split('.')
-        if len(version_parts) >= 3:
-            build_num = version_parts[2]  # Get "26100" from "10.0.26100"
-        else:
-            build_num = win_ver[1]  # Fallback to full string
-            
-        win_versions = {
-            # Windows 11 versions
-            "22000": "21H2 (Original release)",
-            "22621": "22H2", 
-            "22631": "23H2",
-            "26100": "24H2",
-            # Future Windows versions (anticipated)
-            "27000": "25H1 (anticipated)",
-            "27100": "25H2 (anticipated)"
-        }
-        if build_num in win_versions:
-            logger.debug(f"Windows 11 version: {win_versions[build_num]} (build {build_num})")
-        elif build_num.startswith("27") or build_num.startswith("28"):
-            logger.debug(f"Windows version   : Future windows build {build_num}")
-        elif build_num.startswith("26") or build_num.startswith("22"):
-            logger.debug(f"Windows 11 version: Unknown windows build {build_num}")
-        elif build_num.startswith("19"):
-            logger.debug(f"Windows 10 build  : {build_num}")
-        else:
-            logger.debug(f"Windows version   : Unknown windows build {build_num}")
-    except Exception as e:
-        logger.debug(f"Error getting Windows details: {e}")
+            win_ver = platform.win32_ver()
+            logger.debug(f"Windows version   : {win_ver[0]}")
+            logger.debug(f"Windows build     : {win_ver[1]}")
+            if win_ver[2]:  # Service pack
+                logger.debug(f"Service pack      : {win_ver[2]}")
+            logger.debug(f"Windows type      : {win_ver[3]}")
+            # Try to get Windows edition
+            try:
+                edition = platform.win32_edition()
+                if edition:
+                    logger.debug(f"Windows edition   : {edition}")
+            except:
+                pass
+            # Extract build number from version string like "10.0.26100"
+            version_parts = win_ver[1].split('.')
+            if len(version_parts) >= 3:
+                build_num = version_parts[2]  # Get "26100" from "10.0.26100"
+            else:
+                build_num = win_ver[1]  # Fallback to full string
+                
+            win_versions = {
+                # Windows 11 versions
+                "22000": "21H2 (Original release)",
+                "22621": "22H2", 
+                "22631": "23H2",
+                "26100": "24H2",
+                # Future Windows versions (anticipated)
+                "27000": "25H1 (anticipated)",
+                "27100": "25H2 (anticipated)"
+            }
+            if build_num in win_versions:
+                logger.debug(f"Windows 11 version: {win_versions[build_num]} (build {build_num})")
+            elif build_num.startswith("27") or build_num.startswith("28"):
+                logger.debug(f"Windows version   : Future windows build {build_num}")
+            elif build_num.startswith("26") or build_num.startswith("22"):
+                logger.debug(f"Windows 11 version: Unknown windows build {build_num}")
+            elif build_num.startswith("19"):
+                logger.debug(f"Windows 10 build  : {build_num}")
+            else:
+                logger.debug(f"Windows version   : Unknown windows build {build_num}")
+        except Exception as e:
+            logger.debug(f"Error getting Windows details: {e}")
     
     try:
         app = FolderCompareSync_class()
