@@ -28,8 +28,8 @@ This application uses Python's built-in __debug__ flag and logging for debugging
    - Optimized mode (quiet):   python -O FolderCompareSync.py
    
 3. Logging output:
-   - Console: Real-time debug/info messages
-   - File: foldercomparesync.log (detailed log for troubleshooting)
+   - File: foldercomparesync.log (always enabled, detailed log for troubleshooting)
+   - Console: Real-time debug/info messages (only in debug mode when "-O" flag is omitted)
 
 4. Turn debug loglevel on/off within section of code within any Class Method:
     # debug some specific section of code
@@ -49,6 +49,8 @@ CHANGELOG:
 Version 0.2.5 (2024-08-02):
 - FIXED: Critical issue with expand/collapse operations clearing selection state
 - FIXED: Smart folder selection - ticking folders now only selects different items underneath (not same/missing)
+- FIXED: Console logging now conditional - only appears in debug mode (python FolderCompareSync.py), silent in optimized mode (python -O FolderCompareSync.py)
+- FIXED: Removed emoji arrows from copy buttons to prevent encoding errors on Windows - now "Copy LEFT to Right" and "Copy RIGHT to Left"
 - IMPROVED: Selection state management completely independent of tree display state
 - ENHANCED: Robust state preservation during all tree operations (expand/collapse/refresh)
 - IMPROVED: tick_children() method now intelligently filters items based on comparison status
@@ -143,13 +145,19 @@ else:
     log_level = logging.INFO
     log_format = '%(asctime)s - %(levelname)s - %(message)s'
 
+# Create handlers list - file logging always enabled, console logging only in debug mode
+handlers = [
+    logging.FileHandler(os.path.join(os.path.dirname(__file__), 'foldercomparesync.log'), mode='w')   # Always log to file
+]
+
+# Add console logging only in debug mode (when __debug__ is True)
+if __debug__:
+    handlers.append(logging.StreamHandler())  # Console output only in debug mode
+
 logging.basicConfig(
     level=log_level,
     format=log_format,
-    handlers=[
-        logging.FileHandler(os.path.join(os.path.dirname(__file__), 'foldercomparesync.log'), mode='w'),   # Overwrite log each run
-        logging.StreamHandler()  # Console output
-    ]
+    handlers=handlers
 )
 logger = logging.getLogger(__name__)
 
@@ -426,8 +434,8 @@ class FolderCompareSync_class:
         copy_frame = ttk.Frame(main_frame)
         copy_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Button(copy_frame, text="Copy LEFT → Right", command=self.copy_left_to_right).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(copy_frame, text="Copy RIGHT → Left", command=self.copy_right_to_left).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(copy_frame, text="Copy LEFT to Right", command=self.copy_left_to_right).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(copy_frame, text="Quit", command=self.root.quit).pack(side=tk.RIGHT)
         
         # Status and summary frame
