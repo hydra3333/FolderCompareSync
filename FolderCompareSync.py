@@ -1076,8 +1076,8 @@ def main():
     
     try:
         app = FolderCompareSync_class()
-        # uncomment to MANUALLY Enable debug mode logging for testing
-        app.set_debug_loglevel(True)
+        # uncomment the line "app.set_debug_loglevel(True)" to MANUALLY Enable debug mode logging regardless of commandline
+        #app.set_debug_loglevel(True)
         app.run()
     except Exception as e:
         logger.error(f"Fatal error: {type(e).__name__}: {str(e)}")
