@@ -51,11 +51,13 @@ Version 0.2.4 (2024-08-02):
 - CHANGED: "Unselect All Differences" buttons renamed to "Clear All" - now clear ALL selections (not just differences)
 - IMPROVED: "Select All Differences" buttons now auto-clear all selections first for clean workflow
 - IMPROVED: Missing items no longer have checkboxes and are non-clickable for logical consistency
+- FIXED: Missing folders now properly display without checkboxes (previously only missing files were handled correctly)
 - ADDED: Instructional text "select options then click Compare" for better user guidance
 - IMPROVED: Root unticking logic with safety checks to prevent attempting to untick non-existent parents
 - IMPROVED: Complete selection workflow with clean state management and logical item handling
 - ENHANCED: Tree building to include qualified paths as root items with proper path mapping
 - ENHANCED: Selection system to handle root-level selection and bulk operations more effectively
+- ENHANCED: Missing folder detection using MissingFolder sentinel class for proper differentiation
 - FIXED: Edge case handling in parent unticking when reaching root level items
 - IMPROVED: User experience with clearer instructions and more intuitive tree selection behavior
 
@@ -888,7 +890,7 @@ class FolderCompareSync_class:
     def build_trees_with_root_paths(self):
         """
         Build tree structures from comparison results with fully qualified root paths
-        Enhanced to include root paths as selectable tree items
+        Enhanced to include root paths as selectable tree items and properly handle missing folders
         """
         if __debug__:
             logger.debug(f"Building trees with root paths from {len(self.comparison_results)} comparison results")
@@ -915,10 +917,16 @@ class FolderCompareSync_class:
         if __debug__:
             logger.debug(f"Created root items: left={self.root_item_left}, right={self.root_item_right}")
         
+        # Create sentinel class for missing folders to distinguish from real empty folders
+        class MissingFolder:
+            def __init__(self):
+                self.contents = {}
+        
         # Organize paths into tree structure
         left_structure = {}
         right_structure = {}
         
+        # First pass: Build structure for existing items
         for rel_path, result in self.comparison_results.items():
             if not rel_path:  # Skip empty paths (but this shouldn't happen now)
                 if __debug__:
@@ -935,16 +943,19 @@ class FolderCompareSync_class:
                     if part:
                         if part not in current:
                             current[part] = {}
-                        elif not isinstance(current[part], dict):
+                        elif not isinstance(current[part], (dict, MissingFolder)):
                             # Handle conflict: file exists where we need a folder
                             if __debug__:
                                 logger.debug(f"Path conflict in left structure: '{part}' exists as file, need as folder")
                             current[part] = {}
-                        current = current[part]
+                        elif isinstance(current[part], MissingFolder):
+                            # Convert missing folder to real folder since we have content
+                            current[part] = current[part].contents
+                        current = current[part] if isinstance(current[part], dict) else current[part].contents
                 if path_parts[-1]:
                     # Only add if it doesn't conflict with existing folder
                     final_name = path_parts[-1]
-                    if final_name in current and isinstance(current[final_name], dict):
+                    if final_name in current and isinstance(current[final_name], (dict, MissingFolder)):
                         if __debug__:
                             logger.debug(f"Cannot add file '{final_name}' - folder exists with same name")
                     else:
@@ -957,22 +968,25 @@ class FolderCompareSync_class:
                     if part:
                         if part not in current:
                             current[part] = {}
-                        elif not isinstance(current[part], dict):
+                        elif not isinstance(current[part], (dict, MissingFolder)):
                             # Handle conflict: file exists where we need a folder
                             if __debug__:
                                 logger.debug(f"Path conflict in right structure: '{part}' exists as file, need as folder")
                             current[part] = {}
-                        current = current[part]
+                        elif isinstance(current[part], MissingFolder):
+                            # Convert missing folder to real folder since we have content
+                            current[part] = current[part].contents
+                        current = current[part] if isinstance(current[part], dict) else current[part].contents
                 if path_parts[-1]:
                     # Only add if it doesn't conflict with existing folder
                     final_name = path_parts[-1]
-                    if final_name in current and isinstance(current[final_name], dict):
+                    if final_name in current and isinstance(current[final_name], (dict, MissingFolder)):
                         if __debug__:
                             logger.debug(f"Cannot add file '{final_name}' - folder exists with same name")
                     else:
                         current[final_name] = result.right_item
                     
-        # Also need to add missing items as placeholders
+        # Second pass: Add missing items as placeholders
         missing_left = 0
         missing_right = 0
         for rel_path, result in self.comparison_results.items():
@@ -985,33 +999,49 @@ class FolderCompareSync_class:
             if result.left_item is None and result.right_item is not None:
                 missing_left += 1
                 current = left_structure
+                
+                # Build missing folder structure
                 for part in path_parts[:-1]:
                     if part:
                         if part not in current:
-                            current[part] = {}
-                        elif not isinstance(current[part], dict):
-                            current[part] = {}
-                        current = current[part]
+                            current[part] = MissingFolder()  # Mark as missing folder
+                        elif not isinstance(current[part], (dict, MissingFolder)):
+                            current[part] = MissingFolder()
+                        current = current[part].contents if isinstance(current[part], MissingFolder) else current[part]
+                        
                 if path_parts[-1]:
                     final_name = path_parts[-1]
-                    if final_name not in current or not isinstance(current[final_name], dict):
-                        current[final_name] = None  # Placeholder for missing item
+                    # For missing files/folders, use None for files and MissingFolder for folders
+                    if result.right_item and result.right_item.is_folder:
+                        if final_name not in current or not isinstance(current[final_name], (dict, MissingFolder)):
+                            current[final_name] = MissingFolder()  # Missing folder
+                    else:
+                        if final_name not in current or not isinstance(current[final_name], (dict, MissingFolder)):
+                            current[final_name] = None  # Missing file
                     
             # Add missing right items
             if result.right_item is None and result.left_item is not None:
                 missing_right += 1
                 current = right_structure
+                
+                # Build missing folder structure
                 for part in path_parts[:-1]:
                     if part:
                         if part not in current:
-                            current[part] = {}
-                        elif not isinstance(current[part], dict):
-                            current[part] = {}
-                        current = current[part]
+                            current[part] = MissingFolder()  # Mark as missing folder
+                        elif not isinstance(current[part], (dict, MissingFolder)):
+                            current[part] = MissingFolder()
+                        current = current[part].contents if isinstance(current[part], MissingFolder) else current[part]
+                        
                 if path_parts[-1]:
                     final_name = path_parts[-1]
-                    if final_name not in current or not isinstance(current[final_name], dict):
-                        current[final_name] = None  # Placeholder for missing item
+                    # For missing files/folders, use None for files and MissingFolder for folders
+                    if result.left_item and result.left_item.is_folder:
+                        if final_name not in current or not isinstance(current[final_name], (dict, MissingFolder)):
+                            current[final_name] = MissingFolder()  # Missing folder
+                    else:
+                        if final_name not in current or not isinstance(current[final_name], (dict, MissingFolder)):
+                            current[final_name] = None  # Missing file
         
         if __debug__:
             logger.debug(f"Added {missing_left} missing left placeholders, {missing_right} missing right placeholders")
@@ -1028,23 +1058,39 @@ class FolderCompareSync_class:
     def populate_tree(self, tree, structure, parent_id, side, current_path):
         """
         Recursively populate tree with structure
-        ENHANCED: Missing items no longer have checkboxes for logical consistency
+        ENHANCED: Missing items (both files and folders) no longer have checkboxes for logical consistency
         """
+        # Import the MissingFolder class (defined in build_trees_with_root_paths)
+        # We need to check for this class type
         for name, content in sorted(structure.items()):
             # Build the full relative path for this item
             item_rel_path = current_path + ('/' if current_path else '') + name
             
-            if isinstance(content, dict):
-                # This is a folder
-                item_text = f"☐ {name}/"
-                item_id = tree.insert(parent_id, tk.END, text=item_text, open=False)
+            # Check if content is a MissingFolder (defined in the calling method)
+            is_missing_folder = hasattr(content, 'contents')
+            
+            if isinstance(content, dict) or is_missing_folder:
+                # This is a folder (either real or missing)
+                if is_missing_folder:
+                    # ENHANCED: Missing folder - NO checkbox, just plain text with [MISSING]
+                    item_text = f"{name}/ [MISSING]"
+                    item_id = tree.insert(parent_id, tk.END, text=item_text, open=False,
+                                        values=("", "", "Missing"), tags=('missing',))
+                    # Recursively populate children from the missing folder's contents
+                    self.populate_tree(tree, content.contents, item_id, side, item_rel_path)
+                else:
+                    # Real folder - has checkbox
+                    item_text = f"☐ {name}/"
+                    item_id = tree.insert(parent_id, tk.END, text=item_text, open=False)
+                    # Recursively populate children
+                    self.populate_tree(tree, content, item_id, side, item_rel_path)
                 
-                # Store path mapping
+                # Store path mapping for both real and missing folders
                 path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
                 path_map[item_rel_path] = item_id
                 
-                # Recursively populate children
-                self.populate_tree(tree, content, item_id, side, item_rel_path)
+											   
+																			   
             else:
                 # This is a file
                 if content is None:
