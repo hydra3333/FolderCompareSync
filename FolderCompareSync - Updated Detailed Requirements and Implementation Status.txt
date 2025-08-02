@@ -1,17 +1,29 @@
-# FolderCompareSync - Complete Detailed Requirements & Implementation Status (v0.2.6)
+# FolderCompareSync  
+*A Professional Folder Comparison & Synchronization Tool for Windows*
+### DOES NOT YET WORK ... Under Construction
+
+![Status](https://img.shields.io/badge/status-active-brightgreen)  
+![Version](https://img.shields.io/badge/version-0.2.6-blue)  
+![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-lightgrey)
+
+License: AGPL-3.0  
+
+# Incomplete Detailed Requirements & Implementation Status (v0.2.6)
 
 ## **Core Concept**
-A dual-pane folder comparison tool with synchronized tree views, similar to Windows Explorer but focused on comparison and selective copying between two folder structures. Designed specifically for Windows 10, Windows 11, and subsequent compatible Windows versions.
+A **dual-pane folder comparison tool** with synchronized tree views, similar to Windows Explorer but focused on comparison and selective copying between two folder structures.  
+**Designed for Windows 10, Windows 11, and future compatible versions.**
 
-## **Current Version: 0.2.6 - Professional Grade**
+
+## Version: **0.2.6 - Under Construction**
 **Latest Major Enhancements:**
 - Full-width status log window with scrollable history and timestamps
 - Professional progress dialogs for all long-running operations
 - Real-time operation feedback and progress tracking
-- Comprehensive status logging with automatic line management
+- Status logging with automatic line management
 - Enhanced user experience with clear operation visibility
 
-## **Main Window Layout (Current v0.2.6)**
+## **Main Window Layout (v0.2.6)**
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -144,7 +156,7 @@ Status Log: "Smart-selected 2 different items in src/ (left)"
 
 ### **✅ FULLY IMPLEMENTED: Professional Error Handling**
 
-**Comprehensive error management:**
+** Error management:**
 - **File access errors**: Gracefully handles permissions, locked files, network issues
 - **Path resolution errors**: Handles invalid characters, long paths, special folders
 - **Threading errors**: Safe error propagation from background threads to UI
@@ -156,7 +168,7 @@ Status Log: "Smart-selected 2 different items in src/ (left)"
 **Windows-specific optimizations:**
 - **No emoji/special characters**: All text uses ASCII characters to prevent encoding errors
 - **Copy button text**: "Copy LEFT to Right" (no arrows that cause issues)
-- **Windows system detection**: Comprehensive Windows version logging
+- **Windows system detection**: Windows version logging
 - **File path handling**: Proper Windows path resolution and validation
 - **Threading model**: Windows-compatible background processing
 
@@ -179,7 +191,7 @@ Status Log: "Smart-selected 2 different items in src/ (left)"
 
 ### **✅ FULLY IMPLEMENTED: Metadata Comparison**
 
-**Comprehensive comparison logic:**
+**Comparison logic:**
 - ☑ **Existence** - File exists in one location but not the other *(DEFAULT: ON)*
 - ☑ **Size** - File sizes differ *(DEFAULT: ON)*  
 - ☑ **Date Created** - Creation dates differ *(DEFAULT: ON)*
@@ -292,7 +304,7 @@ class FolderCompareSync_class:
 - **System integration**: Proper Windows version detection and logging
 
 ### **Code Quality Standards:**
-- **Comprehensive commenting**: Function entry/exit, complex logic explanation
+- **Commenting**: Function entry/exit, complex logic explanation
 - **Strategic debug logging**: Key operations logged without performance impact
 - **Ongoing changelog**: Maintained in source code header with version tracking
 - **Error handling**: Graceful degradation with helpful user messages
@@ -361,8 +373,6 @@ class FolderCompareSync_class:
 - **✅ Future Windows**: Designed for forward compatibility
 
 ### **System Resources:**
-- **RAM**: 100MB base + ~1MB per 10,000 files compared
+- **RAM**: circa 100MB base + ~1MB per 10,000 files compared
 - **Disk**: Minimal (log file grows ~1MB per session)
-- **CPU**: Single background thread for comparison, low impact
-
-This comprehensive specification reflects FolderCompareSync v0.2.6 as a professional-grade folder comparison tool with enterprise-quality user experience, comprehensive status logging, and robust progress tracking suitable for Windows environments.
+- **CPU**: Single background thread for comparison, low impact for folder trees with low numbers of files
