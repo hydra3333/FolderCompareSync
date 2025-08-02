@@ -48,14 +48,16 @@ CHANGELOG:
 ==========
 Version 0.2.4 (2024-08-02):
 - ADDED: Fully qualified root paths as selectable tree items with functional checkboxes
-- ADDED: "Unselect All Differences" buttons for both left and right panes  
+- CHANGED: "Unselect All Differences" buttons renamed to "Clear All" - now clear ALL selections (not just differences)
+- IMPROVED: "Select All Differences" buttons now auto-clear all selections first for clean workflow
+- IMPROVED: Missing items no longer have checkboxes and are non-clickable for logical consistency
 - ADDED: Instructional text "select options then click Compare" for better user guidance
 - IMPROVED: Root unticking logic with safety checks to prevent attempting to untick non-existent parents
-- IMPROVED: Complete selection workflow with both select-all and unselect-all capabilities
-- IMPROVED: User experience with clearer instructions and more intuitive tree selection
+- IMPROVED: Complete selection workflow with clean state management and logical item handling
 - ENHANCED: Tree building to include qualified paths as root items with proper path mapping
 - ENHANCED: Selection system to handle root-level selection and bulk operations more effectively
 - FIXED: Edge case handling in parent unticking when reaching root level items
+- IMPROVED: User experience with clearer instructions and more intuitive tree selection behavior
 
 Version 0.2.3 (2024-08-02):
 - ADDED: Smart window sizing - automatically sizes to 98%(width) and 93%(height) of screen resolution
@@ -248,7 +250,7 @@ class FolderCompareSync_class:
         self.path_to_item_left: Dict[str, str] = {}  # rel_path -> tree_item_id
         self.path_to_item_right: Dict[str, str] = {}  # rel_path -> tree_item_id
         
-        # NEW: Store root item IDs for special handling in selection logic
+        # Store root item IDs for special handling in selection logic
         self.root_item_left: Optional[str] = None
         self.root_item_right: Optional[str] = None
         
@@ -326,7 +328,7 @@ class FolderCompareSync_class:
         criteria_frame = ttk.Frame(options_frame)
         criteria_frame.pack(fill=tk.X)
         
-        # NEW: Add instructional text for better user guidance
+        # Add instructional text for better user guidance
         instruction_frame = ttk.Frame(criteria_frame)
         instruction_frame.pack(fill=tk.X)
         
@@ -341,7 +343,7 @@ class FolderCompareSync_class:
         ttk.Label(instruction_frame, text="← select options then click Compare", 
                  foreground="darkblue", font=("TkDefaultFont", 8, "italic")).pack(side=tk.LEFT, padx=(20, 0))
         
-        # Overwrite mode and buttons (enhanced with new unselect buttons)
+        # Overwrite mode and buttons (enhanced with new Clear All buttons)
         control_frame = ttk.Frame(options_frame)
         control_frame.pack(fill=tk.X, pady=(10, 0))
         
@@ -352,18 +354,18 @@ class FolderCompareSync_class:
         ttk.Checkbutton(left_controls, text="Overwrite Mode", variable=self.overwrite_mode).pack(side=tk.LEFT, padx=(0, 20))
         ttk.Button(left_controls, text="Compare", command=self.start_comparison).pack(side=tk.LEFT, padx=(0, 20))
         
-        # NEW: Enhanced selection controls with both select and unselect options
+        # ENHANCED: New selection controls with auto-clear and complete reset functionality
         # Left pane selection controls
         ttk.Button(left_controls, text="Select All Differences - Left", 
-                  command=self.select_all_left).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(left_controls, text="Unselect All Differences - Left", 
-                  command=self.unselect_all_left).pack(side=tk.LEFT, padx=(0, 15))
+                  command=self.select_all_differences_left).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(left_controls, text="Clear All - Left", 
+                  command=self.clear_all_left).pack(side=tk.LEFT, padx=(0, 15))
         
         # Right pane selection controls  
         ttk.Button(left_controls, text="Select All Differences - Right", 
-                  command=self.select_all_right).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(left_controls, text="Unselect All Differences - Right", 
-                  command=self.unselect_all_right).pack(side=tk.LEFT)
+                  command=self.select_all_differences_right).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(left_controls, text="Clear All - Right", 
+                  command=self.clear_all_right).pack(side=tk.LEFT)
         
         # Tree comparison frame
         tree_frame = ttk.Frame(main_frame)
@@ -459,7 +461,7 @@ class FolderCompareSync_class:
         self.right_tree.bind('<<TreeviewOpen>>', lambda e: self.sync_tree_expansion(self.right_tree, self.left_tree, e))
         self.right_tree.bind('<<TreeviewClose>>', lambda e: self.sync_tree_collapse(self.right_tree, self.left_tree, e))
         
-        # Bind checkbox-like behavior for item selection
+        # Bind checkbox-like behavior for item selection (with missing item exclusion)
         self.left_tree.bind('<Button-1>', lambda e: self.handle_tree_click(self.left_tree, 'left', e))
         self.right_tree.bind('<Button-1>', lambda e: self.handle_tree_click(self.right_tree, 'right', e))
         
@@ -483,11 +485,39 @@ class FolderCompareSync_class:
             except tk.TclError:
                 pass  # Item doesn't exist in target tree
                 
+    def is_missing_item(self, tree, item_id):
+        """
+        Check if an item is a missing item (has [MISSING] in text or 'missing' tag)
+        ENHANCED: Helper function to identify non-clickable missing items
+        """
+        if not item_id:
+            return False
+            
+        item_text = tree.item(item_id, 'text')
+        item_tags = tree.item(item_id, 'tags')
+        
+        # Check if item is marked as missing
+        is_missing = '[MISSING]' in item_text or 'missing' in item_tags
+        
+        if __debug__ and is_missing:
+            logger.debug(f"Identified missing item: {item_id} with text: {item_text}")
+            
+        return is_missing
+                
     def handle_tree_click(self, tree, side, event):
-        """Handle clicks on tree items (for checkbox behavior)"""
+        """
+        Handle clicks on tree items (for checkbox behavior)
+        ENHANCED: Now ignores clicks on missing items for logical consistency
+        """
         item = tree.identify('item', event.x, event.y)
         if item:
-            # Toggle selection for this item
+            # NEW: Check if item is missing and ignore clicks on missing items
+            if self.is_missing_item(tree, item):
+                if __debug__:
+                    logger.debug(f"Ignoring click on missing item: {item}")
+                return  # Don't process clicks on missing items
+                
+            # Toggle selection for this item if it's not missing
             self.toggle_item_selection(item, side)
             
     def toggle_item_selection(self, item_id, side):
@@ -503,7 +533,7 @@ class FolderCompareSync_class:
         if item_id in selected_set:
             # Unticking - remove from selection and untick all parents and children
             selected_set.discard(item_id)
-            # NEW: Enhanced unticking with root safety check
+            # Enhanced unticking with root safety check
             self.untick_parents_with_root_safety(item_id, side)
             self.untick_children(item_id, side)
         else:
@@ -519,12 +549,14 @@ class FolderCompareSync_class:
         self.update_summary()
         
     def tick_children(self, item_id, side):
-        """Tick all children of an item recursively"""
+        """Tick all children of an item recursively (excluding missing items)"""
         selected_set = self.selected_left if side == 'left' else self.selected_right
         tree = self.left_tree if side == 'left' else self.right_tree
         
         def tick_recursive(item):
-            selected_set.add(item)
+            # Only tick if item is not missing
+            if not self.is_missing_item(tree, item):
+                selected_set.add(item)
             for child in tree.get_children(item):
                 tick_recursive(child)
                 
@@ -547,7 +579,7 @@ class FolderCompareSync_class:
     def untick_parents_with_root_safety(self, item_id, side):
         """
         Untick all parents of an item with safety check for root level
-        NEW: Enhanced to prevent attempting to untick parents of root items
+        Enhanced to prevent attempting to untick parents of root items
         """
         selected_set = self.selected_left if side == 'left' else self.selected_right
         tree = self.left_tree if side == 'left' else self.right_tree
@@ -562,7 +594,7 @@ class FolderCompareSync_class:
             if __debug__:
                 logger.debug(f"Unticked parent: {parent}")
             
-            # NEW: Safety check - if we've reached the root item, stop here
+            # Safety check - if we've reached the root item, stop here
             # Don't try to untick the parent of the root item as it doesn't exist
             if parent == root_item:
                 if __debug__:
@@ -577,7 +609,7 @@ class FolderCompareSync_class:
             parent = next_parent
             
     def update_tree_display(self):
-        """Update tree display to show selection state"""
+        """Update tree display to show selection state (only for non-missing items)"""
         # Update left tree
         for item in self.left_tree.get_children():
             self.update_item_display(self.left_tree, item, 'left')
@@ -587,13 +619,23 @@ class FolderCompareSync_class:
             self.update_item_display(self.right_tree, item, 'right')
             
     def update_item_display(self, tree, item, side, recursive=True):
-        """Update display of a single item and optionally its children"""
+        """
+        Update display of a single item and optionally its children
+        ENHANCED: Only updates checkbox display for non-missing items
+        """
         selected_set = self.selected_left if side == 'left' else self.selected_right
         
-        # Get current text and modify it to show selection
+        # Get current text 
         current_text = tree.item(item, 'text')
         
-        # Remove existing checkbox indicators
+        # Skip updating missing items (they shouldn't have checkboxes)
+        if self.is_missing_item(tree, item):
+            if recursive:
+                for child in tree.get_children(item):
+                    self.update_item_display(tree, child, side, True)
+            return
+        
+        # Remove existing checkbox indicators for non-missing items
         if current_text.startswith('☑ ') or current_text.startswith('☐ '):
             current_text = current_text[2:]
             
@@ -846,14 +888,14 @@ class FolderCompareSync_class:
     def build_trees_with_root_paths(self):
         """
         Build tree structures from comparison results with fully qualified root paths
-        NEW: Enhanced to include root paths as selectable tree items
+        Enhanced to include root paths as selectable tree items
         """
         if __debug__:
             logger.debug(f"Building trees with root paths from {len(self.comparison_results)} comparison results")
         
         start_time = time.time()
         
-        # NEW: Create root items with fully qualified paths and functional checkboxes
+        # Create root items with fully qualified paths and functional checkboxes
         left_root_path = self.left_folder.get()
         right_root_path = self.right_folder.get()
         
@@ -984,7 +1026,10 @@ class FolderCompareSync_class:
             logger.debug(f"Tree building with root paths completed in {elapsed_time:.3f} seconds")
         
     def populate_tree(self, tree, structure, parent_id, side, current_path):
-        """Recursively populate tree with structure"""
+        """
+        Recursively populate tree with structure
+        ENHANCED: Missing items no longer have checkboxes for logical consistency
+        """
         for name, content in sorted(structure.items()):
             # Build the full relative path for this item
             item_rel_path = current_path + ('/' if current_path else '') + name
@@ -1003,12 +1048,12 @@ class FolderCompareSync_class:
             else:
                 # This is a file
                 if content is None:
-                    # Missing file - no checkbox for missing items
+                    # ENHANCED: Missing file - NO checkbox, just plain text with [MISSING]
                     item_text = f"{name} [MISSING]"
                     item_id = tree.insert(parent_id, tk.END, text=item_text, 
                                         values=("", "", "Missing"), tags=('missing',))
                 else:
-                    # Existing file
+                    # Existing file - has checkbox
                     size_str = self.format_size(content.size) if content.size else ""
                     date_str = content.date_modified.strftime("%Y-%m-%d %H:%M") if content.date_modified else ""
                     
@@ -1045,7 +1090,7 @@ class FolderCompareSync_class:
             if text.endswith(' [MISSING]'):
                 text = text[:-10]
             
-            # NEW: Stop at root item (don't include the full path in relative path calculation)
+            # Stop at root item (don't include the full path in relative path calculation)
             root_item = self.root_item_left if tree == self.left_tree else self.root_item_right
             if current == root_item:
                 break
@@ -1069,11 +1114,17 @@ class FolderCompareSync_class:
         path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
         return path_map.get(rel_path)
         
-    def select_all_left(self):
-        """Select all different items in left pane"""
+    def select_all_differences_left(self):
+        """
+        ENHANCED: Select all different items in left pane with auto-clear first
+        Automatically clears all selections before selecting for clean workflow
+        """
         if __debug__:
-            logger.debug("Selecting all differences in left pane")
+            logger.debug("Auto-clearing all selections before selecting differences in left pane")
             
+        # First clear all selections for clean state
+        self.clear_all_left()
+        
         count = 0
         for rel_path, result in self.comparison_results.items():
             if result.is_different and result.left_item and result.left_item.exists:
@@ -1083,16 +1134,22 @@ class FolderCompareSync_class:
                     count += 1
                     
         if __debug__:
-            logger.debug(f"Selected {count} different items in left pane")
+            logger.debug(f"Selected {count} different items in left pane (after auto-clear)")
             
         self.update_tree_display()
         self.update_summary()
         
-    def select_all_right(self):
-        """Select all different items in right pane"""
+    def select_all_differences_right(self):
+        """
+        ENHANCED: Select all different items in right pane with auto-clear first
+        Automatically clears all selections before selecting for clean workflow
+        """
         if __debug__:
-            logger.debug("Selecting all differences in right pane")
+            logger.debug("Auto-clearing all selections before selecting differences in right pane")
             
+        # First clear all selections for clean state
+        self.clear_all_right()
+        
         count = 0
         for rel_path, result in self.comparison_results.items():
             if result.is_different and result.right_item and result.right_item.exists:
@@ -1102,52 +1159,32 @@ class FolderCompareSync_class:
                     count += 1
                     
         if __debug__:
-            logger.debug(f"Selected {count} different items in right pane")
+            logger.debug(f"Selected {count} different items in right pane (after auto-clear)")
             
         self.update_tree_display() 
         self.update_summary()
         
-    def unselect_all_left(self):
+    def clear_all_left(self):
         """
-        NEW: Unselect all different items in left pane
-        Provides workflow flexibility to clear selections after reviewing differences
+        ENHANCED: Clear ALL selections in left pane (not just differences)
+        Provides complete reset functionality for workflow flexibility
         """
         if __debug__:
-            logger.debug("Unselecting all differences in left pane")
+            logger.debug(f"Clearing ALL {len(self.selected_left)} selections in left pane")
             
-        count = 0
-        for rel_path, result in self.comparison_results.items():
-            if result.is_different and result.left_item and result.left_item.exists:
-                item_id = self.find_tree_item_by_path(rel_path, 'left')
-                if item_id and item_id in self.selected_left:
-                    self.selected_left.discard(item_id)
-                    count += 1
-                    
-        if __debug__:
-            logger.debug(f"Unselected {count} different items in left pane")
-            
+        self.selected_left.clear()
         self.update_tree_display()
         self.update_summary()
         
-    def unselect_all_right(self):
+    def clear_all_right(self):
         """
-        NEW: Unselect all different items in right pane  
-        Provides workflow flexibility to clear selections after reviewing differences
+        ENHANCED: Clear ALL selections in right pane (not just differences)  
+        Provides complete reset functionality for workflow flexibility
         """
         if __debug__:
-            logger.debug("Unselecting all differences in right pane")
+            logger.debug(f"Clearing ALL {len(self.selected_right)} selections in right pane")
             
-        count = 0
-        for rel_path, result in self.comparison_results.items():
-            if result.is_different and result.right_item and result.right_item.exists:
-                item_id = self.find_tree_item_by_path(rel_path, 'right')
-                if item_id and item_id in self.selected_right:
-                    self.selected_right.discard(item_id)
-                    count += 1
-                    
-        if __debug__:
-            logger.debug(f"Unselected {count} different items in right pane")
-            
+        self.selected_right.clear()
         self.update_tree_display()
         self.update_summary()
         
