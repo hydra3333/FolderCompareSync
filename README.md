@@ -1,8 +1,10 @@
 # FolderCompareSync
 
-**A Professional Folder Comparison & Synchronization Tool for Windows**
+**A Folder Comparison & Synchronization Tool for Windows**
 
-![Version](https://img.shields.io/badge/version-0.3.1-blue) ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-lightgrey) ![License](https://img.shields.io/badge/license-AGPL--3.0-green)
+![Version](https://img.shields.io/badge/version-0.4.0-blue) ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-lightgrey) ![License](https://img.shields.io/badge/license-AGPL--3.0-green)
+
+### UNTESTED, UNDER DEVELOPMENT
 
 ---
 
