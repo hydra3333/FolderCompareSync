@@ -2,17 +2,16 @@
 """
 FolderCompareSync - A Folder Comparison and Syncing Tool
 
-A GUI application for comparing two directory trees based on metadata.
+A GUI application for comparing two directory trees based on metadata and syncing them.
 
-This tool provides a visual interface to compare two folder structures and identify
-differences based on file existence, size, dates, and SHA512 hashes. Users can
-mark files/folders for copying between the two trees with overwrite options.
+This tool provides a visual interface to compare two folder structures and identifying
+differences based on file existence, size, dates, and SHA512 hashes.
+
+Users can mark files/folders for copying between the two trees with overwrite options.
 
 Author: hydra3333
 License: AGPL-3.0
 GitHub: https://github.com/hydra3333/FolderCompareSync
-"""
-
 """
 
 import os
@@ -512,23 +511,61 @@ class FolderCompareSync_class:
         right_structure = {}
         
         for rel_path, result in self.comparison_results.items():
+            if not rel_path:  # Skip empty paths
+                continue
+                
             path_parts = rel_path.split('/')
             
             # Build left structure
-            current = left_structure
-            for part in path_parts[:-1]:
-                if part not in current:
-                    current[part] = {}
-                current = current[part]
-            current[path_parts[-1]] = result.left_item
+            if result.left_item is not None:
+                current = left_structure
+                for part in path_parts[:-1]:
+                    if part and part not in current:
+                        current[part] = {}
+                    if part:
+                        current = current[part]
+                if path_parts[-1]:
+                    current[path_parts[-1]] = result.left_item
             
             # Build right structure  
-            current = right_structure
-            for part in path_parts[:-1]:
-                if part not in current:
-                    current[part] = {}
-                current = current[part]
-            current[path_parts[-1]] = result.right_item
+            if result.right_item is not None:
+                current = right_structure
+                for part in path_parts[:-1]:
+                    if part and part not in current:
+                        current[part] = {}
+                    if part:
+                        current = current[part]
+                if path_parts[-1]:
+                    current[path_parts[-1]] = result.right_item
+                    
+        # Also need to add missing items as placeholders
+        for rel_path, result in self.comparison_results.items():
+            if not rel_path:
+                continue
+                
+            path_parts = rel_path.split('/')
+            
+            # Add missing left items
+            if result.left_item is None and result.right_item is not None:
+                current = left_structure
+                for part in path_parts[:-1]:
+                    if part and part not in current:
+                        current[part] = {}
+                    if part:
+                        current = current[part]
+                if path_parts[-1]:
+                    current[path_parts[-1]] = None  # Placeholder for missing item
+                    
+            # Add missing right items
+            if result.right_item is None and result.left_item is not None:
+                current = right_structure
+                for part in path_parts[:-1]:
+                    if part and part not in current:
+                        current[part] = {}
+                    if part:
+                        current = current[part]
+                if path_parts[-1]:
+                    current[path_parts[-1]] = None  # Placeholder for missing item
             
         # Populate trees
         self.populate_tree(self.left_tree, left_structure, '', 'left')
@@ -554,10 +591,15 @@ class FolderCompareSync_class:
                     size_str = self.format_size(content.size) if content.size else ""
                     date_str = content.date_modified.strftime("%Y-%m-%d %H:%M") if content.date_modified else ""
                     
-                    # Determine status
-                    rel_path = self.get_item_path(tree, parent_id) + name
-                    result = self.comparison_results.get(rel_path)
-                    status = "Different" if result and result.is_different else "Same"
+                    # Determine status by checking if this file has differences
+                    status = "Same"  # Default status
+                    
+                    # Find this item in comparison results
+                    for rel_path, result in self.comparison_results.items():
+                        if rel_path.endswith(name):
+                            if result.is_different:
+                                status = "Different"
+                            break
                     
                     item_text = f"☐ {name}"
                     item_id = tree.insert(parent_id, tk.END, text=item_text,
