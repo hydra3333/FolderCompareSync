@@ -233,5 +233,5 @@ class FolderCompareSync:
 ---
 
 Version: 0.2.6  
-Status: Actively developed  
-License: To be added  
+Status: Actively under developed  
+License: AGPL-3.0 license  
