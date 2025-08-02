@@ -74,6 +74,7 @@ Version 0.1.0 (2024-08-01):
 - Safety mode for copy operations (preview only)
 """
 
+import platform
 import os
 import sys
 import hashlib
@@ -1013,9 +1014,13 @@ def main():
     """Main entry point"""
     logger.info("=== FolderCompareSync Starting ===")
     if __debug__:
-        logger.debug("Python version: " + sys.version)
-        logger.debug("Platform: " + sys.platform)
-        logger.debug("Working directory: " + os.getcwd())
+        logger.debug("Python version    : " + sys.version)
+        logger.debug("Platform          : " + sys.platform)
+        logger.debug("Architecture      : " + platform.architecture()[0])
+        logger.debug("Machine           : " + platform.machine())
+        logger.debug("Processor         : " + platform.processor())
+        logger.debug("Windows version   : " + platform.win32_ver()[0] if sys.platform == "win32" else "N/A")
+        logger.debug("Working directory : " + os.getcwd())
     
     try:
         app = FolderCompareSync_class()
