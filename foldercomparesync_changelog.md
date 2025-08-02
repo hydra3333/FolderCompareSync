@@ -4,6 +4,71 @@
 
 ---
 
+## Version 0.4.0 (2024-08-03) - Enhanced Robust Copy System
+
+### 🚀 Major New Features
+- **Enhanced Copy System**: Revolutionary dual-strategy copy mechanism with Strategy A (Direct) and Strategy B (Staged) approaches
+- **Network Drive Detection**: Automatic detection of mapped drives (A:, B:, etc.) and UNC paths with adaptive copy strategies
+- **Comprehensive Copy Logging**: Per-operation log files with timestamped filenames for detailed copy analysis
+- **Multi-Step Copy Process**: Robust 3-step copy process with atomic operations and rollback capability
+- **Copy Strategy Auto-Selection**: Intelligent strategy selection based on file size (10MB threshold) and drive types
+
+### 🛠️ Enhanced Copy System Architecture
+- **Strategy A (Direct)**: Fast direct copy for small files (<10MB) on local drives using `shutil.copy2` with verification
+- **Strategy B (Staged)**: Robust staged copy for large files (≥10MB) or network drives with temp files and atomic rename
+- **Network Optimization**: All network drives automatically use staged strategy for maximum reliability
+- **Drive Type Detection**: Windows API integration to detect local fixed, removable, network mapped, and UNC paths
+- **Copy Verification**: Optional post-copy verification with size and hash comparison
+
+### 📝 Enhanced Logging System
+- **Per-Operation Logs**: Individual log files for each copy operation with format: `foldercomparesync_copy_YYYYMMDD_HHMMSS_ID.log`
+- **Comprehensive Error Tracking**: Full path logging for failed operations with detailed error context
+- **Operation Tracking**: Complete audit trail with operation IDs, timestamps, and performance metrics
+- **Rollback Logging**: Detailed logging of rollback operations when copy failures occur
+
+### 🔧 Technical Enhancements
+- **3-Step Copy Process** (Strategy B):
+  1. Copy to temporary file with unique UUID identifier
+  2. Verify copy integrity (size validation, optional hash verification)
+  3. Atomic rename to final destination with original file backup
+- **Rollback Capability**: Automatic restoration of original files if copy operations fail
+- **Windows API Integration**: Native drive type detection using `ctypes` and Windows kernel32
+- **Memory-Efficient Processing**: Optimized for large file operations with configurable chunk sizes
+
+### 📊 Configuration Constants Added
+```python
+COPY_STRATEGY_THRESHOLD = 10 * 1024 * 1024    # 10MB threshold for strategy selection
+COPY_VERIFICATION_ENABLED = True              # Enable post-copy verification
+COPY_RETRY_COUNT = 3                          # Number of retries for failed operations
+COPY_RETRY_DELAY = 1.0                        # Delay between retries in seconds
+COPY_CHUNK_SIZE = 64 * 1024                   # 64KB chunks for large file copying
+COPY_NETWORK_TIMEOUT = 30.0                   # Network operation timeout in seconds
+```
+
+### 🚨 Copy Operation Process
+- **File Analysis**: Automatic drive type detection and strategy selection
+- **Pre-Copy Validation**: Source file existence and target directory creation
+- **Copy Execution**: Strategy-specific copy operations with comprehensive error handling
+- **Post-Copy Verification**: Size validation and optional hash verification
+- **Status Reporting**: Real-time progress updates with detailed operation logging
+- **Auto-Refresh**: Automatic folder re-scan and selection clearing after successful operations
+
+### 📈 Enhanced Error Handling
+- **Granular Error Reporting**: Specific error types with actionable guidance
+- **Rollback Operations**: Automatic restoration of original state on failure
+- **Network Resilience**: Retry logic with exponential backoff for network operations
+- **Partial Failure Handling**: Operations continue even when individual files fail
+- **Comprehensive Logging**: All errors logged with full context for troubleshooting
+
+### 🎯 User Experience Improvements
+- **Enhanced Progress Dialogs**: File-by-file progress with current operation display
+- **Detailed Status Messages**: Real-time feedback on copy strategy selection and progress
+- **Operation Confirmation**: Enhanced preview dialogs showing exactly what will be copied
+- **Completion Summaries**: Detailed results with operation ID for log file reference
+- **Professional Workflow**: Seamless integration with existing comparison and selection features
+
+---
+
 ## Version 0.3.1 (2024-08-03) - Performance Optimizations
 
 ### 🚀 Performance Enhancements

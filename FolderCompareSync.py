@@ -30,6 +30,7 @@ This application uses Python's built-in __debug__ flag and logging for debugging
 3. Logging output:
    - File: foldercomparesync.log (always enabled, detailed log for troubleshooting)
    - Console: Real-time debug/info messages (only in debug mode when "-O" flag is omitted)
+   - Copy Operations: Per-operation log files with timestamps for detailed copy analysis
 
 4. Turn debug loglevel on/off within section of code within any Class Method:
     # debug some specific section of code
@@ -46,7 +47,7 @@ This application uses Python's built-in __debug__ flag and logging for debugging
 
 CHANGELOG: refer to foldercomparesync_changelog.md
 ==================================================
-Current Version 0.3.1 (2024-08-03)
+Current Version 0.4.0 (2024-08-03)
 """
 
 import platform
@@ -56,10 +57,14 @@ import hashlib
 import time
 import fnmatch
 import shutil
+import uuid
+import ctypes
+import ctypes.wintypes
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple, Any
+from enum import Enum
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
@@ -98,6 +103,14 @@ COPY_PREVIEW_MAX_ITEMS = 10                       # Max items to show in copy pr
 SCAN_PROGRESS_UPDATE_INTERVAL = 50                # Update scanning progress every N items
 COMPARISON_PROGRESS_BATCH = 100                   # Process comparison updates every N items
 
+# Enhanced Copy System Configuration
+COPY_STRATEGY_THRESHOLD = 10 * 1024 * 1024        # 10MB threshold for copy strategy selection
+COPY_VERIFICATION_ENABLED = True                  # Enable post-copy verification
+COPY_RETRY_COUNT = 3                             # Number of retries for failed operations
+COPY_RETRY_DELAY = 1.0                           # Delay between retries in seconds
+COPY_CHUNK_SIZE = 64 * 1024                      # 64KB chunks for large file copying
+COPY_NETWORK_TIMEOUT = 30.0                      # Network operation timeout in seconds
+
 # Performance and debug settings
 DEBUG_LOG_FREQUENCY = 100           # Log debug info every N items (avoid spam in large operations)
 TREE_UPDATE_BATCH_SIZE = 200000     # Process tree updates in batches of N items (used in sorting)
@@ -128,6 +141,41 @@ MAX_FILTER_RESULTS = 200000       # Maximum items to show when filtering (perfor
 SORT_BATCH_SIZE = 100             # Process sorting in batches of N items
 
 # ============================================================================
+# ENHANCED COPY SYSTEM ENUMS AND CLASSES
+# ============================================================================
+
+class CopyStrategy(Enum):
+    """Copy strategy enumeration for different file handling approaches"""
+    DIRECT = "direct"           # Strategy A: Direct copy for small files on local drives
+    STAGED = "staged"           # Strategy B: Staged copy for large files or network drives
+    NETWORK = "network"         # Network-optimized copy with retry logic
+
+class DriveType(Enum):
+    """Drive type enumeration for path analysis"""
+    LOCAL_FIXED = "local_fixed"
+    LOCAL_REMOVABLE = "local_removable"
+    NETWORK_MAPPED = "network_mapped"
+    NETWORK_UNC = "network_unc"
+    RELATIVE = "relative"
+    UNKNOWN = "unknown"
+
+@dataclass
+class CopyOperationResult:
+    """Result of a copy operation with detailed information"""
+    success: bool
+    strategy_used: CopyStrategy
+    source_path: str
+    target_path: str
+    file_size: int
+    duration_seconds: float
+    bytes_copied: int = 0
+    error_message: str = ""
+    verification_passed: bool = False
+    retry_count: int = 0
+    temp_path: str = ""
+    backup_path: str = ""
+
+# ============================================================================
 # LOGGING SETUP
 # ============================================================================
 
@@ -155,6 +203,104 @@ logging.basicConfig(
     handlers=handlers
 )
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# ENHANCED COPY SYSTEM UTILITIES
+# ============================================================================
+
+def get_drive_type(path: str) -> DriveType:
+    """
+    Determine the drive type for a given path using Windows API
+    Handles mapped drives (like A:, B:) and network paths
+    """
+    if not path:
+        return DriveType.RELATIVE
+    
+    # Handle UNC paths (\\server\share)
+    if path.startswith('\\\\'):
+        return DriveType.NETWORK_UNC
+    
+    # Extract drive letter
+    drive = os.path.splitdrive(path)[0]
+    if not drive:
+        return DriveType.RELATIVE
+    
+    try:
+        # Use Windows API to determine drive type
+        drive_root = drive + '\\'
+        drive_type = ctypes.windll.kernel32.GetDriveTypeW(ctypes.c_wchar_p(drive_root))
+        
+        # Map Windows drive types to our enum
+        if drive_type == 2:  # DRIVE_REMOVABLE
+            return DriveType.LOCAL_REMOVABLE
+        elif drive_type == 3:  # DRIVE_FIXED
+            return DriveType.LOCAL_FIXED
+        elif drive_type == 4:  # DRIVE_REMOTE
+            return DriveType.NETWORK_MAPPED
+        elif drive_type == 5:  # DRIVE_CDROM
+            return DriveType.LOCAL_REMOVABLE
+        elif drive_type == 6:  # DRIVE_RAMDISK
+            return DriveType.LOCAL_FIXED
+        else:
+            return DriveType.UNKNOWN
+            
+    except Exception as e:
+        logger.warning(f"Could not determine drive type for {path}: {e}")
+        return DriveType.UNKNOWN
+
+def determine_copy_strategy(source_path: str, target_path: str, file_size: int) -> CopyStrategy:
+    """
+    Determine the optimal copy strategy based on file size and drive types
+    
+    Strategy Logic:
+    - Network drives always use STAGED strategy
+    - Files >= COPY_STRATEGY_THRESHOLD use STAGED strategy
+    - Small files on local drives use DIRECT strategy
+    """
+    source_drive_type = get_drive_type(source_path)
+    target_drive_type = get_drive_type(target_path)
+    
+    # Network drives always use staged strategy
+    if (source_drive_type in [DriveType.NETWORK_MAPPED, DriveType.NETWORK_UNC] or
+        target_drive_type in [DriveType.NETWORK_MAPPED, DriveType.NETWORK_UNC]):
+        return CopyStrategy.STAGED
+    
+    # Large files use staged strategy
+    if file_size >= COPY_STRATEGY_THRESHOLD:
+        return CopyStrategy.STAGED
+    
+    # Small files on local drives use direct strategy
+    return CopyStrategy.DIRECT
+
+def create_copy_operation_logger(operation_id: str) -> logging.Logger:
+    """
+    Create a dedicated logger for a copy operation with timestamped log file
+    """
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_filename = f"foldercomparesync_copy_{timestamp}_{operation_id}.log"
+    log_filepath = os.path.join(os.path.dirname(__file__), log_filename)
+    
+    # Create a new logger instance for this operation
+    operation_logger = logging.getLogger(f"copy_operation_{operation_id}")
+    operation_logger.setLevel(logging.DEBUG)
+    
+    # Create file handler for this operation
+    file_handler = logging.FileHandler(log_filepath, mode='w', encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    
+    # Create formatter for operation logs
+    formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(formatter)
+    
+    # Add handler to logger
+    operation_logger.addHandler(file_handler)
+    operation_logger.propagate = False  # Don't propagate to root logger
+    
+    return operation_logger
 
 
 @dataclass
@@ -320,6 +466,317 @@ class ProgressDialog:
             pass  # Dialog already destroyed
 
 
+class EnhancedFileCopyManager:
+    """
+    Enhanced file copy manager implementing Strategy A and Strategy B
+    with network optimization and comprehensive error handling
+    """
+    
+    def __init__(self, status_callback=None):
+        """
+        Initialize the copy manager
+        Args:
+            status_callback: Function to call for status updates
+        """
+        self.status_callback = status_callback
+        self.operation_id = None
+        self.operation_logger = None
+        
+    def _log_status(self, message: str):
+        """Log status message to both operation logger and status callback"""
+        if self.operation_logger:
+            self.operation_logger.info(message)
+        if self.status_callback:
+            self.status_callback(message)
+        logger.debug(f"Copy operation status: {message}")
+    
+    def _verify_copy(self, source_path: str, target_path: str) -> bool:
+        """
+        Verify that a copy operation was successful
+        Returns True if verification passes, False otherwise
+        """
+        if not COPY_VERIFICATION_ENABLED:
+            return True
+            
+        try:
+            # Check file existence
+            if not os.path.exists(target_path):
+                self._log_status(f"Verification failed: Target file does not exist: {target_path}")
+                return False
+            
+            # Check file size
+            source_size = os.path.getsize(source_path)
+            target_size = os.path.getsize(target_path)
+            
+            if source_size != target_size:
+                self._log_status(f"Verification failed: Size mismatch - Source: {source_size}, Target: {target_size}")
+                return False
+            
+            self._log_status(f"Verification passed: {target_path} ({source_size} bytes)")
+            return True
+            
+        except Exception as e:
+            self._log_status(f"Verification error: {str(e)}")
+            return False
+    
+    def _copy_direct_strategy(self, source_path: str, target_path: str) -> CopyOperationResult:
+        """
+        Strategy A: Direct copy for small files on local drives
+        Uses shutil.copy2 with enhanced error handling and verification
+        """
+        start_time = time.time()
+        file_size = os.path.getsize(source_path)
+        
+        self._log_status(f"Using DIRECT strategy for {os.path.basename(source_path)} ({file_size} bytes)")
+        
+        result = CopyOperationResult(
+            success=False,
+            strategy_used=CopyStrategy.DIRECT,
+            source_path=source_path,
+            target_path=target_path,
+            file_size=file_size,
+            duration_seconds=0,
+            bytes_copied=0
+        )
+        
+        try:
+            # Ensure target directory exists
+            target_dir = os.path.dirname(target_path)
+            if target_dir and not os.path.exists(target_dir):
+                os.makedirs(target_dir, exist_ok=True)
+                self._log_status(f"Created target directory: {target_dir}")
+            
+            # Perform direct copy
+            self._log_status(f"Copying: {source_path} -> {target_path}")
+            shutil.copy2(source_path, target_path)
+            result.bytes_copied = file_size
+            
+            # Verify the copy
+            if self._verify_copy(source_path, target_path):
+                result.success = True
+                result.verification_passed = True
+                self._log_status(f"DIRECT copy completed successfully")
+            else:
+                result.error_message = "Copy verification failed"
+                self._log_status(f"DIRECT copy failed verification")
+                
+        except Exception as e:
+            result.error_message = str(e)
+            self._log_status(f"DIRECT copy failed: {str(e)}")
+        
+        result.duration_seconds = time.time() - start_time
+        return result
+    
+    def _copy_staged_strategy(self, source_path: str, target_path: str, overwrite: bool = True) -> CopyOperationResult:
+        """
+        Strategy B: Staged copy for large files or network drives
+        Implements 3-step process: copy to temp -> verify -> atomic rename
+        """
+        start_time = time.time()
+        file_size = os.path.getsize(source_path)
+        
+        self._log_status(f"Using STAGED strategy for {os.path.basename(source_path)} ({file_size} bytes)")
+        
+        result = CopyOperationResult(
+            success=False,
+            strategy_used=CopyStrategy.STAGED,
+            source_path=source_path,
+            target_path=target_path,
+            file_size=file_size,
+            duration_seconds=0,
+            bytes_copied=0
+        )
+        
+        # Generate unique identifiers for temporary files
+        temp_uuid = uuid.uuid4().hex[:8]
+        temp_path = f"{target_path}.tmp_{temp_uuid}"
+        backup_path = f"{target_path}.backup_{temp_uuid}" if os.path.exists(target_path) else None
+        
+        result.temp_path = temp_path
+        result.backup_path = backup_path
+        
+        try:
+            # Ensure target directory exists
+            target_dir = os.path.dirname(target_path)
+            if target_dir and not os.path.exists(target_dir):
+                os.makedirs(target_dir, exist_ok=True)
+                self._log_status(f"Created target directory: {target_dir}")
+            
+            # Step 1: Backup existing file if it exists and we're not in overwrite mode
+            if os.path.exists(target_path):
+                if not overwrite:
+                    result.error_message = "Target file exists and overwrite is disabled"
+                    self._log_status(f"STAGED copy skipped: Target exists and overwrite disabled")
+                    return result
+                
+                # Create backup of existing file
+                self._log_status(f"Step 1: Backing up existing file: {target_path} -> {backup_path}")
+                shutil.copy2(target_path, backup_path)
+                self._log_status(f"Backup created: {backup_path}")
+            
+            # Step 2: Copy to temporary file
+            self._log_status(f"Step 2: Copying to temporary file: {source_path} -> {temp_path}")
+            shutil.copy2(source_path, temp_path)
+            result.bytes_copied = file_size
+            self._log_status(f"Temporary copy completed: {temp_path}")
+            
+            # Step 3: Verify temporary file
+            self._log_status(f"Step 3: Verifying temporary file: {temp_path}")
+            if not self._verify_copy(source_path, temp_path):
+                result.error_message = "Temporary file verification failed"
+                self._log_status(f"STAGED copy failed: Temporary file verification failed")
+                # Cleanup temp file
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                    self._log_status(f"Cleaned up failed temporary file: {temp_path}")
+                return result
+            
+            # Step 4: Atomic rename (move temp file to final location)
+            self._log_status(f"Step 4: Atomic rename: {temp_path} -> {target_path}")
+            if os.path.exists(target_path):
+                os.remove(target_path)  # Remove original file
+                self._log_status(f"Removed original file: {target_path}")
+            
+            shutil.move(temp_path, target_path)
+            self._log_status(f"Atomic rename completed: {target_path}")
+            
+            # Step 5: Final verification
+            if self._verify_copy(source_path, target_path):
+                result.success = True
+                result.verification_passed = True
+                self._log_status(f"STAGED copy completed successfully")
+                
+                # Remove backup file if everything succeeded
+                if backup_path and os.path.exists(backup_path):
+                    os.remove(backup_path)
+                    self._log_status(f"Removed backup file: {backup_path}")
+            else:
+                result.error_message = "Final verification failed"
+                self._log_status(f"STAGED copy failed: Final verification failed")
+                
+        except Exception as e:
+            result.error_message = str(e)
+            self._log_status(f"STAGED copy failed: {str(e)}")
+            
+            # Attempt rollback on failure
+            try:
+                self._log_status(f"Attempting rollback for failed STAGED copy")
+                
+                # Remove failed temp file
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                    self._log_status(f"Removed failed temporary file: {temp_path}")
+                
+                # Restore backup if it exists
+                if backup_path and os.path.exists(backup_path):
+                    if os.path.exists(target_path):
+                        os.remove(target_path)  # Remove any partial file
+                    shutil.move(backup_path, target_path)
+                    self._log_status(f"Restored backup file: {backup_path} -> {target_path}")
+                
+                self._log_status(f"Rollback completed successfully")
+                
+            except Exception as rollback_error:
+                self._log_status(f"Rollback failed: {str(rollback_error)}")
+                result.error_message += f" | Rollback failed: {str(rollback_error)}"
+        
+        result.duration_seconds = time.time() - start_time
+        return result
+    
+    def copy_file(self, source_path: str, target_path: str, overwrite: bool = True) -> CopyOperationResult:
+        """
+        Main copy method that automatically selects the appropriate strategy
+        """
+        # Validate input paths
+        if not os.path.exists(source_path):
+            return CopyOperationResult(
+                success=False,
+                strategy_used=CopyStrategy.DIRECT,
+                source_path=source_path,
+                target_path=target_path,
+                file_size=0,
+                duration_seconds=0,
+                error_message="Source file does not exist"
+            )
+        
+        if not os.path.isfile(source_path):
+            return CopyOperationResult(
+                success=False,
+                strategy_used=CopyStrategy.DIRECT,
+                source_path=source_path,
+                target_path=target_path,
+                file_size=0,
+                duration_seconds=0,
+                error_message="Source path is not a file"
+            )
+        
+        # Get file size for strategy determination
+        file_size = os.path.getsize(source_path)
+        
+        # Determine copy strategy
+        strategy = determine_copy_strategy(source_path, target_path, file_size)
+        
+        # Log operation start
+        self._log_status(f"Starting copy operation:")
+        self._log_status(f"  Source: {source_path}")
+        self._log_status(f"  Target: {target_path}")
+        self._log_status(f"  Size: {file_size:,} bytes")
+        self._log_status(f"  Strategy: {strategy.value}")
+        self._log_status(f"  Overwrite: {overwrite}")
+        
+        # Execute appropriate strategy
+        if strategy == CopyStrategy.DIRECT:
+            result = self._copy_direct_strategy(source_path, target_path)
+        else:  # STAGED or NETWORK (both use staged approach)
+            result = self._copy_staged_strategy(source_path, target_path, overwrite)
+        
+        # Log final result
+        if result.success:
+            self._log_status(f"Copy operation SUCCESSFUL - {result.bytes_copied:,} bytes in {result.duration_seconds:.2f}s")
+        else:
+            self._log_status(f"Copy operation FAILED - {result.error_message}")
+        
+        return result
+    
+    def start_copy_operation(self, operation_name: str) -> str:
+        """
+        Start a new copy operation session with dedicated logging
+        Returns the operation ID for tracking
+        """
+        self.operation_id = uuid.uuid4().hex[:8]
+        self.operation_logger = create_copy_operation_logger(self.operation_id)
+        
+        self.operation_logger.info("=" * 80)
+        self.operation_logger.info(f"COPY OPERATION STARTED: {operation_name}")
+        self.operation_logger.info(f"Operation ID: {self.operation_id}")
+        self.operation_logger.info(f"Timestamp: {datetime.now().isoformat()}")
+        self.operation_logger.info("=" * 80)
+        
+        return self.operation_id
+    
+    def end_copy_operation(self, success_count: int, error_count: int, total_bytes: int):
+        """
+        End the current copy operation session
+        """
+        if self.operation_logger:
+            self.operation_logger.info("=" * 80)
+            self.operation_logger.info(f"COPY OPERATION COMPLETED")
+            self.operation_logger.info(f"Operation ID: {self.operation_id}")
+            self.operation_logger.info(f"Files copied successfully: {success_count}")
+            self.operation_logger.info(f"Files failed: {error_count}")
+            self.operation_logger.info(f"Total bytes copied: {total_bytes:,}")
+            self.operation_logger.info(f"Timestamp: {datetime.now().isoformat()}")
+            self.operation_logger.info("=" * 80)
+            
+            # Close the operation logger
+            for handler in self.operation_logger.handlers[:]:
+                handler.close()
+                self.operation_logger.removeHandler(handler)
+        
+        self.operation_id = None
+        self.operation_logger = None
+
+
 class FolderCompareSync_class:
     """Main application class for folder comparison and syncing"""
     
@@ -396,12 +853,15 @@ class FolderCompareSync_class:
         self.summary_var = tk.StringVar(value="Summary: No comparison performed")
         self.status_log_text = None  # Will be set in setup_ui
         
+        # Enhanced copy system
+        self.copy_manager = EnhancedFileCopyManager(status_callback=self.add_status_message)
+        
         if __debug__:
-            logger.debug("Application state initialized with enhanced state management and configurable constants")
+            logger.debug("Application state initialized with enhanced copy system and configurable constants")
         
         self.setup_ui()
-        self.add_status_message("Application initialized - Ready to compare folders")
-        logger.info("Application initialization complete")
+        self.add_status_message("Application initialized - Enhanced copy system ready")
+        logger.info("Application initialization complete with enhanced copy system")
 
     def add_status_message(self, message):
         """
@@ -505,7 +965,7 @@ class FolderCompareSync_class:
         ttk.Checkbutton(instruction_frame, text="SHA512", variable=self.compare_sha512).pack(side=tk.LEFT, padx=(0, 10))
         
         # Add instructional text for workflow guidance using configurable colors and font size
-        ttk.Label(instruction_frame, text="← select options then click Compare", 
+        ttk.Label(instruction_frame, text="<- select options then click Compare", 
                  foreground=INSTRUCTION_TEXT_COLOR, 
                  font=("TkDefaultFont", INSTRUCTION_TEXT_SIZE, "italic")).pack(side=tk.LEFT, padx=(20, 0))
         
@@ -2002,7 +2462,7 @@ class FolderCompareSync_class:
         self.update_summary()
         
     def copy_left_to_right(self):
-        """Enhanced: Copy selected items from left to right with actual file operations and progress tracking"""
+        """Enhanced: Copy selected items from left to right with robust file operations and progress tracking"""
         if not self.selected_left:
             self.add_status_message("No items selected for copying from left to right")
             messagebox.showinfo("Info", "No items selected for copying")
@@ -2020,15 +2480,15 @@ class FolderCompareSync_class:
             messagebox.showinfo("Info", "No valid paths selected for copying")
             return
             
-        self.add_status_message(f"Starting copy operation: {len(selected_paths):,} items from LEFT to RIGHT")
+        self.add_status_message(f"Starting robust copy operation: {len(selected_paths):,} items from LEFT to RIGHT")
         
         # Show confirmation dialog
         message = f"Copy {len(selected_paths)} items from LEFT to RIGHT?\n\n"
         message += "\n".join(selected_paths[:COPY_PREVIEW_MAX_ITEMS])
         if len(selected_paths) > COPY_PREVIEW_MAX_ITEMS:
             message += f"\n... and {len(selected_paths) - COPY_PREVIEW_MAX_ITEMS} more items"
-																				  
-													
+                      
+             
         
         if not messagebox.askyesno("Confirm Copy Operation", message):
             self.add_status_message("Copy operation cancelled by user")
@@ -2036,10 +2496,10 @@ class FolderCompareSync_class:
         
         # Start copy operation in background thread
         self.status_var.set("Copying files...")
-        threading.Thread(target=self.perform_copy_operation, args=('left_to_right', selected_paths), daemon=True).start()
+        threading.Thread(target=self.perform_enhanced_copy_operation, args=('left_to_right', selected_paths), daemon=True).start()
         
     def copy_right_to_left(self):
-        """Enhanced: Copy selected items from right to left with actual file operations and progress tracking"""
+        """Enhanced: Copy selected items from right to left with robust file operations and progress tracking"""
         if not self.selected_right:
             self.add_status_message("No items selected for copying from right to left")
             messagebox.showinfo("Info", "No items selected for copying")
@@ -2057,7 +2517,7 @@ class FolderCompareSync_class:
             messagebox.showinfo("Info", "No valid paths selected for copying")
             return
             
-        self.add_status_message(f"Starting copy operation: {len(selected_paths):,} items from RIGHT to LEFT")
+        self.add_status_message(f"Starting robust copy operation: {len(selected_paths):,} items from RIGHT to LEFT")
         
         # Show confirmation dialog
         message = f"Copy {len(selected_paths)} items from RIGHT to LEFT?\n\n"
@@ -2071,15 +2531,15 @@ class FolderCompareSync_class:
         
         # Start copy operation in background thread
         self.status_var.set("Copying files...")
-        threading.Thread(target=self.perform_copy_operation, args=('right_to_left', selected_paths), daemon=True).start()
+        threading.Thread(target=self.perform_enhanced_copy_operation, args=('right_to_left', selected_paths), daemon=True).start()
 
-    def perform_copy_operation(self, direction, selected_paths):
+    def perform_enhanced_copy_operation(self, direction, selected_paths):
         """
-        NEW: Perform actual file copy operations with progress tracking
+        Enhanced: Perform robust file copy operations using Strategy A/B with comprehensive logging
         After completion, automatically refresh trees and clear selections
         """
         start_time = time.time()
-        logger.info(f"Starting copy operation: {direction} with {len(selected_paths)} items")
+        logger.info(f"Starting enhanced copy operation: {direction} with {len(selected_paths)} items")
         
         # Determine source and destination folders
         if direction == 'left_to_right':
@@ -2090,6 +2550,10 @@ class FolderCompareSync_class:
             source_folder = self.right_folder.get()
             dest_folder = self.left_folder.get()
             direction_text = "RIGHT to LEFT"
+        
+        # Start copy operation session with dedicated logging
+        operation_name = f"Copy {len(selected_paths)} items from {direction_text}"
+        operation_id = self.copy_manager.start_copy_operation(operation_name)
         
         # Create progress dialog for copy operation
         progress = ProgressDialog(
@@ -2102,12 +2566,13 @@ class FolderCompareSync_class:
         copied_count = 0
         error_count = 0
         skipped_count = 0
+        total_bytes_copied = 0
         
         try:
             for i, rel_path in enumerate(selected_paths):
                 try:
                     # Update progress
-                    progress.update_progress(i, f"Copying {i+1} of {len(selected_paths)}: {rel_path}")
+                    progress.update_progress(i, f"Copying {i+1} of {len(selected_paths)}: {os.path.basename(rel_path)}")
                     
                     source_path = os.path.join(source_folder, rel_path)
                     dest_path = os.path.join(dest_folder, rel_path)
@@ -2115,46 +2580,56 @@ class FolderCompareSync_class:
                     # Skip if source doesn't exist
                     if not os.path.exists(source_path):
                         skipped_count += 1
-                        logger.warning(f"Source file not found, skipping: {source_path}")
+                        self.copy_manager._log_status(f"Source file not found, skipping: {source_path}")
                         continue
                     
-                    # Create destination directory if needed
-                    dest_dir = os.path.dirname(dest_path)
-                    if dest_dir and not os.path.exists(dest_dir):
-                        os.makedirs(dest_dir, exist_ok=True)
+                                                            
+                                                         
+                                                                 
+                                                            
                     
-                    # Copy file or directory
-                    if os.path.isfile(source_path):
-                        # Check if destination exists and handle overwrite mode
-                        if os.path.exists(dest_path) and not self.overwrite_mode.get():
+                    # Handle directories separately (create them, don't copy as files)
+                    if os.path.isdir(source_path):
+                        # Create destination directory if needed
+                        if not os.path.exists(dest_path):
+                            os.makedirs(dest_path, exist_ok=True)
+                                                                                                     
+                                    
+                        
+                                                                                        
+                            copied_count += 1
+                            self.copy_manager._log_status(f"Created directory: {dest_path}")
+                        else:
+                                                    
+                                             
+                                                                                       
                             skipped_count += 1
-                            logger.info(f"File exists and overwrite disabled, skipping: {dest_path}")
-                            continue
-                        
-                        shutil.copy2(source_path, dest_path)  # copy2 preserves metadata
+                            self.copy_manager._log_status(f"Directory already exists, skipping: {dest_path}")
+                        continue
+                    
+                    # Copy individual file using enhanced copy manager
+                    result = self.copy_manager.copy_file(source_path, dest_path, self.overwrite_mode.get())
+                    
+                    if result.success:
                         copied_count += 1
-                        logger.debug(f"Copied file: {source_path} -> {dest_path}")
-                        
-                    elif os.path.isdir(source_path):
-                        # Copy directory tree
-                        if os.path.exists(dest_path) and not self.overwrite_mode.get():
-                            skipped_count += 1
-                            logger.info(f"Directory exists and overwrite disabled, skipping: {dest_path}")
-                            continue
-                        
-                        shutil.copytree(source_path, dest_path, dirs_exist_ok=self.overwrite_mode.get())
-                        copied_count += 1
-                        logger.debug(f"Copied directory: {source_path} -> {dest_path}")
+                        total_bytes_copied += result.bytes_copied
+                        self.copy_manager._log_status(f"Successfully copied: {rel_path} ({result.strategy_used.value} strategy)")
+                    else:
+                        error_count += 1
+                        error_msg = f"Failed to copy {rel_path}: {result.error_message}"
+                        self.copy_manager._log_status(error_msg)
+                        self.root.after(0, lambda msg=error_msg: self.add_status_message(f"ERROR: {msg}"))
                     
                     # Update progress every few items using configurable frequency
                     if i % max(1, len(selected_paths) // 20) == 0:
-                        status_msg = f"Copied {copied_count}, errors {error_count}, skipped {skipped_count}"
+                        status_msg = f"Progress: {copied_count} copied, {error_count} errors, {skipped_count} skipped"
                         self.root.after(0, lambda msg=status_msg: self.add_status_message(msg))
                         
                 except Exception as e:
                     error_count += 1
-                    error_msg = f"Error copying {rel_path}: {str(e)}"
+                    error_msg = f"Error processing {rel_path}: {str(e)}"
                     logger.error(error_msg)
+                    self.copy_manager._log_status(error_msg)
                     self.root.after(0, lambda msg=error_msg: self.add_status_message(f"ERROR: {msg}"))
                     continue
             
@@ -2163,17 +2638,22 @@ class FolderCompareSync_class:
             
             elapsed_time = time.time() - start_time
             
+            # End copy operation session
+            self.copy_manager.end_copy_operation(copied_count, error_count, total_bytes_copied)
+            
             # Summary message
-            summary = f"Copy operation complete ({direction_text}): {copied_count} copied, {error_count} errors, {skipped_count} skipped in {elapsed_time:.1f}s"
+            summary = f"Enhanced copy operation complete ({direction_text}): {copied_count} copied, {error_count} errors, {skipped_count} skipped, {total_bytes_copied:,} bytes in {elapsed_time:.1f}s"
             logger.info(summary)
             self.root.after(0, lambda: self.add_status_message(summary))
             
             # Show completion dialog
-            completion_msg = f"Copy operation completed!\n\n"
+            completion_msg = f"Enhanced copy operation completed!\n\n"
             completion_msg += f"Successfully copied: {copied_count} items\n"
+            completion_msg += f"Total bytes copied: {total_bytes_copied:,}\n"
             completion_msg += f"Errors: {error_count}\n"
             completion_msg += f"Skipped: {skipped_count}\n"
-            completion_msg += f"Time: {elapsed_time:.1f} seconds\n\n"
+            completion_msg += f"Time: {elapsed_time:.1f} seconds\n"
+            completion_msg += f"Operation ID: {operation_id}\n\n"
             completion_msg += "The folder trees will now be refreshed and selections cleared."
             
             self.root.after(0, lambda: messagebox.showinfo("Copy Complete", completion_msg))
@@ -2182,8 +2662,9 @@ class FolderCompareSync_class:
             self.root.after(0, self.refresh_after_copy_operation)
             
         except Exception as e:
-            logger.error(f"Copy operation failed: {e}")
-            error_msg = f"Copy operation failed: {str(e)}"
+            logger.error(f"Enhanced copy operation failed: {e}")
+            error_msg = f"Enhanced copy operation failed: {str(e)}"
+            self.copy_manager._log_status(error_msg)
             self.root.after(0, lambda: self.add_status_message(f"ERROR: {error_msg}"))
             self.root.after(0, lambda: self.show_error(error_msg))
         finally:
@@ -2192,10 +2673,10 @@ class FolderCompareSync_class:
 
     def refresh_after_copy_operation(self):
         """
-        NEW: Refresh folder trees and clear all selections after copy operation
+        Enhanced: Refresh folder trees and clear all selections after copy operation
         This ensures the user sees the current state after copying
         """
-        logger.info("Refreshing trees and clearing selections after copy operation")
+        logger.info("Refreshing trees and clearing selections after enhanced copy operation")
         self.add_status_message("Refreshing folder trees after copy operation...")
         
         # Clear all selections first
@@ -2212,7 +2693,7 @@ class FolderCompareSync_class:
             self.add_status_message("Re-scanning folders to show updated state...")
             threading.Thread(target=self.perform_comparison, daemon=True).start()
         else:
-            self.add_status_message("Copy operation complete - ready for next operation")
+            self.add_status_message("Enhanced copy operation complete - ready for next operation")
         
     def update_summary(self):
         """Enhanced: Update summary information with filter status"""
@@ -2245,7 +2726,7 @@ class FolderCompareSync_class:
         
     def run(self):
         """Start the application"""
-        logger.info("Starting FolderCompareSync GUI application")
+        logger.info("Starting FolderCompareSync GUI application with enhanced copy system")
         try:
             self.root.mainloop()
         except Exception as e:
@@ -2261,7 +2742,7 @@ class FolderCompareSync_class:
 
 def main():
     """Main entry point"""
-    logger.info("=== FolderCompareSync Starting ===")
+    logger.info("=== FolderCompareSync Starting (Enhanced Copy System) ===")
     if __debug__:
         logger.debug("Working directory : " + os.getcwd())
         logger.debug("Python version    : " + sys.version)
@@ -2316,6 +2797,13 @@ def main():
                 logger.debug(f"Windows version   : Unknown windows build {build_num}")
         except Exception as e:
             logger.debug(f"Error getting Windows details: {e}")
+    
+    # Log enhanced copy system configuration
+    logger.debug("Enhanced Copy System Configuration:")
+    logger.debug(f"  Strategy threshold: {COPY_STRATEGY_THRESHOLD / (1024*1024):.1f} MB")
+    logger.debug(f"  Verification enabled: {COPY_VERIFICATION_ENABLED}")
+    logger.debug(f"  Retry count: {COPY_RETRY_COUNT}")
+    logger.debug(f"  Network timeout: {COPY_NETWORK_TIMEOUT}s")
     
     try:
         app = FolderCompareSync_class()
