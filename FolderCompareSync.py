@@ -53,12 +53,14 @@ Version 0.2.6 (2024-08-02):
 - ADDED: Real-time progress indication for folder scanning with running file/folder counts
 - ADDED: Progress tracking for comparison operations with percentage completion
 - ADDED: Selection change tracking and logging in status window
+- ADDED: Global constants for easy configuration of UI parameters and performance settings
 - ENHANCED: Professional user experience with clear operation feedback
 - IMPROVED: UI layout restructured to accommodate status log window
 - ADDED: Status log auto-scrolling and line limit management (200 lines max)
 - ADDED: Threaded progress updates that don't block the main UI
 - IMPROVED: User feedback for all operations from start to completion
 - ENHANCED: Error reporting with helpful guidance displayed in status log
+- IMPROVED: Code maintainability with configurable constants at top of file
 
 Version 0.2.5 (2024-08-02):
 - FIXED: Critical issue with expand/collapse operations clearing selection state
@@ -147,6 +149,63 @@ from tkinter import ttk, filedialog, messagebox
 import threading
 import logging
 
+# ============================================================================
+# GLOBAL CONFIGURATION CONSTANTS
+# ============================================================================
+# These constants control various aspects of the application behavior and UI.
+# Modify these values to customize the application without hunting through code.
+
+# Window sizing and layout constants
+WINDOW_WIDTH_PERCENT = 0.98        # 98% of screen width
+WINDOW_HEIGHT_PERCENT = 0.93       # 93% of screen height  
+MIN_WINDOW_WIDTH = 800             # Minimum window width in pixels
+MIN_WINDOW_HEIGHT = 600            # Minimum window height in pixels
+WINDOW_TOP_OFFSET = 0              # Pixels from top of screen
+
+# Status log configuration
+STATUS_LOG_VISIBLE_LINES = 5       # Visible lines in status log window
+STATUS_LOG_MAX_HISTORY = 500       # Maximum lines to keep in history
+STATUS_LOG_FONT = ("Courier", 9)   # Monospace font for better alignment
+STATUS_LOG_BG_COLOR = "#f8f8f8"    # Light background color
+STATUS_LOG_FG_COLOR = "#333333"    # Dark text color
+
+# Progress dialog appearance and behavior
+PROGRESS_DIALOG_WIDTH = 400        # Progress dialog width in pixels
+PROGRESS_DIALOG_HEIGHT = 150       # Progress dialog height in pixels
+PROGRESS_ANIMATION_SPEED = 10      # Animation speed for indeterminate progress
+PROGRESS_UPDATE_FREQUENCY = 100    # Update progress every N items processed
+PROGRESS_PERCENTAGE_FREQUENCY = 1  # Update percentage display every N%
+
+# File processing limits and thresholds
+SHA512_MAX_FILE_SIZE = 1000 * 1024 * 1024  # 1,000MB filesize limit for hash computation (a short gig)
+COPY_PREVIEW_MAX_ITEMS = 10                # Max items to show in copy preview dialog
+SCAN_PROGRESS_UPDATE_INTERVAL = 50         # Update scanning progress every N items
+COMPARISON_PROGRESS_BATCH = 100            # Process comparison updates every N items
+
+# Performance and debug settings
+DEBUG_LOG_FREQUENCY = 100          # Log debug info every N items (avoid spam in large operations)
+TREE_UPDATE_BATCH_SIZE = 20        # Process tree updates in batches of N items
+MEMORY_EFFICIENT_THRESHOLD = 10000 # Switch to memory-efficient mode above N items
+
+# Tree column configuration (default widths)
+TREE_STRUCTURE_WIDTH = 300         # Default structure column width
+TREE_STRUCTURE_MIN_WIDTH = 150     # Minimum structure column width
+TREE_SIZE_WIDTH = 80              # Size column width
+TREE_SIZE_MIN_WIDTH = 60          # Minimum size column width
+TREE_DATE_WIDTH = 120             # Date column width
+TREE_DATE_MIN_WIDTH = 100         # Minimum date column width
+TREE_STATUS_WIDTH = 100           # Status column width
+TREE_STATUS_MIN_WIDTH = 80        # Minimum status column width
+
+# Display colors and styling
+MISSING_ITEM_COLOR = "gray"       # Color for missing items in tree
+INSTRUCTION_TEXT_COLOR = "darkblue"  # Color for instructional text
+INSTRUCTION_TEXT_SIZE = 8         # Font size for instructional text
+
+# ============================================================================
+# LOGGING SETUP
+# ============================================================================
+
 # Setup logging loglevel based on __debug__ flag
 # using "-O" on the python commandline turns __debug__ off:  python -O FolderCompareSync.py
 if __debug__:
@@ -199,7 +258,7 @@ class FileMetadata_class:
             date_modified = datetime.fromtimestamp(stat.st_mtime)
             
             sha512 = None
-            if compute_hash and p.is_file() and size and size < 100 * 1024 * 1024:  # Only hash files < 100MB
+            if compute_hash and p.is_file() and size and size < SHA512_MAX_FILE_SIZE:  # Use configurable limit
                 try:
                     with open(path, 'rb') as f:
                         sha512 = hashlib.sha512(f.read()).hexdigest()
@@ -237,7 +296,7 @@ class ProgressDialog:
     
     def __init__(self, parent, title, message, max_value=None):
         """
-        Initialize progress dialog
+        Initialize progress dialog with configurable dimensions
         Args:
             parent: Parent window
             title: Dialog title
@@ -250,10 +309,10 @@ class ProgressDialog:
         self.max_value = max_value
         self.current_value = 0
         
-        # Create dialog window
+        # Create dialog window using global constants
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(title)
-        self.dialog.geometry("400x150")
+        self.dialog.geometry(f"{PROGRESS_DIALOG_WIDTH}x{PROGRESS_DIALOG_HEIGHT}")
         self.dialog.resizable(False, False)
         
         # Center the dialog on parent
@@ -286,7 +345,7 @@ class ProgressDialog:
                 progress_frame, mode='indeterminate', length=300
             )
             self.progress_bar.pack(pady=(0, 10))
-            self.progress_bar.start(10)  # Start animation
+            self.progress_bar.start(PROGRESS_ANIMATION_SPEED)  # Use configurable animation speed
             
             # Running counter display
             self.count_var = tk.StringVar(value="0 items")
@@ -296,11 +355,11 @@ class ProgressDialog:
         # Update the display
         self.dialog.update_idletasks()
         
-        # Center on parent window
+        # Center on parent window using configurable dialog dimensions
         parent.update_idletasks()
-        x = parent.winfo_x() + (parent.winfo_width() // 2) - (400 // 2)
-        y = parent.winfo_y() + (parent.winfo_height() // 2) - (150 // 2)
-        self.dialog.geometry(f"400x150+{x}+{y}")
+        x = parent.winfo_x() + (parent.winfo_width() // 2) - (PROGRESS_DIALOG_WIDTH // 2)
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - (PROGRESS_DIALOG_HEIGHT // 2)
+        self.dialog.geometry(f"{PROGRESS_DIALOG_WIDTH}x{PROGRESS_DIALOG_HEIGHT}+{x}+{y}")
         
     def update_message(self, message):
         """Update the progress message"""
@@ -355,16 +414,16 @@ class FolderCompareSync_class:
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         
-        # Use 98%(width) and 93%(height) of screen size, positioned at top
-        window_width = int(screen_width * 0.98)
-        window_height = int(screen_height * 0.93)
+        # Use configurable window sizing percentages
+        window_width = int(screen_width * WINDOW_WIDTH_PERCENT)
+        window_height = int(screen_height * WINDOW_HEIGHT_PERCENT)
         
-        # Center horizontally, start at top vertically for optimal taskbar clearance
+        # Center horizontally, use configurable top offset for optimal taskbar clearance
         x = (screen_width - window_width) // 2
-        y = 0  # Start at top of screen
+        y = WINDOW_TOP_OFFSET
         
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
-        self.root.minsize(800, 600)  # Maintain minimum usable size
+        self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)  # Use configurable minimum size
         
         # Application state variables
         self.left_folder = tk.StringVar()
@@ -394,9 +453,9 @@ class FolderCompareSync_class:
         # Flag to prevent recursive display updates during tree operations
         self._updating_display = False
         
-        # Status log management
+        # Status log management using configurable constants
         self.status_log_lines = []  # Store status messages
-        self.max_status_lines = 200  # Maximum number of lines to keep
+        self.max_status_lines = STATUS_LOG_MAX_HISTORY  # Use configurable maximum
         
         # UI References for widget interaction
         self.left_tree = None
@@ -406,7 +465,7 @@ class FolderCompareSync_class:
         self.status_log_text = None  # Will be set in setup_ui
         
         if __debug__:
-            logger.debug("Application state initialized with enhanced state management and status logging")
+            logger.debug("Application state initialized with enhanced state management and configurable constants")
         
         self.setup_ui()
         self.add_status_message("Application initialized - Ready to compare folders")
@@ -414,7 +473,7 @@ class FolderCompareSync_class:
 
     def add_status_message(self, message):
         """
-        Add a timestamped message to the status log
+        Add a timestamped message to the status log using configurable history limit
         Args:
             message: Message to add to status log
         """
@@ -424,7 +483,7 @@ class FolderCompareSync_class:
         # Add to our internal list
         self.status_log_lines.append(status_line)
         
-        # Trim to maximum lines
+        # Trim to configurable maximum lines
         if len(self.status_log_lines) > self.max_status_lines:
             self.status_log_lines = self.status_log_lines[-self.max_status_lines:]
             
@@ -469,8 +528,8 @@ class FolderCompareSync_class:
             self.status_var.set(f"{current_status} ({mode})")
 
     def setup_ui(self):
-        """Initialize the user interface with enhanced status logging and restructured layout"""
-        logger.debug("Setting up user interface")
+        """Initialize the user interface with configurable constants for layout and styling"""
+        logger.debug("Setting up user interface with configurable constants")
         
         # Main container
         main_frame = ttk.Frame(self.root)
@@ -502,7 +561,7 @@ class FolderCompareSync_class:
         criteria_frame = ttk.Frame(options_frame)
         criteria_frame.pack(fill=tk.X)
         
-        # Add instructional text for better user guidance
+        # Add instructional text for better user guidance using configurable styling
         instruction_frame = ttk.Frame(criteria_frame)
         instruction_frame.pack(fill=tk.X)
         
@@ -513,9 +572,10 @@ class FolderCompareSync_class:
         ttk.Checkbutton(instruction_frame, text="Date Modified", variable=self.compare_date_modified).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Checkbutton(instruction_frame, text="SHA512", variable=self.compare_sha512).pack(side=tk.LEFT, padx=(0, 10))
         
-        # Add instructional text for workflow guidance
+        # Add instructional text for workflow guidance using configurable colors and font size
         ttk.Label(instruction_frame, text="← select options then click Compare", 
-                 foreground="darkblue", font=("TkDefaultFont", 8, "italic")).pack(side=tk.LEFT, padx=(20, 0))
+                 foreground=INSTRUCTION_TEXT_COLOR, 
+                 font=("TkDefaultFont", INSTRUCTION_TEXT_SIZE, "italic")).pack(side=tk.LEFT, padx=(20, 0))
         
         # Overwrite mode and buttons (enhanced with new Clear All buttons)
         control_frame = ttk.Frame(options_frame)
@@ -545,15 +605,15 @@ class FolderCompareSync_class:
         tree_frame = ttk.Frame(main_frame)
         tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
         
-        # Left tree with enhanced structure for root path display
+        # Left tree with configurable column widths
         left_frame = ttk.LabelFrame(tree_frame, text="LEFT", padding=5)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 2))
         
         self.left_tree = ttk.Treeview(left_frame, show='tree headings', selectmode='none')
         self.left_tree.heading('#0', text='Structure', anchor=tk.W)
-        self.left_tree.column('#0', width=300, minwidth=150)
+        self.left_tree.column('#0', width=TREE_STRUCTURE_WIDTH, minwidth=TREE_STRUCTURE_MIN_WIDTH)
         
-        # Configure columns for metadata display
+        # Configure columns for metadata display using configurable widths
         self.setup_tree_columns(self.left_tree)
         
         left_scroll = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=self.left_tree.yview)
@@ -561,13 +621,13 @@ class FolderCompareSync_class:
         self.left_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         left_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Right tree with enhanced structure for root path display
+        # Right tree with configurable column widths
         right_frame = ttk.LabelFrame(tree_frame, text="RIGHT", padding=5)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(2, 0))
         
         self.right_tree = ttk.Treeview(right_frame, show='tree headings', selectmode='none')
         self.right_tree.heading('#0', text='Structure', anchor=tk.W)
-        self.right_tree.column('#0', width=300, minwidth=150)
+        self.right_tree.column('#0', width=TREE_STRUCTURE_WIDTH, minwidth=TREE_STRUCTURE_MIN_WIDTH)
         
         self.setup_tree_columns(self.right_tree)
         
@@ -587,22 +647,22 @@ class FolderCompareSync_class:
         ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(copy_frame, text="Quit", command=self.root.quit).pack(side=tk.RIGHT)
         
-        # NEW: Status log frame at bottom (5 visible lines, scrollable, 200 line history)
+        # Status log frame at bottom using configurable dimensions and styling
         status_log_frame = ttk.LabelFrame(main_frame, text="Status Log", padding=5)
         status_log_frame.pack(fill=tk.X, pady=(0, 5))
         
-        # Create text widget with scrollbar for status log
+        # Create text widget with scrollbar for status log using configurable parameters
         status_log_container = ttk.Frame(status_log_frame)
         status_log_container.pack(fill=tk.X)
         
         self.status_log_text = tk.Text(
             status_log_container, 
-            height=5,  # 5 visible lines as requested
+            height=STATUS_LOG_VISIBLE_LINES,  # Use configurable visible lines
             wrap=tk.WORD,
             state=tk.DISABLED,  # Read-only
-            font=("Courier", 9),  # Monospace font for better alignment
-            bg="#f8f8f8",  # Light background
-            fg="#333333"   # Dark text
+            font=STATUS_LOG_FONT,  # Use configurable font
+            bg=STATUS_LOG_BG_COLOR,  # Use configurable background color
+            fg=STATUS_LOG_FG_COLOR   # Use configurable text color
         )
         
         status_log_scroll = ttk.Scrollbar(status_log_container, orient=tk.VERTICAL, command=self.status_log_text.yview)
@@ -623,19 +683,20 @@ class FolderCompareSync_class:
         # Configure tree event bindings for enhanced interaction
         self.setup_tree_events()
         
-        logger.debug("User interface setup complete")
+        logger.debug("User interface setup complete with configurable constants")
         
     def setup_tree_columns(self, tree):
-        """Setup columns for metadata display in tree"""
+        """Setup columns for metadata display in tree using configurable widths"""
         tree['columns'] = ('size', 'date_modified', 'status')
         
         tree.heading('size', text='Size', anchor=tk.E)
         tree.heading('date_modified', text='Date Modified', anchor=tk.CENTER)
         tree.heading('status', text='Status', anchor=tk.W)
         
-        tree.column('size', width=80, minwidth=60, anchor=tk.E)
-        tree.column('date_modified', width=120, minwidth=100, anchor=tk.CENTER)
-        tree.column('status', width=100, minwidth=80, anchor=tk.W)
+        # Use configurable column widths
+        tree.column('size', width=TREE_SIZE_WIDTH, minwidth=TREE_SIZE_MIN_WIDTH, anchor=tk.E)
+        tree.column('date_modified', width=TREE_DATE_WIDTH, minwidth=TREE_DATE_MIN_WIDTH, anchor=tk.CENTER)
+        tree.column('status', width=TREE_STATUS_WIDTH, minwidth=TREE_STATUS_MIN_WIDTH, anchor=tk.W)
         
     def setup_synchronized_scrolling(self):
         """Setup synchronized scrolling between tree views"""
@@ -1070,11 +1131,11 @@ class FolderCompareSync_class:
                 logger.debug(f"Right-only paths: {len(right_files.keys() - left_files.keys())}")
                 logger.debug(f"Common paths: {len(left_files.keys() & right_files.keys())}")
             
-            # Compare each path with progress updates
+            # Compare each path with progress updates using configurable frequency
             differences_found = 0
             for i, rel_path in enumerate(all_paths):
-                # Update progress every 10% or every 100 items, whichever is more frequent
-                if i % max(1, total_paths // 10) == 0 or i % 100 == 0:
+                # Update progress using configurable frequency settings
+                if i % max(1, total_paths // PROGRESS_PERCENTAGE_FREQUENCY) == 0 or i % COMPARISON_PROGRESS_BATCH == 0:
                     comparison_progress = 50 + int((i / total_paths) * 40)  # 40% of work for comparison
                     progress.update_progress(comparison_progress, f"Comparing... {i+1:,} of {total_paths:,}")
                 
@@ -1129,6 +1190,7 @@ class FolderCompareSync_class:
                                     start_percent: int, end_percent: int) -> Dict[str, FileMetadata_class]:
         """
         Build a dictionary of relative_path -> FileMetadata with progress tracking
+        Uses configurable update intervals for optimal performance
         Args:
             root_path: Root directory to scan
             progress: Progress dialog to update
@@ -1160,8 +1222,8 @@ class FolderCompareSync_class:
                 try:
                     items_processed += 1
                     
-                    # Update progress every 50 items or every 5% of total, whichever is more frequent
-                    if items_processed % max(1, min(50, total_items // 20)) == 0:
+                    # Update progress using configurable intervals for optimal performance
+                    if items_processed % max(1, min(SCAN_PROGRESS_UPDATE_INTERVAL, total_items // 20)) == 0:
                         current_percent = start_percent + int(((items_processed / total_items) * (end_percent - start_percent)))
                         progress.update_progress(current_percent, f"Scanning... {items_processed:,} items found")
                     
@@ -1486,8 +1548,8 @@ class FolderCompareSync_class:
                 path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
                 path_map[item_rel_path] = item_id
                                         
-        # Configure missing item styling
-        tree.tag_configure('missing', foreground='gray')
+        # Configure missing item styling using configurable color
+        tree.tag_configure('missing', foreground=MISSING_ITEM_COLOR)
         
     def get_item_path(self, tree, item_id):
         """Get the full relative path for a tree item"""
@@ -1620,7 +1682,7 @@ class FolderCompareSync_class:
             messagebox.showinfo("Info", "No items selected for copying")
             return
             
-        # For safety during development, just show what would be copied
+        # For safety during development, just show what would be copied using configurable preview limit
         selected_paths = []
         for item_id in self.selected_left:
             path = self.get_item_path(self.left_tree, item_id)
@@ -1629,9 +1691,9 @@ class FolderCompareSync_class:
         self.add_status_message(f"Copy preview: {len(self.selected_left):,} items from LEFT to RIGHT")
         
         message = f"Would copy {len(self.selected_left)} items from LEFT to RIGHT:\n\n"
-        message += "\n".join(selected_paths[:10])  # Show first 10 items
-        if len(selected_paths) > 10:
-            message += f"\n... and {len(selected_paths) - 10} more items"
+        message += "\n".join(selected_paths[:COPY_PREVIEW_MAX_ITEMS])  # Use configurable preview limit
+        if len(selected_paths) > COPY_PREVIEW_MAX_ITEMS:
+            message += f"\n... and {len(selected_paths) - COPY_PREVIEW_MAX_ITEMS} more items"
         message += "\n\nActual copying is disabled for safety during development."
         messagebox.showinfo("Copy Preview", message)
         
@@ -1642,7 +1704,7 @@ class FolderCompareSync_class:
             messagebox.showinfo("Info", "No items selected for copying")
             return
             
-        # For safety during development, just show what would be copied
+        # For safety during development, just show what would be copied using configurable preview limit
         selected_paths = []
         for item_id in self.selected_right:
             path = self.get_item_path(self.right_tree, item_id)
@@ -1651,9 +1713,9 @@ class FolderCompareSync_class:
         self.add_status_message(f"Copy preview: {len(self.selected_right):,} items from RIGHT to LEFT")
         
         message = f"Would copy {len(self.selected_right)} items from RIGHT to LEFT:\n\n"
-        message += "\n".join(selected_paths[:10])  # Show first 10 items
-        if len(selected_paths) > 10:
-            message += f"\n... and {len(selected_paths) - 10} more items"
+        message += "\n".join(selected_paths[:COPY_PREVIEW_MAX_ITEMS])  # Use configurable preview limit
+        if len(selected_paths) > COPY_PREVIEW_MAX_ITEMS:
+            message += f"\n... and {len(selected_paths) - COPY_PREVIEW_MAX_ITEMS} more items"
         message += "\n\nActual copying is disabled for safety during development."
         messagebox.showinfo("Copy Preview", message)
         
