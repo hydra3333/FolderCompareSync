@@ -33,19 +33,28 @@ This application uses Python's built-in __debug__ flag and logging for debugging
 
 4. Turn debug loglevel on/off within section of code within any Class Method:
     # debug some specific section of code
-    self.set_debug_mode(True)  # Turn on debug logging
+    self.set_debug_loglevel(True)  # Turn on debug logging
     ...
-    self.set_debug_mode(False)  # Turn off debug logging
+    self.set_debug_loglevel(False)  # Turn off debug logging
 
     # If you hit an error and want more detail:
     if some_error_condition:
-        self.set_debug_mode(True)  # Turn on debug logging
+        self.set_debug_loglevel(True)  # Turn on debug logging
         logger.debug("Now getting detailed debug info...")
         ...
-        self.set_debug_mode(False)  # Turn off debug logging
+        self.set_debug_loglevel(False)  # Turn off debug logging
 
 CHANGELOG:
 ==========
+Version 0.2.2 (2024-08-02):
+- ADDED: Comprehensive Windows system information in debug logs
+- ADDED: Windows build number and version name mapping (24H2, 23H2, etc.)
+- ADDED: Windows edition detection (Home/Pro/Enterprise)
+- ADDED: Computer name and detailed processor information
+- ADDED: Better system identification for troubleshooting
+- FIXED: Emoji encoding errors in log messages (replaced with ASCII)
+- IMPROVED: More detailed system environment logging
+
 Version 0.2.1 (2024-08-02):
 - ADDED: Comprehensive logging system with __debug__ support
 - ADDED: Debug mode explanation and usage instructions
@@ -89,7 +98,7 @@ import threading
 import logging
 
 # Setup logging loglevel based on __debug__ flag
-# using "-O" on the python commandline turns __debug__ on:  python -O FolderCompareSync.py
+# using "-O" on the python commandline turns __debug__ off:  python -O FolderCompareSync.py
 if __debug__:
     log_level = logging.DEBUG
     log_format = '%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
@@ -1014,17 +1023,60 @@ def main():
     """Main entry point"""
     logger.info("=== FolderCompareSync Starting ===")
     if __debug__:
+        logger.debug("Working directory : " + os.getcwd())
         logger.debug("Python version    : " + sys.version)
+        logger.debug("Computer name     : " + platform.node())
         logger.debug("Platform          : " + sys.platform)
         logger.debug("Architecture      : " + platform.architecture()[0])
         logger.debug("Machine           : " + platform.machine())
         logger.debug("Processor         : " + platform.processor())
-        logger.debug("Windows version   : " + platform.win32_ver()[0] if sys.platform == "win32" else "N/A")
-        logger.debug("Working directory : " + os.getcwd())
+        # Detailed Windows information
+        if sys.platform == "win32":
+            try:
+                win_ver = platform.win32_ver()
+                logger.debug(f"Windows version   : {win_ver[0]}")
+                logger.debug(f"Windows build     : {win_ver[1]}")
+                if win_ver[2]:  # Service pack
+                    logger.debug(f"Service pack      : {win_ver[2]}")
+                logger.debug(f"Windows type      : {win_ver[3]}")
+                
+                # Try to get Windows edition
+                try:
+                    edition = platform.win32_edition()
+                    if edition:
+                        logger.debug(f"Windows edition   : {edition}")
+                except:
+                    pass
+                # Map build numbers to version names (Windows 11 & future)
+                build_num = win_ver[1]
+                win_versions = {
+                    # Windows 11 versions
+                    "22000": "21H2 (Original release)",
+                    "22621": "22H2", 
+                    "22631": "23H2",
+                    "26100": "24H2",
+                    # Future Windows versions (anticipated)
+                    "27000": "25H1 (anticipated)",
+                    "27100": "25H2 (anticipated)"
+                }
+                if build_num in win_versions:
+                    logger.debug(f"Windows 11 version: {win_versions[build_num]}")
+                elif build_num.startswith("27") or build_num.startswith("28"):
+                    logger.debug(f"Windows version   : Future windows build {build_num}")
+                elif build_num.startswith("26") or build_num.startswith("22"):
+                    logger.debug(f"Windows 11 version: Unknown windows build {build_num}")
+                elif build_num.startswith("19"):
+                    logger.debug(f"Windows 10 build  : {build_num}")
+                else:
+                    logger.debug(f"Windows version   : Unknown windows build {build_num}")
+                # Additional system info
+                
+            except Exception as e:
+                logger.debug(f"Error getting Windows details: {e}")
     
     try:
         app = FolderCompareSync_class()
-        # incomment to MANUALLY Enable debug mode logging for testing
+        # uncomment to MANUALLY Enable debug mode logging for testing
         app.set_debug_loglevel(True)
         app.run()
     except Exception as e:
