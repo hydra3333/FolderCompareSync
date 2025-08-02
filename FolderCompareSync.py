@@ -234,10 +234,10 @@ class FolderCompareSync_class:
         global log_level
         if enabled:
             log_level = logging.DEBUG
-            logger.info("🔍 Debug logging enabled - Debug output activated")
+            logger.info("[DEBUG] Debug logging enabled - Debug output activated")
         else:
             log_level = logging.INFO
-            logger.info("🔇 Debug logging disabled - Info mode activated")
+            logger.info("[INFO] Debug logging disabled - Info mode activated")
         logger.setLevel(log_level)
         # Update status to show updated current mode
         if hasattr(self, 'status_var'):
