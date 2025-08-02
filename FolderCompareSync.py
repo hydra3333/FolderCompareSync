@@ -46,6 +46,13 @@ This application uses Python's built-in __debug__ flag and logging for debugging
 
 CHANGELOG:
 ==========
+Version 0.2.3 (2024-08-02):
+- ADDED: Smart window sizing - automatically sizes to 90% of screen resolution
+- ADDED: Automatic window centering on startup
+- IMPROVED: Better screen real estate utilization for dual-pane view
+- IMPROVED: Responsive design that works on all monitor sizes
+- IMPROVED: Maintains minimum window size constraints (800x600)
+
 Version 0.2.2 (2024-08-02):
 - ADDED: Comprehensive Windows system information in debug logs
 - ADDED: Windows build number and version name mapping (24H2, 23H2, etc.)
@@ -190,7 +197,17 @@ class FolderCompareSync_class:
         
         self.root = tk.Tk()
         self.root.title("FolderCompareSync - Folder Comparison and Syncing Tool")
-        self.root.geometry("1200x800")
+
+        # Get screen dimensions
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        # Use 90% of screen size (leaves space for taskbar/dock)
+        window_width = int(screen_width * 0.9)
+        window_height = int(screen_height * 0.9)
+        # Center the window
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
         self.root.minsize(800, 600)
         
         # Application state
