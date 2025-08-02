@@ -12,6 +12,27 @@ Users can mark files/folders for copying between the two trees with overwrite op
 Author: hydra3333
 License: AGPL-3.0
 GitHub: https://github.com/hydra3333/FolderCompareSync
+
+A CUMULATIVE CHANGELOG FOR EVERY NEW UPDATE
+===========================================
+Version 0.2.0 (2024-08-02):
+- FIXED: TypeError when building trees due to NoneType comparison results
+- FIXED: Missing item handling - now properly shows placeholders for missing files/folders
+- FIXED: Empty folder support - empty directories are now included in comparison and trees
+- FIXED: Status determination - now uses proper path mapping instead of name-only matching
+- IMPROVED: Error handling for invalid/null paths during tree construction
+- IMPROVED: Better tree structure building with null-safe operations
+- ADDED: Proper path-to-item mapping for accurate status reporting
+- ADDED: Support for preserving empty folder structures in sync operations
+
+Version 0.1.0 (2024-08-01):
+- Initial implementation with dual-pane folder comparison
+- Basic tree view with synchronized scrolling
+- File metadata comparison (existence, size, dates, SHA512)
+- Checkbox selection system with parent/child logic
+- Background comparison threading
+- Safety mode for copy operations (preview only)
+
 """
 
 import os
@@ -109,6 +130,10 @@ class FolderCompareSync_class:
         self.selected_left: Set[str] = set()
         self.selected_right: Set[str] = set()
         self.tree_structure: Dict[str, List[str]] = {'left': [], 'right': []}
+        
+        # Path mapping for proper status determination
+        self.path_to_item_left: Dict[str, str] = {}  # rel_path -> tree_item_id
+        self.path_to_item_right: Dict[str, str] = {}  # rel_path -> tree_item_id
         
         # UI References
         self.left_tree = None
@@ -415,6 +440,8 @@ class FolderCompareSync_class:
             self.comparison_results.clear()
             self.selected_left.clear()
             self.selected_right.clear()
+            self.path_to_item_left.clear()
+            self.path_to_item_right.clear()
             
             # Build file lists for both folders
             left_files = self.build_file_list(self.left_folder.get())
@@ -448,6 +475,11 @@ class FolderCompareSync_class:
         root = Path(root_path)
         
         try:
+            # Include the root directory itself if it's empty
+            if not any(root.iterdir()):
+                # Root is empty, but we still want to show it
+                pass
+                
             for path in root.rglob('*'):
                 try:
                     rel_path = path.relative_to(root).as_posix()
@@ -455,6 +487,18 @@ class FolderCompareSync_class:
                     files[rel_path] = metadata
                 except Exception:
                     continue  # Skip files we can't process
+                    
+            # Also scan for empty directories that might not be caught by rglob('*')
+            for path in root.rglob(''):  # This gets all directories
+                try:
+                    if path.is_dir() and path != root:
+                        rel_path = path.relative_to(root).as_posix()
+                        if rel_path not in files:  # Only add if not already added
+                            metadata = FileMetadata_class.from_path(str(path), False)
+                            files[rel_path] = metadata
+                except Exception:
+                    continue
+                    
         except Exception:
             pass  # Handle permission errors, etc.
             
@@ -511,7 +555,7 @@ class FolderCompareSync_class:
         right_structure = {}
         
         for rel_path, result in self.comparison_results.items():
-            if not rel_path:  # Skip empty paths
+            if not rel_path:  # Skip empty paths (but this shouldn't happen now)
                 continue
                 
             path_parts = rel_path.split('/')
@@ -568,21 +612,30 @@ class FolderCompareSync_class:
                     current[path_parts[-1]] = None  # Placeholder for missing item
             
         # Populate trees
-        self.populate_tree(self.left_tree, left_structure, '', 'left')
-        self.populate_tree(self.right_tree, right_structure, '', 'right')
+        self.populate_tree(self.left_tree, left_structure, '', 'left', '')
+        self.populate_tree(self.right_tree, right_structure, '', 'right', '')
         
-    def populate_tree(self, tree, structure, parent_id, side):
+    def populate_tree(self, tree, structure, parent_id, side, current_path):
         """Recursively populate tree with structure"""
         for name, content in sorted(structure.items()):
+            # Build the full relative path for this item
+            item_rel_path = current_path + ('/' if current_path else '') + name
+            
             if isinstance(content, dict):
                 # This is a folder
                 item_text = f"☐ {name}/"
                 item_id = tree.insert(parent_id, tk.END, text=item_text, open=False)
-                self.populate_tree(tree, content, item_id, side)
+                
+                # Store path mapping
+                path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
+                path_map[item_rel_path] = item_id
+                
+                # Recursively populate children
+                self.populate_tree(tree, content, item_id, side, item_rel_path)
             else:
                 # This is a file
                 if content is None:
-                    # Missing file
+                    # Missing file - no checkbox for missing items
                     item_text = f"{name} [MISSING]"
                     item_id = tree.insert(parent_id, tk.END, text=item_text, 
                                         values=("", "", "Missing"), tags=('missing',))
@@ -591,19 +644,17 @@ class FolderCompareSync_class:
                     size_str = self.format_size(content.size) if content.size else ""
                     date_str = content.date_modified.strftime("%Y-%m-%d %H:%M") if content.date_modified else ""
                     
-                    # Determine status by checking if this file has differences
-                    status = "Same"  # Default status
-                    
-                    # Find this item in comparison results
-                    for rel_path, result in self.comparison_results.items():
-                        if rel_path.endswith(name):
-                            if result.is_different:
-                                status = "Different"
-                            break
+                    # Determine status using proper path lookup
+                    result = self.comparison_results.get(item_rel_path)
+                    status = "Different" if result and result.is_different else "Same"
                     
                     item_text = f"☐ {name}"
                     item_id = tree.insert(parent_id, tk.END, text=item_text,
                                         values=(size_str, date_str, status))
+                
+                # Store path mapping for both missing and existing files
+                path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
+                path_map[item_rel_path] = item_id
                                         
         # Configure missing item styling
         tree.tag_configure('missing', foreground='gray')
@@ -619,9 +670,15 @@ class FolderCompareSync_class:
             # Remove checkbox and extract name
             if text.startswith('☑ ') or text.startswith('☐ '):
                 text = text[2:]
+            # Remove folder indicator
+            if text.endswith('/'):
+                text = text[:-1]
+            # Remove [MISSING] indicator
+            if text.endswith(' [MISSING]'):
+                text = text[:-10]
             path_parts.append(text)
             current = tree.parent(current)
-        return '/'.join(reversed(path_parts)) + '/'
+        return '/'.join(reversed(path_parts))
         
     def format_size(self, size_bytes):
         """Format file size in human readable format"""
@@ -633,12 +690,18 @@ class FolderCompareSync_class:
             size_bytes /= 1024.0
         return f"{size_bytes:.1f}TB"
         
+    def find_tree_item_by_path(self, rel_path, side):
+        """Find tree item ID by relative path"""
+        path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
+        return path_map.get(rel_path)
+        
     def select_all_left(self):
         """Select all different items in left pane"""
         for rel_path, result in self.comparison_results.items():
             if result.is_different and result.left_item and result.left_item.exists:
-                # Find tree item and select it
-                pass  # Implementation needed
+                item_id = self.find_tree_item_by_path(rel_path, 'left')
+                if item_id:
+                    self.selected_left.add(item_id)
         self.update_tree_display()
         self.update_summary()
         
@@ -646,8 +709,9 @@ class FolderCompareSync_class:
         """Select all different items in right pane"""
         for rel_path, result in self.comparison_results.items():
             if result.is_different and result.right_item and result.right_item.exists:
-                # Find tree item and select it
-                pass  # Implementation needed
+                item_id = self.find_tree_item_by_path(rel_path, 'right')
+                if item_id:
+                    self.selected_right.add(item_id)
         self.update_tree_display() 
         self.update_summary()
         
@@ -658,8 +722,16 @@ class FolderCompareSync_class:
             return
             
         # For safety during development, just show what would be copied
-        message = f"Would copy {len(self.selected_left)} items from LEFT to RIGHT\n"
-        message += "Actual copying is disabled for safety during development."
+        selected_paths = []
+        for item_id in self.selected_left:
+            path = self.get_item_path(self.left_tree, item_id)
+            selected_paths.append(path)
+            
+        message = f"Would copy {len(self.selected_left)} items from LEFT to RIGHT:\n\n"
+        message += "\n".join(selected_paths[:10])  # Show first 10 items
+        if len(selected_paths) > 10:
+            message += f"\n... and {len(selected_paths) - 10} more items"
+        message += "\n\nActual copying is disabled for safety during development."
         messagebox.showinfo("Copy Preview", message)
         
     def copy_right_to_left(self):
@@ -669,8 +741,16 @@ class FolderCompareSync_class:
             return
             
         # For safety during development, just show what would be copied
-        message = f"Would copy {len(self.selected_right)} items from RIGHT to LEFT\n"
-        message += "Actual copying is disabled for safety during development."
+        selected_paths = []
+        for item_id in self.selected_right:
+            path = self.get_item_path(self.right_tree, item_id)
+            selected_paths.append(path)
+            
+        message = f"Would copy {len(self.selected_right)} items from RIGHT to LEFT:\n\n"
+        message += "\n".join(selected_paths[:10])  # Show first 10 items
+        if len(selected_paths) > 10:
+            message += f"\n... and {len(selected_paths) - 10} more items"
+        message += "\n\nActual copying is disabled for safety during development."
         messagebox.showinfo("Copy Preview", message)
         
     def update_summary(self):
