@@ -4,9 +4,56 @@
 
 ---
 
-## Version 0.5.0 (2024-08-03) - Revolutionary Optimized Copy System
+## Version 0.6.1 (2024-12-17) - Enhanced Path Handling, Dry Run Safety, and Error Visibility
 
-### 🚀 Major Revolutionary Enhancement
+### 🚀 Major Enhancements
+- **Pathlib Standardization**: Complete migration from `os.path` to `pathlib` for consistent path handling
+- **Enhanced Dry Run Safety**: FileTimestampManager now fully dry-run aware for additional safety layers
+- **Improved Error Dialogs**: New expandable error dialogs with "View Details" and clipboard support
+- **SHA512 Progress Feedback**: Real-time progress updates when computing hashes for large files
+
+### 🛠️ Technical Improvements
+
+#### **Path Handling Standardization**
+- Converted ~35-40 instances from `os.path` operations to `pathlib`
+- Consistent use of `Path().exists()`, `Path() / subpath`, `Path().is_dir()`, etc.
+- Improved cross-platform compatibility and code readability
+- Enhanced reliability for edge cases in path operations
+
+#### **Enhanced Dry Run Protection**
+- `FileTimestampManager` class now accepts `dry_run` parameter
+- Complete protection against filesystem modifications in dry run mode
+- Additional safety layer beyond copy manager's dry run checks
+- Ensures zero filesystem changes when testing operations
+
+#### **Improved User Experience**
+- **Error Details Dialog**: Expandable dialog for long error messages
+  - "Show Details" button reveals full error information
+  - "Copy to Clipboard" for easy error sharing
+  - Automatic detection of long/complex error messages
+- **SHA512 Progress Updates**: Shows "Computing SHA512 for [filename] (XXX MB)..." in progress dialog
+  - Configurable threshold (default 100MB) via `SHA512_STATUS_MESSAGE_THRESHOLD`
+  - Prevents UI appearing frozen during long hash computations
+
+### 📊 New Configuration Constants
+```python
+SHA512_STATUS_MESSAGE_THRESHOLD = 100 * 1024 * 1024  # 100 MB - Show status for files larger than this
+```
+
+### 🔧 Code Quality Improvements
+- Eliminated inconsistent path handling between `os.path` and `pathlib`
+- Enhanced error visibility for better troubleshooting
+- Improved user feedback during long operations
+
+---
+
+## Version 0.5.0 (2024-08-03) - Optimized Copy System
+
+---
+
+## Version 0.5.0 (2024-08-03) - Optimized Copy System
+
+### 🚀 Major Enhancement
 - **Optimized Staged Copy Strategy**: Complete rewrite of Strategy B using rename-based backup instead of copy-based backup
 - **Performance Breakthrough**: ~50% reduction in disk space usage during large file operations
 - **Enhanced Timestamp Preservation**: Complete preservation of creation and modification times with proper rollback
@@ -15,12 +62,12 @@
 
 ### 🛠️ Optimized Copy System Architecture
 - **Strategy A (Direct)**: Enhanced direct copy with complete timestamp preservation using `FileTimestampManager`
-- **Strategy B (Optimized Staged)**: Revolutionary rename-based backup approach with atomic operations
+- **Strategy B (Optimized Staged)**: rename-based backup approach with atomic operations
 - **Resource Efficiency**: Maximum 2 files during operation vs previous 3-file approach
 - **Network Optimization**: Optimized for network drives with proper timeout and error handling
 - **Critical Error Tracking**: Comprehensive tracking and reporting of critical errors requiring user attention
 
-### 📈 Revolutionary Performance Improvements
+### 📈 Performance Improvements
 - **Disk Space Efficiency**: Only 2 files maximum during operation (renamed target + new target)
 - **Speed Enhancement**: Rename operations are atomic and near-instantaneous vs expensive copy operations
 - **Memory Optimization**: Reduced memory footprint during large file transfers
@@ -84,7 +131,7 @@ COPY_VERIFICATION_ENABLED = True              # Enhanced verification (unchanged
 ## Version 0.4.0 (2024-08-03) - Enhanced Robust Copy System
 
 ### 🚀 Major New Features
-- **Enhanced Copy System**: Revolutionary dual-strategy copy mechanism with Strategy A (Direct) and Strategy B (Staged) approaches
+- **Enhanced Copy System**: dual-strategy copy mechanism with Strategy A (Direct) and Strategy B (Staged) approaches
 - **Network Drive Detection**: Automatic detection of mapped drives (A:, B:, etc.) and UNC paths with adaptive copy strategies
 - **Comprehensive Copy Logging**: Per-operation log files with timestamped filenames for detailed copy analysis
 - **Multi-Step Copy Process**: Robust 3-step copy process with atomic operations and rollback capability
