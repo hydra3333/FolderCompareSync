@@ -4,6 +4,83 @@
 
 ---
 
+## Version 0.5.0 (2024-08-03) - Revolutionary Optimized Copy System
+
+### 🚀 Major Revolutionary Enhancement
+- **Optimized Staged Copy Strategy**: Complete rewrite of Strategy B using rename-based backup instead of copy-based backup
+- **Performance Breakthrough**: ~50% reduction in disk space usage during large file operations
+- **Enhanced Timestamp Preservation**: Complete preservation of creation and modification times with proper rollback
+- **Atomic Operations**: True atomic file operations using Windows rename primitives for maximum reliability
+- **Zero-Fallback Design**: Robust error handling with comprehensive user guidance instead of fallback strategies
+
+### 🛠️ Optimized Copy System Architecture
+- **Strategy A (Direct)**: Enhanced direct copy with complete timestamp preservation using `FileTimestampManager`
+- **Strategy B (Optimized Staged)**: Revolutionary rename-based backup approach with atomic operations
+- **Resource Efficiency**: Maximum 2 files during operation vs previous 3-file approach
+- **Network Optimization**: Optimized for network drives with proper timeout and error handling
+- **Critical Error Tracking**: Comprehensive tracking and reporting of critical errors requiring user attention
+
+### 📈 Revolutionary Performance Improvements
+- **Disk Space Efficiency**: Only 2 files maximum during operation (renamed target + new target)
+- **Speed Enhancement**: Rename operations are atomic and near-instantaneous vs expensive copy operations
+- **Memory Optimization**: Reduced memory footprint during large file transfers
+- **Network Resilience**: Enhanced network drive handling with proper error recovery
+
+### 🔧 Enhanced Technical Implementation
+
+#### **Optimized 4-Step Staged Copy Process**
+```
+Step 1: Save Original Timestamps (for potential rollback)
+Step 2: Rename Target to Backup (atomic, fast operation)
+Step 3: Copy Source to Target Location (single copy operation)
+Step 4: Verify and Finalize (remove backup on success)
+
+On Failure: Comprehensive Rollback
+- Remove any partial target file
+- Rename backup back to original location
+- Restore original timestamps precisely
+```
+
+#### **Enhanced Error Handling Strategy**
+- **Rename Failure**: Immediate abort with detailed network/locking guidance
+- **Process Interruption**: Complete rollback with original timestamp restoration
+- **No Fallback Approach**: Clear error reporting with user guidance instead of silent fallbacks
+- **Critical Error Collection**: Aggregated critical errors in completion dialogs
+
+### 📝 Enhanced Logging & User Experience
+- **Step-by-Step Logging**: Detailed logging of each optimized copy step
+- **Operation ID Tracking**: Unique operation IDs for comprehensive audit trails
+- **Critical Error Reporting**: Special handling and reporting of errors requiring user attention
+- **Rollback Documentation**: Complete logging of rollback procedures when failures occur
+
+### 🛡️ Enhanced Safety & Reliability
+- **Original File Preservation**: Original files never lost during copy operations
+- **Atomic Rename Operations**: True atomic operations on Windows file systems
+- **Complete Timestamp Restoration**: Both creation and modification times preserved during rollback
+- **Comprehensive Verification**: Post-copy verification with detailed success/failure reporting
+
+### 📊 Configuration Enhancements
+```python
+# Optimized copy system maintains all existing thresholds
+COPY_STRATEGY_THRESHOLD = 10 * 1024 * 1024    # 10MB threshold (unchanged)
+COPY_VERIFICATION_ENABLED = True              # Enhanced verification (unchanged)
+# New optimized implementation with same user-facing behavior
+```
+
+### 🎯 User Experience Improvements
+- **Enhanced Progress Dialogs**: Progress dialogs now show specific copy strategy being used
+- **Detailed Completion Reports**: Completion dialogs include critical error summaries and guidance
+- **Operation Tracking**: Enhanced operation ID display for log file reference
+- **Comprehensive Guidance**: Detailed user guidance for network issues and file locking problems
+
+### 🚨 Migration from v0.4.0
+- **Fully Backward Compatible**: All existing functionality preserved
+- **Same User Interface**: No changes to user-facing controls or workflow
+- **Enhanced Performance**: Automatic performance improvements for all copy operations
+- **Improved Reliability**: Enhanced error handling without changing user experience
+
+---
+
 ## Version 0.4.0 (2024-08-03) - Enhanced Robust Copy System
 
 ### 🚀 Major New Features
@@ -340,4 +417,4 @@ COPY_NETWORK_TIMEOUT = 30.0                   # Network operation timeout in sec
 
 ---
 
-*For detailed technical specifications and implementation details, see SPECIFICATION.md*
+*For detailed technical specifications and implementation details, see EVOLVING_SPECIFICATION.md*
