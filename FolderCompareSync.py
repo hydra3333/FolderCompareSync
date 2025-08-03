@@ -2,15 +2,23 @@
 """
 FolderCompareSync - A Professional Folder Comparison & Synchronization Tool with Optimized Copy System
 
-Version 0.6.0 - Enhanced Performance Limits and Dry Run Capability
+Version 0.6.1 - Enhanced with pathlib standardization, dry run safety, and improved error handling
 
 A GUI application for comparing two directory trees based on metadata and syncing them with optimized performance.
 This tool provides a visual interface to compare two folder structures, identifying differences based on file 
 existence, size, dates, and SHA512 hashes, then copy files between them using an optimized dual-strategy 
 copy system with a safer backup/copy/revert approach for copying larger files.
 
-LATEST CHANGES (v0.6.0):
+LATEST CHANGES (v0.6.1):
 ========================
+- Standardized all path operations to use pathlib instead of os.path for consistency
+- Enhanced FileTimestampManager with dry run awareness for additional safety
+- Added progress dialog updates for large SHA512 computations with configurable threshold
+- Implemented detailed error dialogs with "View Details" button for better error visibility
+- All improvements maintain backward compatibility and enhance robustness
+
+PREVIOUS CHANGES (v0.6.0):
+===========================
 - Added 100,000 file/folder limit with early abort during scanning for performance management
 - Implemented comprehensive DRY RUN mode for safe operation testing without actual file I/O
 - Added status log export functionality to clipboard and file for better record keeping
@@ -31,6 +39,7 @@ KEY FEATURES:
 - Real-time performance monitoring and strategy selection feedback
 - DRY RUN mode for safe testing of operations without actual file modifications
 - Configurable limits for handling large folder structures with performance warnings
+- Enhanced error dialogs with detailed information and clipboard support
 
 COPY STRATEGIES:
 ================
@@ -139,6 +148,7 @@ PROGRESS_PERCENTAGE_FREQUENCY = 1  # Update percentage display every N%
 
 # File processing limits and thresholds
 SHA512_MAX_FILE_SIZE = (1000 * 1024 * 1024) * 25  # 25 GB filesize limit for hash computation
+SHA512_STATUS_MESSAGE_THRESHOLD = 100 * 1024 * 1024  # 100 MB - Show status for files larger than this
 COPY_PREVIEW_MAX_ITEMS = 10                       # Max items to show in copy preview dialog
 SCAN_PROGRESS_UPDATE_INTERVAL = 50                # Update scanning progress every N items
 COMPARISON_PROGRESS_BATCH = 100                   # Process comparison updates every N items
@@ -209,6 +219,7 @@ class FileTimestampManager:
     --------
     Handles both retrieval and setting of creation and modification times
     with proper timezone awareness for accurate file metadata preservation.
+    Supports dry run mode to prevent actual filesystem modifications.
     
     Usage:
     ------
@@ -218,10 +229,11 @@ class FileTimestampManager:
     timestamp_manager.copy_timestamps("source.txt", "target.txt")
     """
     
-    def __init__(self):
+    def __init__(self, dry_run=False):
         """Initialize the timestamp manager with local timezone detection."""
         self._local_tz = self._get_local_timezone()
         self._windows_epoch = datetime(1601, 1, 1, tzinfo=timezone.utc)
+        self._dry_run = dry_run
     
     def _get_local_timezone(self):
         """Get the system's local timezone reliably."""
@@ -322,6 +334,9 @@ class FileTimestampManager:
             FileNotFoundError: If the file doesn't exist
             ValueError: If neither timestamp is provided
         """
+        if self._dry_run:
+            return True  # Simulate success in dry run mode
+            
         if creation_time is None and modification_time is None:
             raise ValueError("At least one timestamp must be provided")
         
@@ -441,6 +456,9 @@ class FileTimestampManager:
         Returns:
             True if successful, False otherwise
         """
+        if self._dry_run:
+            return True  # Simulate success in dry run mode
+            
         try:
             creation_time, modification_time = self.get_file_timestamps(source_file)
             return self.set_file_timestamps(target_file, creation_time, modification_time)
@@ -465,6 +483,89 @@ class FileTimestampManager:
             return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 # ---------- End of Common FileTimestampManager Code ----------
+
+# ============================================================================
+# ERROR DIALOG WITH DETAILS
+# ============================================================================
+
+class ErrorDetailsDialog:
+    """Custom error dialog with expandable details section."""
+    
+    def __init__(self, parent, title, summary, details):
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title(title)
+        self.dialog.geometry("500x200")
+        self.dialog.resizable(True, True)
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        # Main frame
+        main_frame = ttk.Frame(self.dialog, padding=15)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Error icon and summary
+        summary_frame = ttk.Frame(main_frame)
+        summary_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(summary_frame, text="❌", font=("TkDefaultFont", 16)).pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Truncate summary if too long
+        display_summary = summary[:200] + "..." if len(summary) > 200 else summary
+        ttk.Label(summary_frame, text=display_summary, wraplength=400).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Buttons frame
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.details_shown = False
+        self.details_button = ttk.Button(button_frame, text="Show Details ▼", command=self.toggle_details)
+        self.details_button.pack(side=tk.LEFT, padx=(0, 5))
+        
+        ttk.Button(button_frame, text="Copy to Clipboard", command=self.copy_to_clipboard).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(button_frame, text="OK", command=self.dialog.destroy).pack(side=tk.RIGHT)
+        
+        # Details frame (initially hidden)
+        self.details_frame = ttk.LabelFrame(main_frame, text="Full Error Details", padding=5)
+        
+        # Details text with scrollbar
+        self.details_text = tk.Text(self.details_frame, wrap=tk.WORD, height=10, width=60)
+        details_scroll = ttk.Scrollbar(self.details_frame, command=self.details_text.yview)
+        self.details_text.configure(yscrollcommand=details_scroll.set)
+        
+        self.details_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        details_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.details_text.insert('1.0', details)
+        self.details_text.config(state=tk.DISABLED)
+        
+        self.full_error = f"{summary}\n\nDetails:\n{details}"
+        
+        # Center on parent
+        self.dialog.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() // 2) - (self.dialog.winfo_width() // 2)
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - (self.dialog.winfo_height() // 2)
+        self.dialog.geometry(f"+{x}+{y}")
+        
+    def toggle_details(self):
+        if self.details_shown:
+            self.details_frame.pack_forget()
+            self.details_button.config(text="Show Details ▼")
+            self.dialog.geometry("500x200")
+        else:
+            self.details_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+            self.details_button.config(text="Hide Details ▲")
+            self.dialog.geometry("500x400")
+        self.details_shown = not self.details_shown
+        
+    def copy_to_clipboard(self):
+        self.dialog.clipboard_clear()
+        self.dialog.clipboard_append(self.full_error)
+        self.dialog.update()
+        # Show temporary confirmation
+        self.details_button.config(text="Copied! ✓")
+        self.dialog.after(1500, lambda: self.details_button.config(
+            text="Hide Details ▲" if self.details_shown else "Show Details ▼"
+        ))
 
 # ============================================================================
 # ENHANCED COPY SYSTEM ENUMS AND CLASSES
@@ -949,7 +1050,7 @@ class EnhancedFileCopyManager:
         self.status_callback = status_callback
         self.operation_id = None
         self.operation_logger = None
-        self.timestamp_manager = FileTimestampManager()  # Single instance
+        self.timestamp_manager = FileTimestampManager()  # Single instance, will update in set_dry_run_mode
         self.dry_run_mode = False  # New: Dry run mode flag
         self.operation_sequence = 0  # New: Sequential numbering for operations
         
@@ -967,6 +1068,7 @@ class EnhancedFileCopyManager:
         enabled: True to enable dry run mode, False for normal operations
         """
         self.dry_run_mode = enabled
+        self.timestamp_manager = FileTimestampManager(dry_run=enabled)  # Update timestamp manager
         mode_text = "DRY RUN" if enabled else "NORMAL"
         self._log_status(f"Copy manager mode set to: {mode_text}")
         
@@ -993,13 +1095,13 @@ class EnhancedFileCopyManager:
             
         try:
             # Check file existence
-            if not os.path.exists(target_path):
+            if not Path(target_path).exists():
                 self._log_status(f"Verification failed: Target file does not exist: {target_path}")
                 return False
             
             # Check file size
-            source_size = os.path.getsize(source_path)
-            target_size = os.path.getsize(target_path)
+            source_size = Path(source_path).stat().st_size
+            target_size = Path(target_path).stat().st_size
             
             if source_size != target_size:
                 self._log_status(f"Verification failed: Size mismatch - Source: {source_size}, Target: {target_size}")
@@ -1018,7 +1120,7 @@ class EnhancedFileCopyManager:
         Uses shutil.copy2 with enhanced error handling and verification.
         """
         start_time = time.time()
-        file_size = os.path.getsize(source_path)
+        file_size = Path(source_path).stat().st_size
         
         dry_run_prefix = "DRY RUN: " if self.dry_run_mode else ""
         self._log_status(f"{dry_run_prefix}Using DIRECT strategy for {os.path.basename(source_path)} ({file_size} bytes)")
@@ -1035,12 +1137,12 @@ class EnhancedFileCopyManager:
         
         try:
             # Ensure target directory exists (or simulate in dry run)
-            target_dir = os.path.dirname(target_path)
-            if target_dir and not os.path.exists(target_dir):
+            target_dir = Path(target_path).parent
+            if target_dir and not target_dir.exists():
                 if self.dry_run_mode:
                     self._log_status(f"DRY RUN: Would create target directory: {target_dir}")
                 else:
-                    os.makedirs(target_dir, exist_ok=True)
+                    target_dir.mkdir(parents=True, exist_ok=True)
                     self._log_status(f"Created target directory: {target_dir}")
             
             # Perform direct copy (or simulate in dry run)
@@ -1086,7 +1188,7 @@ class EnhancedFileCopyManager:
         Uses atomic rename operations instead of expensive copy operations for backup.
         """
         start_time = time.time()
-        file_size = os.path.getsize(source_path)
+        file_size = Path(source_path).stat().st_size
         
         dry_run_prefix = "DRY RUN: " if self.dry_run_mode else ""
         self._log_status(f"{dry_run_prefix}Using OPTIMIZED STAGED strategy for {os.path.basename(source_path)} ({file_size} bytes)")
@@ -1103,23 +1205,23 @@ class EnhancedFileCopyManager:
         
         # Generate unique identifier for backup file
         backup_uuid = uuid.uuid4().hex[:8]
-        backup_path = f"{target_path}.backup_{backup_uuid}" if os.path.exists(target_path) else None
+        backup_path = f"{target_path}.backup_{backup_uuid}" if Path(target_path).exists() else None
         original_timestamps = None
         
         result.backup_path = backup_path
         
         try:
             # Ensure target directory exists (or simulate in dry run)
-            target_dir = os.path.dirname(target_path)
-            if target_dir and not os.path.exists(target_dir):
+            target_dir = Path(target_path).parent
+            if target_dir and not target_dir.exists():
                 if self.dry_run_mode:
                     self._log_status(f"DRY RUN: Would create target directory: {target_dir}")
                 else:
-                    os.makedirs(target_dir, exist_ok=True)
+                    target_dir.mkdir(parents=True, exist_ok=True)
                     self._log_status(f"Created target directory: {target_dir}")
             
             # Step 1: Check overwrite permission and save original timestamps (or simulate in dry run)
-            if os.path.exists(target_path):
+            if Path(target_path).exists():
                 if not overwrite:
                     result.error_message = "Target file exists and overwrite is disabled"
                     self._log_status(f"{dry_run_prefix}OPTIMIZED STAGED copy skipped: Target exists and overwrite disabled")
@@ -1137,7 +1239,7 @@ class EnhancedFileCopyManager:
                     # Continue anyway - this is not critical for copy operation
             
             # Step 2: Rename target to backup (atomic, fast operation) (or simulate in dry run)
-            if os.path.exists(target_path):
+            if Path(target_path).exists():
                 try:
                     self._log_status(f"{dry_run_prefix}Step 2: Renaming target to backup: {target_path} -> {backup_path}")
                     if not self.dry_run_mode:
@@ -1196,7 +1298,7 @@ class EnhancedFileCopyManager:
                     self._log_status(f"DRY RUN: Verification simulation completed")
             
             # Step 5: Success - remove backup file (or simulate in dry run)
-            if backup_path and (os.path.exists(backup_path) or self.dry_run_mode):
+            if backup_path and (Path(backup_path).exists() or self.dry_run_mode):
                 try:
                     if not self.dry_run_mode:
                         os.remove(backup_path)
@@ -1222,7 +1324,7 @@ class EnhancedFileCopyManager:
                     self._log_status(f"Beginning rollback procedure for failed OPTIMIZED STAGED copy")
                     
                     # Remove any partial target file
-                    if os.path.exists(target_path):
+                    if Path(target_path).exists():
                         try:
                             os.remove(target_path)
                             self._log_status(f"Removed partial target file: {target_path}")
@@ -1230,7 +1332,7 @@ class EnhancedFileCopyManager:
                             self._log_status(f"Warning: Could not remove partial target file: {remove_error}")
                     
                     # Restore backup file if it exists
-                    if backup_path and os.path.exists(backup_path):
+                    if backup_path and Path(backup_path).exists():
                         try:
                             self._log_status(f"Restoring backup file: {backup_path} -> {target_path}")
                             os.rename(backup_path, target_path)
@@ -1292,7 +1394,7 @@ class EnhancedFileCopyManager:
         self.operation_sequence += 1
         
         # Validate input paths
-        if not os.path.exists(source_path):
+        if not Path(source_path).exists():
             return CopyOperationResult(
                 success=False,
                 strategy_used=CopyStrategy.DIRECT,
@@ -1303,7 +1405,7 @@ class EnhancedFileCopyManager:
                 error_message="Source file does not exist"
             )
         
-        if not os.path.isfile(source_path):
+        if not Path(source_path).is_file():
             return CopyOperationResult(
                 success=False,
                 strategy_used=CopyStrategy.DIRECT,
@@ -1315,7 +1417,7 @@ class EnhancedFileCopyManager:
             )
         
         # Get file size for strategy determination
-        file_size = os.path.getsize(source_path)
+        file_size = Path(source_path).stat().st_size
         
         # Determine copy strategy
         strategy = determine_copy_strategy(source_path, target_path, file_size)
@@ -1628,7 +1730,7 @@ class FolderCompareSync_class:
         except Exception as e:
             error_msg = f"Failed to export status log: {str(e)}"
             self.add_status_message(f"ERROR: {error_msg}")
-            messagebox.showerror("Export Error", error_msg)
+            self.show_error(error_msg)
 
     def on_dry_run_changed(self):
         """
@@ -1950,9 +2052,8 @@ class FolderCompareSync_class:
             self.status_var.set("LIMIT EXCEEDED - Operation Aborted")
             self.summary_var.set(f"ERROR: {error_msg}")
             
-            # Show user dialog
-            messagebox.showerror(
-                "File Limit Exceeded",
+            # Show user dialog with detailed error
+            detailed_error = (
                 f"{error_msg}\n\n"
                 f"{limit_msg}\n\n"
                 f"To resolve this issue:\n"
@@ -1961,6 +2062,7 @@ class FolderCompareSync_class:
                 f"• Consider organizing large datasets into manageable chunks\n\n"
                 f"This limit prevents performance issues with very large datasets."
             )
+            ErrorDetailsDialog(self.root, "File Limit Exceeded", error_msg, detailed_error)
             
             return True
         
@@ -2710,21 +2812,21 @@ class FolderCompareSync_class:
             error_msg = "Both folders must be selected before comparison"
             logger.error(f"Comparison failed: {error_msg}")
             self.add_status_message(f"Error: {error_msg}")
-            messagebox.showerror("Error", "Please select both folders to compare")
+            self.show_error("Please select both folders to compare")
             return
             
-        if not os.path.exists(self.left_folder.get()):
+        if not Path(self.left_folder.get()).exists():
             error_msg = f"Left folder does not exist: {self.left_folder.get()}"
             logger.error(error_msg)
             self.add_status_message(f"Error: {error_msg}")
-            messagebox.showerror("Error", "Left folder does not exist")
+            self.show_error(error_msg)
             return
             
-        if not os.path.exists(self.right_folder.get()):
+        if not Path(self.right_folder.get()).exists():
             error_msg = f"Right folder does not exist: {self.right_folder.get()}"
             logger.error(error_msg)
             self.add_status_message(f"Error: {error_msg}")
-            messagebox.showerror("Error", "Right folder does not exist")
+            self.show_error(error_msg)
             return
         
         # Reset limit state for new comparison
@@ -2913,7 +3015,7 @@ class FolderCompareSync_class:
         if __debug__:
             logger.debug(f"Building file list with progress for: {root_path}")
         
-        assert os.path.exists(root_path), f"Root path must exist: {root_path}"
+        assert Path(root_path).exists(), f"Root path must exist: {root_path}"
         
         files = {}
         root = Path(root_path)
@@ -2953,6 +3055,14 @@ class FolderCompareSync_class:
                         progress.update_progress(current_percent, f"Scanning... {items_processed:,} items found")
                     
                     rel_path = path.relative_to(root).as_posix()
+                    
+                    # Check if we need to compute SHA512 for large files
+                    if self.compare_sha512.get() and path.is_file():
+                        size = path.stat().st_size
+                        if size > SHA512_STATUS_MESSAGE_THRESHOLD:
+                            size_mb = size / (1024 * 1024)
+                            progress.update_message(f"Computing SHA512 for {path.name} ({size_mb:.1f} MB)...")
+                    
                     metadata = FileMetadata_class.from_path(str(path), self.compare_sha512.get())
                     files[rel_path] = metadata
                     
@@ -3762,21 +3872,21 @@ class FolderCompareSync_class:
                     progress_text = f"{'Simulating' if is_dry_run else 'Copying'} {i+1} of {len(selected_paths)}: {os.path.basename(rel_path)}"
                     progress.update_progress(i, progress_text)
                     
-                    source_path = os.path.join(source_folder, rel_path)
-                    dest_path = os.path.join(dest_folder, rel_path)
+                    source_path = str(Path(source_folder) / rel_path)
+                    dest_path = str(Path(dest_folder) / rel_path)
                     
                     # Skip if source doesn't exist
-                    if not os.path.exists(source_path):
+                    if not Path(source_path).exists():
                         skipped_count += 1
                         self.copy_manager._log_status(f"Source file not found, skipping: {source_path}")
                         continue
                     
                     # Handle directories separately (create them, don't copy as files)
-                    if os.path.isdir(source_path):
+                    if Path(source_path).is_dir():
                         # Create destination directory if needed (or simulate in dry run)
-                        if not os.path.exists(dest_path):
+                        if not Path(dest_path).exists():
                             if not is_dry_run:
-                                os.makedirs(dest_path, exist_ok=True)
+                                Path(dest_path).mkdir(parents=True, exist_ok=True)
                                 copied_count += 1
                                 self.copy_manager._log_status(f"Created directory: {dest_path}")
                             else:
@@ -3867,17 +3977,31 @@ class FolderCompareSync_class:
                 completion_msg += f"Check the detailed log for complete operation simulation.\n"
             else:
                 if critical_errors:
-                    completion_msg += f"\nCRITICAL ERRORS ENCOUNTERED ({len(critical_errors)}):\n"
-                    for path, error in critical_errors[:3]:  # Show first 3 critical errors
-                        completion_msg += f"• {path}: {error[:100]}...\n"
-                    if len(critical_errors) > 3:
-                        completion_msg += f"• ... and {len(critical_errors) - 3} more critical errors\n"
-                    completion_msg += "\nRECOMMENDED ACTION: Check the detailed log file for troubleshooting.\n"
-                    completion_msg += "These errors may indicate network issues or file locking problems.\n\n"
+                    # Build error details separately
+                    error_details = f"CRITICAL ERRORS ENCOUNTERED ({len(critical_errors)}):\n\n"
+                    for i, (path, error) in enumerate(critical_errors):
+                        error_details += f"{i+1}. {path}:\n   {error}\n\n"
+                    error_details += "\nRECOMMENDED ACTION: Check the detailed log file for troubleshooting.\n"
+                    error_details += "These errors may indicate network issues or file locking problems."
+                    
+                    # Add summary to main message
+                    completion_msg += f"\n⚠️ {len(critical_errors)} CRITICAL ERRORS - Click 'Show Details' to view\n\n"
                 
                 completion_msg += "The folder trees will now be refreshed and selections cleared."
             
-            self.root.after(0, lambda: messagebox.showinfo(f"{'Simulation' if is_dry_run else 'Copy'} Complete", completion_msg))
+            # Use error dialog if there were critical errors, otherwise info dialog
+            if critical_errors and not is_dry_run:
+                self.root.after(0, lambda: ErrorDetailsDialog(
+                    self.root, 
+                    f"Copy Complete with Errors", 
+                    completion_msg, 
+                    error_details
+                ))
+            else:
+                self.root.after(0, lambda: messagebox.showinfo(
+                    f"{'Simulation' if is_dry_run else 'Copy'} Complete", 
+                    completion_msg
+                ))
             
             # IMPORTANT: Only refresh trees and clear selections for actual copy operations (not dry runs)
             if not is_dry_run:
@@ -3955,9 +4079,21 @@ class FolderCompareSync_class:
         self.summary_var.set(summary)
         
     def show_error(self, message):
-        """Show error message to user with enhanced context."""
+        """Show error message to user with enhanced context and details option."""
         logger.error(f"Displaying error to user: {message}")
-        messagebox.showerror("Error", message)
+        
+        # Split message into summary and details if it's long
+        if len(message) > 100 or '\n' in message or '|' in message:
+            # Try to create meaningful summary
+            if ':' in message:
+                summary = message.split(':')[0] + " (see details)"
+            else:
+                summary = message[:100] + "..."
+            ErrorDetailsDialog(self.root, "Error", summary, message)
+        else:
+            # Short message - use simple dialog
+            messagebox.showerror("Error", message)
+            
         self.status_var.set("Ready")
         
     def run(self):
@@ -3992,7 +4128,7 @@ def main():
     Application startup function that initializes logging, detects system
     configuration, and starts the main application with proper error handling.
     """
-    logger.info("=== FolderCompareSync Starting (Optimized Copy System v0.6.0) ===")
+    logger.info("=== FolderCompareSync Starting (Optimized Copy System v0.6.1) ===")
     if __debug__:
         logger.debug("Working directory : " + os.getcwd())
         logger.debug("Python version    : " + sys.version)
@@ -4049,15 +4185,18 @@ def main():
             logger.debug(f"Error getting Windows details: {e}")
     
     # Log enhanced configuration including new limits and features
-    logger.debug("Enhanced Configuration (v0.6.0):")
+    logger.debug("Enhanced Configuration (v0.6.1):")
     logger.debug(f"  Max files/folders: {MAX_FILES_FOLDERS:,}")
     logger.debug(f"  Status log history: {STATUS_LOG_MAX_HISTORY:,} lines")
     logger.debug(f"  Copy strategy threshold: {COPY_STRATEGY_THRESHOLD / (1024*1024):.1f} MB")
+    logger.debug(f"  SHA512 status threshold: {SHA512_STATUS_MESSAGE_THRESHOLD / (1024*1024):.1f} MB")
     logger.debug(f"  Verification enabled: {COPY_VERIFICATION_ENABLED}")
     logger.debug(f"  Retry count: {COPY_RETRY_COUNT}")
     logger.debug(f"  Network timeout: {COPY_NETWORK_TIMEOUT}s")
     logger.debug(f"  Dry run support: Enabled")
     logger.debug(f"  Status log export: Enabled")
+    logger.debug(f"  Error details dialog: Enabled")
+    logger.debug(f"  Path handling: Standardized on pathlib")
     
     try:
         app = FolderCompareSync_class()
@@ -4077,3 +4216,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+        
