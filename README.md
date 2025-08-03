@@ -2,6 +2,16 @@
 
 **A GUI Folder Tree Comparison & Synchronization Tool for Windows 10+ with Revolutionary Optimized Copy System**
 
+![Version](https://img.shields.io/badge/version-0.6.1-blue) ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-lightgrey) ![License](https://img.shields.io/badge/license-AGPL--3.0-green) ![Performance](https://img.shields.io/badge/performance-50%25%20faster-brightgreen)
+
+#### UNTESTED, UNDER DEVELOPMENT, BEWARE    
+#### Iteratively developed AI generated code.    
+
+---
+
+## What is FolderCompareSync?
+**A GUI Folder Tree Comparison & Synchronization Tool for Windows 10+ with Revolutionary Optimized Copy System**
+
 ![Version](https://img.shields.io/badge/version-0.5.0-blue) ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-lightgrey) ![License](https://img.shields.io/badge/license-AGPL--3.0-green) ![Performance](https://img.shields.io/badge/performance-50%25%20faster-brightgreen)
 
 #### UNTESTED, UNDER DEVELOPMENT, BEWARE    
@@ -11,6 +21,18 @@
 
 ## What is FolderCompareSync?
 
+
+FolderCompareSync is a powerful, easy-to-use tool that helps you **compare two folders side-by-side** and **synchronize files between them** with **breakthrough performance**. Think of it as a professional version of "copy and paste" that shows you exactly what's different and lets you choose what to copy with **revolutionary speed and reliability**.
+
+### 🎉 **NEW in v0.6.1: Enhanced Safety and User Experience**
+- **Improved path handling** with complete pathlib standardization
+- **Enhanced dry run safety** with multi-layer protection
+- **Better error visibility** with expandable detail dialogs
+- **Real-time feedback** for large file hash computations
+
+### 🚀 **NEW in v0.5.0: Revolutionary Performance Breakthrough**
+- **50% faster copying** for large files and network drives
+- **50% less disk space** used during copy operations  
 FolderCompareSync is a powerful, easy-to-use tool that helps you **compare two folders side-by-side** and **synchronize files between them** with **breakthrough performance**. Think of it as a professional version of "copy and paste" that shows you exactly what's different and lets you choose what to copy with **revolutionary speed and reliability**.
 
 ### 🚀 **NEW in v0.5.0: Revolutionary Performance Breakthrough**
@@ -52,11 +74,26 @@ FolderCompareSync is a powerful, easy-to-use tool that helps you **compare two f
 - **Performance optimized**: Handle up to 200,000 filtered results without slowdown
 
 ### 🛡️ **Professional Copy Operations with Enhanced Safety**
+- **DRY RUN mode** (NEW): Test operations without any file modifications
+- **Multi-layer safety**: FileTimestampManager now fully dry-run aware (v0.6.1)
+- **Preview before copying**: See exactly what will be copied with strategy indication
+- **Enhanced progress tracking**: Real-time file-by-file copy progress with performance metrics
+- **Advanced error handling**: Continues operation even if some files fail with comprehensive error reporting
+- **Performance optimized**: Handle up to 200,000 filtered results without slowdown
+
+### 🛡️ **Professional Copy Operations with Enhanced Safety**
 - **Preview before copying**: See exactly what will be copied with strategy indication
 - **Enhanced progress tracking**: Real-time file-by-file copy progress with performance metrics
 - **Advanced error handling**: Continues operation even if some files fail with comprehensive error reporting
 - **Automatic rollback**: Complete restoration of original files if operations fail with timestamp preservation
 - **Auto-refresh**: Automatically rescans folders after copying to show current state
+
+### 📝 **Comprehensive Logging with Performance Tracking**
+- **Status log window**: See exactly what the program is doing with performance context
+- **Enhanced error dialogs** (NEW v0.6.1): Expandable details with clipboard support
+- **Operation history**: 500-line scrollable history of all operations with timing
+- **Detailed progress**: Progress dialogs for all long-running operations with strategy indication
+- **Per-operation logs**: Individual log files with performance metrics and operation IDs
 
 ### 📝 **Comprehensive Logging with Performance Tracking**
 - **Status log window**: See exactly what the program is doing with performance context
@@ -82,6 +119,13 @@ FolderCompareSync is a powerful, easy-to-use tool that helps you **compare two f
 1. **Select folders**: Click "Browse" to choose your left and right folders
 2. **Choose comparison options**: Select what to compare (size, dates, content)
 3. **Click "Compare"**: The program will scan both folders and show differences
+3. **Click "Compare"**: The program will scan both folders and show differences
+4. **Select files**: Check the boxes next to files you want to copy
+5. **Copy files**: Click "Copy LEFT to Right" or "Copy RIGHT to Left"
+   - **NEW v0.6.1**: Enable "DRY RUN Only" to test without making changes!
+   - **NEW**: Watch the status log for real-time strategy selection and performance improvements!
+
+---
 4. **Select files**: Check the boxes next to files you want to copy
 5. **Copy files**: Click "Copy LEFT to Right" or "Copy RIGHT to Left"
    - **NEW**: Watch the status log for real-time strategy selection and performance improvements!
@@ -177,6 +221,13 @@ The application automatically selects the optimal copy method for maximum perfor
 - **Watch the status log** to see copy strategy selection and performance improvements in real-time
 - **Network drives**: Enjoy automatic optimization - no configuration needed!
 - **Large files**: Experience 50% faster copying with the new Optimized Staged Strategy
+- **Date Created**: Files with different creation dates (enhanced preservation)
+- **Date Modified**: Files with different modification dates (enhanced preservation)
+- **SHA512**: Files with different content (cryptographic hash comparison with performance optimization)
+  - **NEW v0.6.1**: Progress feedback for large files (>100MB) during hash computation
+
+### **Smart Selection with Performance Context**
+- **Individual files**: Click checkboxes next to specific files
 
 ### 🛡️ **Enhanced Safety Features**
 - **Preview dialogs** show exactly what will be copied with strategy indication
@@ -192,6 +243,13 @@ The application automatically selects the optimal copy method for maximum perfor
 
 ### **Breakthrough Copy System Improvements**
 - **50% Performance Gain**: Revolutionary Optimized Staged Strategy uses rename-based backup
+- **Test with small folders first** to see the performance improvements in action
+- **Always preview** what will be copied before confirming operations - now shows copy strategy
+- **Check available disk space** before large copy operations (now requires 50% less temporary space)
+- **Use DRY RUN mode** (NEW v0.6.1) to test operations safely before executing
+- **Close other programs** when working with very large folders for optimal performance
+
+### ⚡ **Performance Tips (Enhanced v0.5.0)**
 - **Reduced Resource Usage**: Maximum 2 files during operation vs traditional 3-file approaches
 - **Enhanced Timestamp Preservation**: Complete creation and modification time preservation with rollback
 - **Atomic Operations**: True atomic file operations using Windows rename primitives
@@ -204,6 +262,13 @@ The application automatically selects the optimal copy method for maximum perfor
 - **Operation IDs**: Unique tracking for each copy operation with detailed logs
 
 ### **Technical Improvements**
+
+### 🛡️ **Enhanced Safety Features**
+- **Preview dialogs** show exactly what will be copied with strategy indication
+- **DRY RUN mode** (NEW v0.6.1) for testing without file modifications
+- **Confirmation prompts** prevent accidental operations with performance context
+- **Enhanced error handling** continues operation with comprehensive error reporting and rollback
+- **Atomic operations** ensure data safety with Windows-native rename primitives
 - **Zero-Fallback Design**: Clear error reporting instead of silent fallbacks that mask problems
 - **Enhanced Error Categories**: Network issues, file locking, permissions with specific guidance
 - **Complete Recovery**: Automatic rollback with exact timestamp restoration
@@ -213,6 +278,27 @@ The application automatically selects the optimal copy method for maximum perfor
 
 ## 📚 Documentation
 
+---
+
+## 🎯 What's New
+
+### v0.6.1: Enhanced Safety and User Experience
+
+- **Improved Code Quality**
+  - Complete pathlib standardization for consistent path handling
+  - Enhanced dry run safety with FileTimestampManager awareness
+  - Better error handling and user feedback
+
+- **Enhanced User Experience**
+  - Expandable error dialogs with "View Details" button
+  - Copy error details to clipboard functionality
+  - Real-time progress updates for large SHA512 computations
+  - Clearer feedback during long-running operations
+
+### v0.5.0: Revolutionary Performance
+
+### **Breakthrough Copy System Improvements**
+- **50% Performance Gain**: Revolutionary Optimized Staged Strategy uses rename-based backup
 - **[CHANGELOG.md](CHANGELOG.md)** - Complete version history and performance improvements
 - **[EVOLVING_SPECIFICATION.md](EVOLVING_SPECIFICATION.md)** - Technical details and optimized implementation
 - **Debug Mode**: Run with `python FolderCompareSync.py` for detailed logging with performance metrics
@@ -304,4 +390,6 @@ For evolving specification and technical details, see [EVOLVING_SPECIFICATION.md
 
 ---
 
-*FolderCompareSync v0.5.0 - Making folder comparison and synchronization simple, safe, and blazingly fast*
+---
+
+*FolderCompareSync v0.6.1 - Making folder comparison and synchronization simple, safe, and blazingly fast**FolderCompareSync v0.5.0 - Making folder comparison and synchronization simple, safe, and blazingly fast*
