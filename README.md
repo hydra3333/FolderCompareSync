@@ -1,10 +1,11 @@
 # FolderCompareSync
 
-**A Folder Comparison & Synchronization Tool for Windows**
+**A GUI Folder Tree Comparison & Synchronization Tool for Windows 10+**
 
 ![Version](https://img.shields.io/badge/version-0.4.0-blue) ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-lightgrey) ![License](https://img.shields.io/badge/license-AGPL--3.0-green)
 
-### UNTESTED, UNDER DEVELOPMENT
+#### UNTESTED, UNDER DEVELOPMENT, BEWARE    
+#### Iteratively developed AI generated code.    
 
 ---
 
@@ -192,21 +193,9 @@ This project is licensed under the **AGPL-3.0 License** - see the license detail
 
 ---
 
-## 🔄 Version Information
-
-**Current Version:** 0.3.1 - Performance Optimizations
-- Enhanced support for large files (up to 25GB hash computation)
-- Improved filtering capacity (up to 200,000 items)
-- Optimized tree processing for massive folder structures
-
-**Previous Major Version:** 0.3.0 - Full Feature Implementation
-- Complete wildcard filtering system
-- Sortable column headers
-- Real file copy operations with auto-refresh
-- Professional progress dialogs for all operations
-
-For complete version history, see [CHANGELOG.md](CHANGELOG.md).
+For version history, see [CHANGELOG.md](CHANGELOG.md).    
+For evolving specification via AI, see [EVOLVING_SPECIFICATION.md](EVOLVING_SPECIFICATION.md).    
 
 ---
 
-*FolderCompareSync - Making folder comparison and synchronization simple, safe, and professional.*
+*FolderCompareSync - Making folder comparison and synchronization simple, and safe *

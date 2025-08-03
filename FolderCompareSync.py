@@ -45,9 +45,8 @@ This application uses Python's built-in __debug__ flag and logging for debugging
         ...
         self.set_debug_loglevel(False)  # Turn off debug logging
 
-CHANGELOG: refer to foldercomparesync_changelog.md
-==================================================
-Current Version 0.4.0 (2024-08-03)
+CHANGELOG: refer to CHANGELOG.md
+================================
 """
 
 import platform
@@ -104,8 +103,8 @@ SCAN_PROGRESS_UPDATE_INTERVAL = 50                # Update scanning progress eve
 COMPARISON_PROGRESS_BATCH = 100                   # Process comparison updates every N items
 
 # Enhanced Copy System Configuration
-COPY_STRATEGY_THRESHOLD = 10 * 1024 * 1024        # 10MB threshold for copy strategy selection
-COPY_VERIFICATION_ENABLED = True                  # Enable post-copy verification
+COPY_STRATEGY_THRESHOLD = 10 * 1024 * 1024       # 10MB threshold for copy strategy selection into STAGED (rename old as backup, copy new, remove old, fallback restore old)
+COPY_VERIFICATION_ENABLED = True                 # Enable post-copy verification
 COPY_RETRY_COUNT = 3                             # Number of retries for failed operations
 COPY_RETRY_DELAY = 1.0                           # Delay between retries in seconds
 COPY_CHUNK_SIZE = 64 * 1024                      # 64KB chunks for large file copying
@@ -440,7 +439,7 @@ class FileTimestampManager:
 class CopyStrategy(Enum):
     """Copy strategy enumeration for different file handling approaches"""
     DIRECT = "direct"           # Strategy A: Direct copy for small files on local drives
-    STAGED = "staged"           # Strategy B: Staged copy for large files or network drives
+    STAGED = "staged"           # Strategy B: Staged copy for large files or network drives (rename old as backup, copy new, remove old, fallback restore old)
     NETWORK = "network"         # Network-optimized copy with retry logic
 
 class DriveType(Enum):
@@ -547,19 +546,19 @@ def determine_copy_strategy(source_path: str, target_path: str, file_size: int) 
     Determine the optimal copy strategy based on file size and drive types
     
     Strategy Logic:
-    - Network drives always use STAGED strategy
-    - Files >= COPY_STRATEGY_THRESHOLD use STAGED strategy
+    - Network drives always use STAGED strategy (rename old as backup, copy new, remove old, fallback restore old)
+    - Files >= COPY_STRATEGY_THRESHOLD use STAGED strategy (rename old as backup, copy new, remove old, fallback restore old)
     - Small files on local drives use DIRECT strategy
     """
     source_drive_type = get_drive_type(source_path)
     target_drive_type = get_drive_type(target_path)
     
-    # Network drives always use staged strategy
+    # Network drives always use staged strategy (rename old as backup, copy new, remove old, fallback restore old)
     if (source_drive_type in [DriveType.NETWORK_MAPPED, DriveType.NETWORK_UNC] or
         target_drive_type in [DriveType.NETWORK_MAPPED, DriveType.NETWORK_UNC]):
         return CopyStrategy.STAGED
     
-    # Large files use staged strategy
+    # Large files use staged strategy (rename old as backup, copy new, remove old, fallback restore old)
     if file_size >= COPY_STRATEGY_THRESHOLD:
         return CopyStrategy.STAGED
     
@@ -862,7 +861,7 @@ class EnhancedFileCopyManager:
     
     def _copy_staged_strategy(self, source_path: str, target_path: str, overwrite: bool = True) -> CopyOperationResult:
         """
-        Strategy B: Staged copy for large files or network drives
+        Strategy B: Staged copy for large files or network drives (rename old as backup, copy new, remove old, fallback restore old)
         Implements 3-step process: copy to temp -> verify -> atomic rename
         """
         start_time = time.time()
@@ -1020,7 +1019,7 @@ class EnhancedFileCopyManager:
         # Execute appropriate strategy
         if strategy == CopyStrategy.DIRECT:
             result = self._copy_direct_strategy(source_path, target_path)
-        else:  # STAGED or NETWORK (both use staged approach)
+        else:  # STAGED or NETWORK (both use staged approach) (rename old as backup, copy new, remove old, fallback restore old)
             result = self._copy_staged_strategy(source_path, target_path, overwrite)
         
         # Log final result
@@ -2876,26 +2875,14 @@ class FolderCompareSync_class:
                         self.copy_manager._log_status(f"Source file not found, skipping: {source_path}")
                         continue
                     
-                                                            
-                                                         
-                                                                 
-                                                            
-                    
                     # Handle directories separately (create them, don't copy as files)
                     if os.path.isdir(source_path):
                         # Create destination directory if needed
                         if not os.path.exists(dest_path):
                             os.makedirs(dest_path, exist_ok=True)
-                                                                                                     
-                                    
-                        
-                                                                                        
                             copied_count += 1
                             self.copy_manager._log_status(f"Created directory: {dest_path}")
                         else:
-                                                    
-                                             
-                                                                                       
                             skipped_count += 1
                             self.copy_manager._log_status(f"Directory already exists, skipping: {dest_path}")
                         continue
