@@ -35,7 +35,7 @@ Enabling SHA512 comparison is slow (where lots of files or large files eg 2GB+) 
   - **Direct Copy**: fast copying for smaller files
   - **Safe Staged Copy**: rename/copy based backup for large files enabling original file recovery
   - **Network Drive Copy**: Automatic detection, always uses Safe Staged Copy
-- **Large limits**: Handle up to 200,000 files (very large folder trees = very very slow, likely laggy responses)
+- **Large limits**: Handle up to 100,000 files (very large folder trees = very very slow, likely laggy responses)
 - **Atomic operations**: True atomic file operations using Windows primitives
 
 ### 📊 **Selectable Smart Comparison**

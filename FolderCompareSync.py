@@ -94,6 +94,7 @@ from typing import Dict, List, Optional, Set, Tuple, Any
 from enum import Enum
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import tkinter.font as tkfont
 import threading
 import logging
 
@@ -1607,7 +1608,24 @@ class FolderCompareSync_class:
         
         self.root = tk.Tk()
         self.root.title("FolderCompareSync - Folder Comparison and Syncing Tool")
-        
+
+        # NEW style configs for the "Compare" "Copy" "Quit" buttons  button
+        # 1) Get the existing default font and make a bold copy
+        self.default_font = tkfont.nametofont("TkDefaultFont")
+        self.bold_font = self.default_font.copy()
+        self.bold_font.configure(weight="bold")
+        self.style = ttk.Style(self.root)
+        # 2) Create styles for the "Compare" "Copy" "Quit" buttons using that bold_font
+        self.style.configure("LimeGreenBold.TButton", foreground="limegreen",font=self.bold_font,)
+        self.style.configure("GreenBold.TButton", foreground="green",font=self.bold_font,)
+        self.style.configure("RedBold.TButton", foreground="red",font=self.bold_font,)
+        self.style.configure("PurpleBold.TButton", foreground="purple",font=self.bold_font,)
+        self.style.configure("MediumPurpleBold.TButton", foreground="mediumpurple",font=self.bold_font,)
+        self.style.configure("IndigoBold.TButton", foreground="indigo",font=self.bold_font,)
+        self.style.configure("BlueBold.TButton", foreground="blue",font=self.bold_font,)
+        self.style.configure("GoldBold.TButton", foreground="gold",font=self.bold_font,)
+        self.style.configure("YellowBold.TButton", foreground="yellow",font=self.bold_font,)
+
         # Get screen dimensions for smart window sizing
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
@@ -1632,7 +1650,7 @@ class FolderCompareSync_class:
         self.compare_date_modified = tk.BooleanVar(value=True)
         self.compare_sha512 = tk.BooleanVar(value=False)
         self.overwrite_mode = tk.BooleanVar(value=True)
-        self.dry_run_mode = tk.BooleanVar(value=False)  # New: Dry run mode
+        self.dry_run_mode = tk.BooleanVar(value=False)
         
         # Filtering and sorting state
         self.filter_wildcard = tk.StringVar()
@@ -1875,20 +1893,36 @@ class FolderCompareSync_class:
         folder_frame = ttk.LabelFrame(main_frame, text="Folder Selection", padding=10)
         folder_frame.pack(fill=tk.X, pady=(0, 5))
         
+        ## OLD:
+        ## Left folder selection
+        #ttk.Label(folder_frame, text="Left Folder:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
+        #left_entry = ttk.Entry(folder_frame, textvariable=self.left_folder, width=60)
+        #left_entry.grid(row=0, column=1, sticky=tk.EW, padx=(0, 5))
+        #ttk.Button(folder_frame, text="Browse", command=self.browse_left_folder).grid(row=0, column=2)
+        ## Right folder selection
+        #ttk.Label(folder_frame, text="Right Folder:").grid(row=1, column=0, sticky=tk.W, padx=(0, 5), pady=(5, 0))
+        #right_entry = ttk.Entry(folder_frame, textvariable=self.right_folder, width=60)
+        #right_entry.grid(row=1, column=1, sticky=tk.EW, padx=(0, 5), pady=(5, 0))
+        #ttk.Button(folder_frame, text="Browse", command=self.browse_right_folder).grid(row=1, column=2, pady=(5, 0))
+        #folder_frame.columnconfigure(1, weight=1)
+
+        # NEW
         # Left folder selection
         ttk.Label(folder_frame, text="Left Folder:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
+        ttk.Button(folder_frame, text="Browse", command=self.browse_left_folder).grid(row=0, column=1, padx=(0, 5))
         left_entry = ttk.Entry(folder_frame, textvariable=self.left_folder, width=60)
-        left_entry.grid(row=0, column=1, sticky=tk.EW, padx=(0, 5))
-        ttk.Button(folder_frame, text="Browse", command=self.browse_left_folder).grid(row=0, column=2)
+        left_entry.grid(row=0, column=2, sticky=tk.EW)
         
         # Right folder selection
         ttk.Label(folder_frame, text="Right Folder:").grid(row=1, column=0, sticky=tk.W, padx=(0, 5), pady=(5, 0))
+        ttk.Button(folder_frame, text="Browse", command=self.browse_right_folder).grid(row=1, column=1, padx=(0, 5), pady=(5, 0))
         right_entry = ttk.Entry(folder_frame, textvariable=self.right_folder, width=60)
-        right_entry.grid(row=1, column=1, sticky=tk.EW, padx=(0, 5), pady=(5, 0))
-        ttk.Button(folder_frame, text="Browse", command=self.browse_right_folder).grid(row=1, column=2, pady=(5, 0))
-        
-        folder_frame.columnconfigure(1, weight=1)
-        
+        right_entry.grid(row=1, column=2, sticky=tk.EW, pady=(5, 0))
+
+        # Let column 2 (the entry) grow
+        folder_frame.columnconfigure(2, weight=1)
+
+       
         # Comparison options frame with instructional text
         options_frame = ttk.LabelFrame(main_frame, text="Comparison Options", padding=10)
         options_frame.pack(fill=tk.X, pady=(0, 5))
@@ -1926,8 +1960,12 @@ class FolderCompareSync_class:
         dry_run_cb.pack(side=tk.LEFT, padx=(0, 10))
         
         ttk.Checkbutton(top_controls, text="Overwrite Mode", variable=self.overwrite_mode).pack(side=tk.LEFT, padx=(0, 20))
-        ttk.Button(top_controls, text="Compare", command=self.start_comparison).pack(side=tk.LEFT, padx=(0, 20))
-        
+
+        # OLD
+        #ttk.Button(top_controls, text="Compare", command=self.start_comparison).pack(side=tk.LEFT, padx=(0, 20))
+        # NEW
+        ttk.Button(top_controls, text="Compare", command=self.start_comparison, style="LimeGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 20))
+
         # Enhanced selection controls with auto-clear and complete reset functionality
         # Left pane selection controls
         ttk.Button(top_controls, text="Select All Differences - Left", 
@@ -2000,10 +2038,15 @@ class FolderCompareSync_class:
         copy_frame = ttk.Frame(main_frame)
         copy_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Button(copy_frame, text="Copy LEFT to Right", command=self.copy_left_to_right).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(copy_frame, text="Quit", command=self.root.quit).pack(side=tk.RIGHT)
-        
+        # OLD
+        #ttk.Button(copy_frame, text="Copy LEFT to Right", command=self.copy_left_to_right).pack(side=tk.LEFT, padx=(0, 10))
+        #ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left).pack(side=tk.LEFT, padx=(0, 10))
+        #ttk.Button(copy_frame, text="Quit", command=self.root.quit).pack(side=tk.RIGHT)
+        # NEW
+        ttk.Button(copy_frame, text="Copy LEFT to Right", command=self.copy_left_to_right, style="GreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left, style="RedBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(copy_frame, text="Quit", command=self.root.quit, style="BlueBold.TButton").pack(side=tk.RIGHT)
+
         # Enhanced status log frame at bottom with export functionality
         status_log_frame = ttk.LabelFrame(main_frame, text="Status Log", padding=5)
         status_log_frame.pack(fill=tk.X, pady=(0, 5))
