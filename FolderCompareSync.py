@@ -80,6 +80,7 @@ CHANGELOG: refer to CHANGELOG.md
 import platform
 import os
 import sys
+import importlib
 import hashlib
 import time
 import fnmatch
@@ -137,7 +138,7 @@ COMPARISON_PROGRESS_BATCH = 100                   # Process comparison updates e
 
 # Enhanced Copy System Configuration
 COPY_STRATEGY_THRESHOLD = (1024 * 1024) * 200    # 200MB threshold for copy strategy selection into STAGED (optimized rename-based backup)
-COPY_VERIFICATION_ENABLED = True                 # Enable post-copy verification
+COPY_VERIFICATION_ENABLED = True                 # Enable post-copy simple verification
 COPY_RETRY_COUNT = 3                             # Number of retries for failed operations
 COPY_RETRY_DELAY = 1.0                           # Delay between retries in seconds
 COPY_CHUNK_SIZE = 64 * 1024                      # 64KB chunks for large file copying
@@ -185,14 +186,15 @@ else:
     log_level = logging.INFO
     log_format = '%(asctime)s - %(levelname)s - %(message)s'
 
-# Create handlers list - file logging always enabled, console logging only in debug mode
+# Create handlers list:
+# Add a handler for file logging, since that is always enabled
 handlers = [
     logging.FileHandler(os.path.join(os.path.dirname(__file__), 'foldercomparesync.log'), mode='w')   # Always log to file
 ]
-
-# Add console logging only in debug mode (when __debug__ is True)
+# When in debug mode, when __debug__ is True, add a handler for console logging, only 
+#    ... i.e. when -O is missing from the python commandline
 if __debug__:
-    handlers.append(logging.StreamHandler())  # Console output only in debug mode
+    handlers.append(logging.StreamHandler())  # Console output only when in debug mode
 
 logging.basicConfig(
     level=log_level,
@@ -200,6 +202,40 @@ logging.basicConfig(
     handlers=handlers
 )
 logger = logging.getLogger(__name__)
+
+# ************** At program startup **************
+def check_dependencies(deps):
+    missing = []
+    for pkg_name, import_name in deps:
+        try:
+            importlib.import_module(import_name)
+        except ImportError:
+            missing.append(pkg_name)
+    if missing:
+        missing_msg = (
+            "ERROR: Missing required Python packages: "
+            + ", ".join(missing)
+            + "\nPlease install them with:\n"
+            + "    pip install --upgrade "
+            + " ".join(missing)
+            + "\n"
+        )
+        # Print to stderr and to the logger, then exit
+        sys.stderr.write(missing_msg)
+        logger.critical(missing_msg)
+        sys.exit(1)
+# Check the timezone dependencies are installed by pip
+#     pip install --upgrade python-dateutil
+#     pip install --upgrade tzdata
+check_dependencies([
+    ("tzdata",          "zoneinfo"),
+    ("python-dateutil", "dateutil.tz"),
+])
+# If we get here, we can safely import:
+#from zoneinfo import ZoneInfo
+import zoneinfo
+from dateutil.tz import tzwinlocal
+# ************** At program startup **************
 
 # ---------- Start of Common FileTimestampManager Code ----------
 """
@@ -423,9 +459,8 @@ class FileTimestampManager:
             timezone object representing the local timezone
         """
         # Method 1: Try zoneinfo (Python 3.9+) with Windows timezone mapping
-        logger.debug("Attempting timezone detection using zoneinfo method...")
+        logger.debug("Attempting timezone detection using Method 1: zoneinfo method...")
         try:
-            import zoneinfo
             if hasattr(time, 'tzname') and time.tzname[0]:
                 # Comprehensive Windows to IANA timezone mappings
                 windows_to_iana = {
@@ -488,35 +523,41 @@ class FileTimestampManager:
                     return tz
                 except:
                     logger.debug(f"Could not use Windows timezone name directly: {win_tz_name}")
-        except (ImportError, AttributeError, Exception) as e:
+        except zoneinfo.ZoneInfoNotFoundError as e:
+            logger.warning(f"IANA lookup failed (no tzdata?): {e}")
+        except ImportError as e:
+            logger.debug("zoneinfo module not available, {e},skipping Method 1")
+        except (AttributeError, Exception) as e:
             logger.debug(f"Zoneinfo method failed: {e}")
         
         # Method 2: Use time module offset to create timezone
-        logger.debug("Attempting timezone detection using time module offset method...")
+        logger.debug("Attempting timezone detection using Method 2: time module offset method...")
         try:
+            # We already have time imported at module level – do not do an inner import here!
             # Get the actual current offset by comparing local and UTC time
-            import time
             local_time = time.localtime()
-            utc_time = time.gmtime()
-            # Calculate offset in seconds
-            local_timestamp = time.mktime(local_time)
-            utc_timestamp = time.mktime(utc_time) + (local_time.tm_isdst * 3600)
-            offset_seconds = local_timestamp - utc_timestamp
-            # Create timezone with the calculated offset
+            utc_time   = time.gmtime()
+            # Calculate integer offset in seconds
+            local_timestamp = int(time.mktime(local_time))
+            utc_timestamp   = int(time.mktime(utc_time)) + (local_time.tm_isdst * 3600)
+            offset_seconds  = local_timestamp - utc_timestamp
+            # Create timezone object with the calculated offset
             tz = timezone(timedelta(seconds=offset_seconds))
-            
-            # Log the offset details
-            hours, remainder = divmod(abs(offset_seconds), 3600)
-            minutes = remainder // 60
+            # Log the offset details with integer formatting
+            abs_off = abs(offset_seconds)
+            hours = abs_off // 3600
+            minutes = (abs_off % 3600) // 60
             sign = '+' if offset_seconds >= 0 else '-'
-            offset_str = f"UTC{sign}{hours:02d}:{minutes:02d}" if minutes else f"UTC{sign}{hours:02d}:00"
+            offset_str = (
+                f"UTC{sign}{hours:02d}:{minutes:02d}" if minutes else f"UTC{sign}{hours:02d}:00"
+            )
             logger.info(f"Timezone detected via time module offset: {offset_str}")
             return tz
         except Exception as e:
             logger.debug(f"Time module offset method failed: {e}")
         
         # Method 3: Final fallback to UTC
-        logger.warning("Could not determine local timezone, falling back to UTC")
+        logger.warning("Could not determine local timezone, falling back to Method 3: UTC")
         return timezone.utc
     
     def get_file_timestamps(self, file_path: Union[str, Path]) -> Tuple[datetime, datetime]:
@@ -1475,21 +1516,21 @@ class EnhancedFileCopyManager:
     
     def _verify_copy(self, source_path: str, target_path: str) -> bool:
         """
-        Verify that a copy operation was successful (or simulate verification in dry run).
+        Verify (simple method) that a copy operation was successful (or simulate Simple verification in dry run).
         
-        Returns True if verification passes, False otherwise
+        Returns True if Simple verification passes, False otherwise
         """
         if not COPY_VERIFICATION_ENABLED:
             return True
         
         if self.dry_run_mode:
             self._log_status(f"DRY RUN: Would verify copy - {target_path}")
-            return True  # Assume verification would pass in dry run
+            return True  # Assume Simple verification would pass in dry run
             
         try:
             # Check file existence
             if not Path(target_path).exists():
-                self._log_status(f"Verification failed: Target file does not exist: {target_path}")
+                self._log_status(f"Simple verification failed: Target file does not exist: {target_path}")
                 return False
             
             # Check file size
@@ -1497,20 +1538,20 @@ class EnhancedFileCopyManager:
             target_size = Path(target_path).stat().st_size
             
             if source_size != target_size:
-                self._log_status(f"Verification failed: Size mismatch - Source: {source_size}, Target: {target_size}")
+                self._log_status(f"Simple verification failed: Size mismatch - Source: {source_size}, Target: {target_size}")
                 return False
             
-            self._log_status(f"Verification passed: {target_path} ({source_size} bytes)")
+            self._log_status(f"Simple verification passed: {target_path} ({source_size} bytes)")
             return True
             
         except Exception as e:
-            self._log_status(f"Verification error: {str(e)}")
+            self._log_status(f"Simple verification error: {str(e)}")
             return False
     
     def _copy_direct_strategy(self, source_path: str, target_path: str) -> CopyOperationResult:
         """
         Strategy A: Direct copy for small files on local drives (with dry run support).
-        Uses shutil.copy2 with enhanced error handling and verification.
+        Uses shutil.copy2 with enhanced error handling and Simple verification.
         """
         start_time = time.time()
         file_size = Path(source_path).stat().st_size
@@ -1552,14 +1593,14 @@ class EnhancedFileCopyManager:
                 result.bytes_copied = file_size
                 self._log_status(f"DRY RUN: Would copy timestamps from source to target")
             
-            # Verify the copy (or simulate verification in dry run)
+            # Verify the copy (or simulate Simple verification in dry run)
             if self._verify_copy(source_path, target_path):
                 result.success = True
                 result.verification_passed = True
                 self._log_status(f"{dry_run_prefix}DIRECT copy completed successfully")
             else:
-                result.error_message = "Copy verification failed"
-                self._log_status(f"{dry_run_prefix}DIRECT copy failed verification")
+                result.error_message = "Copy Simple verification failed"
+                self._log_status(f"{dry_run_prefix}DIRECT copy failed Simple verification")
                 
         except Exception as e:
             if not self.dry_run_mode:
@@ -1684,11 +1725,11 @@ class EnhancedFileCopyManager:
             self._log_status(f"{dry_run_prefix}Step 4: Verifying copied file")
             if not self._verify_copy(source_path, target_path):
                 if not self.dry_run_mode:
-                    result.error_message = "Copy verification failed"
-                    self._log_status(f"OPTIMIZED STAGED copy failed: Verification failed - Beginning rollback")
-                    raise Exception("Verification failed")  # Trigger rollback
+                    result.error_message = "Copy Simple verification failed"
+                    self._log_status(f"OPTIMIZED STAGED copy failed: Simple verification failed - Beginning rollback")
+                    raise Exception("Simple verification failed")  # Trigger rollback
                 else:
-                    self._log_status(f"DRY RUN: Verification simulation completed")
+                    self._log_status(f"DRY RUN: Simple verification simulation completed")
             
             # Step 5: Success - remove backup file (or simulate in dry run)
             if backup_path and (Path(backup_path).exists() or self.dry_run_mode):
@@ -2044,7 +2085,7 @@ class FolderCompareSync_class:
         # Display detected timezone information
         timezone_str = self.copy_manager.timestamp_manager.get_timezone_string()
         self.add_status_message(f"Timezone detected: {timezone_str} - will be used for timestamp operations")
-        logger.info("Application initialization complete with optimized copy system and enhanced limits")
+        logger.info("Application initialization complete ")
 
     def add_status_message(self, message):
         """
@@ -4564,14 +4605,14 @@ class FolderCompareSync_class:
         
     def run(self):
         """
-        Start the application with enhanced error handling and limit management.
+        Start the application GUI event loop
         
         Purpose:
         --------
         Main application entry point that starts the GUI event loop
         with comprehensive error handling and graceful shutdown.
         """
-        logger.info("Starting FolderCompareSync GUI application with optimized copy system and enhanced limits")
+        logger.info("Starting FolderCompareSync GUI application.")
         try:
             self.root.mainloop()
         except Exception as e:
@@ -4584,7 +4625,6 @@ class FolderCompareSync_class:
         finally:
             logger.info("Application shutdown")
 
-
 def main():
     """
     Main entry point with enhanced system detection and configuration logging.
@@ -4594,7 +4634,7 @@ def main():
     Application startup function that initializes logging, detects system
     configuration, and starts the main application with proper error handling.
     """
-    logger.info("=== FolderCompareSync Starting (Optimized Copy System v0.6.1) ===")
+    logger.info("=== FolderCompareSync Startup ===")
     if __debug__:
         logger.debug("Working directory : " + os.getcwd())
         logger.debug("Python version    : " + sys.version)
@@ -4649,14 +4689,14 @@ def main():
                 logger.debug(f"Windows version   : Unknown windows build {build_num}")
         except Exception as e:
             logger.debug(f"Error getting Windows details: {e}")
-    
-    # Log enhanced configuration including new limits and features
-    logger.debug("Enhanced Configuration (v0.6.1):")
+
+    # Log  configuration including new limits and features
+    logger.debug("FolderCompareSync Configuration:")
     logger.debug(f"  Max files/folders: {MAX_FILES_FOLDERS:,}")
     logger.debug(f"  Status log history: {STATUS_LOG_MAX_HISTORY:,} lines")
     logger.debug(f"  Copy strategy threshold: {COPY_STRATEGY_THRESHOLD / (1024*1024):.1f} MB")
     logger.debug(f"  SHA512 status threshold: {SHA512_STATUS_MESSAGE_THRESHOLD / (1024*1024):.1f} MB")
-    logger.debug(f"  Verification enabled: {COPY_VERIFICATION_ENABLED}")
+    logger.debug(f"  Simple verification enabled: {COPY_VERIFICATION_ENABLED}")
     logger.debug(f"  Retry count: {COPY_RETRY_COUNT}")
     logger.debug(f"  Network timeout: {COPY_NETWORK_TIMEOUT}s")
     logger.debug(f"  Dry run support: Enabled")
@@ -4665,10 +4705,11 @@ def main():
     logger.debug(f"  Path handling: Standardized on pathlib")
     
     try:
-        app = FolderCompareSync_class()
-        # uncomment to MANUALLY Enable debug mode logging for testing
-        #app.set_debug_loglevel(True)
-        app.run()
+        FolderCompareSync_class_app = FolderCompareSync_class()
+        # uncomment the next line to MANUALLY Enable debug mode logging for testing the application GUI event loop
+        #FolderCompareSync_class_app.set_debug_loglevel(True)
+        
+        FolderCompareSync_class_app.run()    # start the application GUI event loop
     except Exception as e:
         logger.error(f"Fatal error: {type(e).__name__}: {str(e)}")
         if __debug__:

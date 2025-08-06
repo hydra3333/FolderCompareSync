@@ -17,6 +17,7 @@ for /f "tokens=1,2,3 delims=." %%a in ("%PY_VERSION%") do (
     set "PYTHON_VERSION_MAJOR_MINOR_DOT=!PYTHON_VERSION_MAJOR!.!PYTHON_VERSION_MINOR!"
     set "PYTHON_VERSION=!PYTHON_VERSION_MAJOR!.!PYTHON_VERSION_MINOR!.!PYTHON_VERSION_PATCH!"
 )
+echo *** Detecting pre-Python System characteristics ***
 echo Detected Python version: '%PY_VERSION%'
 echo Major version:           '%PYTHON_VERSION_MAJOR%'
 echo Minor version:           '%PYTHON_VERSION_MINOR%'
@@ -25,6 +26,10 @@ echo Major/Minor version:     '%PYTHON_VERSION_MAJOR_MINOR%'
 echo Major/Minor version dot: '%PYTHON_VERSION_MAJOR_MINOR_DOT%'
 echo Full version:            '%PYTHON_VERSION%'
 
+echo *** Ensuring latest timezone data is available to python by Running: pip install tzdata python-dateutil
+pip install --upgrade --retries 10 python-dateutil tzdata
+
+echo *** Running: python FolderCompareSync.py
 python FolderCompareSync.py
 
 pause
