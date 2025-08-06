@@ -49,7 +49,7 @@ Enabling SHA512 comparison is slow (where lots of files or large files eg 2GB+) 
 - **Tree expansion controls**: Expand/collapse entire or partial folder tree structures instantly
 
 ### 🛡️ **Copy Operations with Safety**
-- **DRY RUN mode** (NEW): Test operations without any file modifications
+- **DRY RUN mode**: Test operations without any actual changes, to see what will happen without it happening
 - **Progress tracking**: Real-time file-by-file copy progress
 - **Error handling**: Continues operation even if some files fail, with comprehensive error reporting
 - **Automatic rollback**: Complete restoration of original files with timestamp preservation if "Safe Staged Copy" operations fail during copying
@@ -68,12 +68,12 @@ Enabling SHA512 comparison is slow (where lots of files or large files eg 2GB+) 
 
 ### System Requirements
 - **Windows 10** or **Windows 11**
-- **Python 3.13+** (included with most Windows systems)
+- **Python 3.13+** installer downloadable from [python.org](https://www.python.org/downloads/) - installation is per-user, no need for Admin privilege
 - **8GB RAM** + additional memory for large folders
 
 ### Installation
 1. **Download** `FolderCompareSync.py` to your computer and use python to run it
-   - *Or open Command Prompt and run:* `python FolderCompareSync.py`
+   - *Open a Windows Command Prompt (cmd, not powershell) and run:* `python FolderCompareSync.py`
 
 ### Basic Usage
 1. **Select folders**: Click "Browse" to choose your "Left" and "Right" folders
@@ -123,7 +123,6 @@ File date-created and date-modified timestamps are always copied along with the 
 - **Bulk clear selection**: "Clear All" buttons to start afresh
 
 ---
-
 
 ## 🐛 Troubleshooting with Enhanced Diagnostics
 
