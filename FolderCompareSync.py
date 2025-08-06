@@ -164,7 +164,7 @@ TREE_STATUS_MIN_WIDTH = 80        # Minimum status column width
 
 # Display colors and styling
 MISSING_ITEM_COLOR = "gray"       # Color for missing items in tree
-INSTRUCTION_TEXT_COLOR = "darkblue"  # Color for instructional text
+INSTRUCTION_TEXT_COLOR = "royalblue"  # Color for instructional text
 INSTRUCTION_TEXT_SIZE = 8         # Font size for instructional text
 FILTER_HIGHLIGHT_COLOR = "#ffffcc"  # Background color for filtered items
 
@@ -1882,7 +1882,7 @@ class FolderCompareSync_class:
                 f"Maximum {MAX_FILES_FOLDERS:,} files/folders supported. "
                 f"SHA512 operations will take circa 2 seconds elapsed per GB of file read."
             ),
-            foreground="blue",
+            foreground="royalblue",
             font=("TkDefaultFont", 9, "bold")
         )
         #   text=f"⚠ Performance Notice: Large folder operations may be slow. Maximum {MAX_FILES_FOLDERS:,} files/folders supported.",
@@ -2043,8 +2043,8 @@ class FolderCompareSync_class:
         #ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left).pack(side=tk.LEFT, padx=(0, 10))
         #ttk.Button(copy_frame, text="Quit", command=self.root.quit).pack(side=tk.RIGHT)
         # NEW
-        ttk.Button(copy_frame, text="Copy LEFT to Right", command=self.copy_left_to_right, style="GreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left, style="RedBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(copy_frame, text="Copy LEFT to Right", command=self.copy_left_to_right, style="RedBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left, style="GreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(copy_frame, text="Quit", command=self.root.quit, style="BlueBold.TButton").pack(side=tk.RIGHT)
 
         # Enhanced status log frame at bottom with export functionality
