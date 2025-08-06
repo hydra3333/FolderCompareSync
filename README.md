@@ -58,7 +58,7 @@ Enabling SHA512 comparison is slow (where lots of files or large files eg 2GB+) 
 ### 📝 **Logging with Performance Tracking**
 - **Detailed progress**: Progress dialogs for all long-running operations with strategy indication
 - **Status log window**: See exactly what the program is doing with performance context
-- **Enhanced error dialogs**: Expandable details with clipboard support
+- **Error dialogs**: Expandable details with clipboard support
 - **Operation history**: 5000-line scrollable history of operations with timing
 - **Debug Log**: If using `python` to run the .py without the `-O` commandline switch, a debug log file is produced
 
@@ -86,7 +86,7 @@ Enabling SHA512 comparison is slow (where lots of files or large files eg 2GB+) 
 
 ---
 
-## 🔧 More Details
+## 🔧 More Info
 
 ### **Copy Strategies**
 The program automatically selects the optimal copy method.    
@@ -94,7 +94,7 @@ File date-created and date-modified timestamps are always copied along with the 
 
 #### **Direct Copy Strategy** (Small files < 10MB on local drives)
 - Good, fast, for documents, images, and small files
-- Uses optimized python3 `shutil.copy2` with enhanced metadata handling
+- Uses optimized python3 `shutil.copy2` and native timestamp metadata handling
 
 #### **Safe Staged Copy Strategy** (Large files ≥ 10MB or network drives)
 - Uses atomic rename operations to backup target file before copying
@@ -109,7 +109,7 @@ File date-created and date-modified timestamps are always copied along with the 
 - `backup_*.zip` - All backup ZIP files
 - `IMG_*.png` - All PNG files starting with "IMG_"
 
-### **Enhanced File Comparison Options can be combined**
+### **File Comparison Options can be combined**
 - **Existence**: Files that exist in one folder but not the other
 - **Size**: Files with different sizes
 - **Date Created**: Files with different creation dates
@@ -124,7 +124,7 @@ File date-created and date-modified timestamps are always copied along with the 
 
 ---
 
-## 🐛 Troubleshooting with Enhanced Diagnostics
+## 🐛 Troubleshooting with Diagnostics
 
 ### **Potential Issues**
 
