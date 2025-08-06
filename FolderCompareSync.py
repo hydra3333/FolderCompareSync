@@ -3981,13 +3981,27 @@ class FolderCompareSync_class:
         try:
             for i, rel_path in enumerate(selected_paths):
                 try:
-                    # Update progress with dry run indication
-                    progress_text = f"{'Simulating' if is_dry_run else 'Copying'} {i+1} of {len(selected_paths)}: {os.path.basename(rel_path)}"
-                    #progress.update_progress(i, progress_text)
-                    progress.update_progress(i+1, progress_text)
-
-
+                    # Update progress with dry run indication if required
+                    # --- start of change to progress ---
+                    #changed from: progress_text = f"{'Simulating' if is_dry_run else 'Copying'} {i+1} of {len(selected_paths)}: {os.path.basename(rel_path)}"
                     source_path = str(Path(source_folder) / rel_path)
+                    # Check if this file will use staged strategy for large file indication
+                    base_progress_text = f"{'Simulating' if is_dry_run else 'Copying'} {i+1} of {len(selected_paths)}: {os.path.basename(rel_path)}"
+                    if Path(source_path).exists() and Path(source_path).is_file():
+                        file_size = Path(source_path).stat().st_size
+                        strategy = determine_copy_strategy(source_path, str(Path(dest_folder) / rel_path), file_size)
+                        if strategy == CopyStrategy.STAGED and file_size >= COPY_STRATEGY_THRESHOLD:
+                            size_str = self.format_size(file_size)
+                            progress_text = f"{base_progress_text}\n({size_str} file copy in progress ...not frozen, just busy)"
+                        else:
+                            progress_text = base_progress_text
+                    else:
+                        progress_text = base_progress_text
+                    # --- end of change to progress ---
+                    progress.update_progress(i+1, progress_text)
+                    # --- start of change to progress ---
+                    #source_path = str(Path(source_folder) / rel_path)
+                    # --- end of change to progress ---
                     dest_path = str(Path(dest_folder) / rel_path)
                     
                     # Skip if source doesn't exist
