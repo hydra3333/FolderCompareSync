@@ -4,7 +4,7 @@
 
 ![Version](https://img.shields.io/badge/version-0.6.1-blue) ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-lightgrey) ![License](https://img.shields.io/badge/license-AGPL--3.0-green) ![Performance](https://img.shields.io/badge/performance-50%25%20faster-brightgreen)
 
-#### UNTESTED, UNDER DEVELOPMENT, BEWARE    
+#### ![UNTESTED](https://img.shields.io/badge/UNTESTED–BEWARE-red), UNDER DEVELOPMENT, BEWARE    
 #### Iteratively developed AI generated code.    
 
 ---
