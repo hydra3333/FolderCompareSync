@@ -4708,7 +4708,12 @@ def main():
         FolderCompareSync_class_app = FolderCompareSync_class()
         # uncomment the next line to MANUALLY Enable debug mode logging for testing the application GUI event loop
         #FolderCompareSync_class_app.set_debug_loglevel(True)
-        
+
+        # Report timezone info with mode context when new FileTimestampManager instance is created
+??????        timezone_str = FolderCompareSync_class_app.timestamp_manager.get_timezone_string()
+
+??????        FolderCompareSync_class_app._log_status(f"Timezone confirmed for file timestamp operations: {timezone_str}")
+
         FolderCompareSync_class_app.run()    # start the application GUI event loop
     except Exception as e:
         logger.error(f"Fatal error: {type(e).__name__}: {str(e)}")
