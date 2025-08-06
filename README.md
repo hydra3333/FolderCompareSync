@@ -66,7 +66,7 @@ Enabling SHA512 comparison is slow (where lots of files or large files eg 2GB+) 
 - **Large limits**: Handle up to 100,000 files (very large folder trees = very very slow, likely laggy responses)
 - **Atomic operations**: True atomic file operations using Windows primitives
 
-### 📊 **Selectable Smart Comparison**
+### 📊 **Selectable Comparison Criteria**
 - **Side-by-side view** of two folder structures with relevant metadata display
 - **Multiple optional comparison criteria**: file size, dates-created/date-modified, content (SHA512 hash, very slow but safest)
 - **Visual indicators** showing which files are different, missing, or identical
@@ -144,9 +144,9 @@ File date-created and date-modified timestamps are always copied along with the 
 - **Date Modified**: Files with different modification dates
 - **SHA512**: **the gold standard safest** Files with different content (cryptographic hash comparison with performance optimization), very slow but safest
 
-### **Smart Selection with Performance Context**
+### **Selectable Selection with Performance Context**
 - **Individual files**: Click checkboxes next to specific files to select them for copying
-- **Smart folder selection**: Click a folder to select only the different files inside it
+- **Quick folder differences selection**: Click a folder checkbox to select only the different files inside it
 - **Bulk selection**: "Select All Differences" buttons for quick selection of the entire folder tree
 - **Bulk clear selection**: "Clear All" buttons to start afresh
 
