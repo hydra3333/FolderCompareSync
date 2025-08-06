@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-FolderCompareSync - A Professional Folder Comparison & Synchronization Tool with Optimized Copy System
+FolderCompareSync - A Professional Folder Comparison & Synchronization Tool
 
 Version 0.6.2 - Windows timestamp fix (FILETIME + BACKUP_SEMANTICS), pathlib standardization, dry run safety, improved error handling
 
-A GUI application for comparing two directory trees based on metadata and syncing them with optimized performance.
+A GUI application for comparing two directory trees based on metadata and syncing theme.
 This tool provides a visual interface to compare two folder structures, identifying differences based on file 
-existence, size, dates, and SHA512 hashes, then copy files between them using an optimized dual-strategy 
+existence, size, dates, and SHA512 hashes, then copy files between them using a dual-strategy 
 copy system with a safer backup/copy/revert approach for copying larger files.
 
 KEY FEATURES:
 =============
-- Optimized Copy System with dual-strategy approach (Enhanced Direct Copy + Optimized Staged Copy)
+- Copy System with dual-strategy approach (Enhanced Direct Copy +  Staged Copy)
 - Automatic network drive detection and optimization for maximum performance  
 - Complete timestamp preservation (creation and modification times) with rollback capability
 - Atomic file operations using Windows rename primitives for maximum safety
@@ -24,8 +24,8 @@ KEY FEATURES:
 
 COPY STRATEGIES:
 ================
-- Enhanced Direct Strategy: Fast copying for small files (<200MB) on local drives
-- Optimized Staged Strategy: Safer backup/copy/revert approach for large files (≥200MB) and network drives
+- Direct Strategy: Fast copying for small files (<200MB) on local drives
+- Staged Strategy: Safer backup/copy/revert approach for large files (≥200MB) and network drives
 - Automatic selection based on file size and drive type with zero user configuration required
 - Full dry run simulation capability for testing operations before execution
 
@@ -137,7 +137,7 @@ SCAN_PROGRESS_UPDATE_INTERVAL = 50                # Update scanning progress eve
 COMPARISON_PROGRESS_BATCH = 100                   # Process comparison updates every N items
 
 # Enhanced Copy System Configuration
-COPY_STRATEGY_THRESHOLD = (1024 * 1024) * 200    # 200MB threshold for copy strategy selection into STAGED (optimized rename-based backup)
+COPY_STRATEGY_THRESHOLD = (1024 * 1024) * 200    # 200MB threshold for copy strategy selection into STAGED (rename-based backup)
 COPY_VERIFICATION_ENABLED = True                 # Enable post-copy simple verification
 COPY_RETRY_COUNT = 3                             # Number of retries for failed operations
 COPY_RETRY_DELAY = 1.0                           # Delay between retries in seconds
@@ -458,6 +458,18 @@ class FileTimestampManager:
         Returns:
             timezone object representing the local timezone
         """
+        # Method 0: Use dateutil.tz.tzwinlocal (Windows registry direct)
+        logger.debug("Attempting timezone detection using Method 0: dateutil.tz.tzwinlocal...")
+        try:
+            tz = tzwinlocal()
+            if tz:
+                # Get a human-readable description
+                tz_name = tz.tzname(datetime.now())
+                logger.info(f"Timezone detected via Method 0: dateutil.tz.tzwinlocal: {tz_name}")
+                return tz
+        except Exception as e:
+            logger.debug(f"tzwinlocal method failed: {e}")
+
         # Method 1: Try zoneinfo (Python 3.9+) with Windows timezone mapping
         logger.debug("Attempting timezone detection using Method 1: zoneinfo method...")
         try:
@@ -505,7 +517,6 @@ class FileTimestampManager:
                     'India Standard Time': 'Asia/Kolkata',
                     'Singapore Standard Time': 'Asia/Singapore',
                 }
-
                 # Try to map Windows timezone name to IANA
                 win_tz_name = time.tzname[0]
                 logger.debug(f"Windows timezone name detected: {win_tz_name}")
@@ -513,13 +524,13 @@ class FileTimestampManager:
                 if win_tz_name in windows_to_iana:
                     iana_name = windows_to_iana[win_tz_name]
                     tz = zoneinfo.ZoneInfo(iana_name)
-                    logger.info(f"Timezone detected via zoneinfo mapping: {iana_name} (from Windows: {win_tz_name})")
+                    logger.info(f"Timezone detected via Method 1a: zoneinfo mapping: {iana_name} (from Windows: {win_tz_name})")
                     return tz
                     
                 # Try the name directly (might work on some systems)
                 try:
                     tz = zoneinfo.ZoneInfo(win_tz_name)
-                    logger.info(f"Timezone detected via zoneinfo direct: {win_tz_name}")
+                    logger.info(f"Timezone detected via Method 1b: zoneinfo direct: {win_tz_name}")
                     return tz
                 except:
                     logger.debug(f"Could not use Windows timezone name directly: {win_tz_name}")
@@ -551,7 +562,7 @@ class FileTimestampManager:
             offset_str = (
                 f"UTC{sign}{hours:02d}:{minutes:02d}" if minutes else f"UTC{sign}{hours:02d}:00"
             )
-            logger.info(f"Timezone detected via time module offset: {offset_str}")
+            logger.info(f"Timezone detected via Method 2: time module offset: {offset_str}")
             return tz
         except Exception as e:
             logger.debug(f"Time module offset method failed: {e}")
@@ -1035,11 +1046,11 @@ class CopyStrategy(Enum):
     
     Purpose:
     --------
-    Defines the available copy strategies for optimized file operations
+    Defines the available copy strategies for file operations
     based on file size, location, and drive type characteristics.
     """
     DIRECT = "direct"           # Strategy A: Direct copy for small files on local drives
-    STAGED = "staged"           # Strategy B: Optimized staged copy with rename-based backup for large files
+    STAGED = "staged"           # Strategy B: Staged copy with rename-based backup for large files
     NETWORK = "network"         # Network-optimized copy with retry logic
 
 class DriveType(Enum):
