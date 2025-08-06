@@ -12,7 +12,7 @@
 
 ## What is FolderCompareSync?
 
-FolderCompareSync is an easy-to-use free tool that helps you **compare two folder trees side-by-side** and **synchronize selected files between them** with **date-created/date-modified timestamp preservation**.    
+**FolderCompareSync** is a python GUI based tool to **compare two folder trees side-by-side** and **synchronize selected files between them** with **date-created/date-modified timestamp preservation**.    
 
 Think of it as a folder tree "bulk choose, copy and paste the differences" with optional overwrite that shows you exactly what's different and lets you choose what to copy.
 Enabling SHA512 comparison is slow (where lots of files or large files eg 2GB+) but detects differences in file content where they may cheekily have the same folder/filename/size/date-created/date-modified.
