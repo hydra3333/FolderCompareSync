@@ -17,9 +17,6 @@
 Think of it as a folder tree "bulk choose, copy and paste the differences" with optional overwrite that shows you exactly what's different and lets you choose what to copy.
 Enabling SHA512 comparison is slow (where lots of files or large files eg 2GB+) but detects differences in file content where they may cheekily have the same folder/filename/size/date-created/date-modified.
 
-### UNTESTED, UNDER DEVELOPMENT, BEWARE    
-#### Iteratively developed AI generated python3 code.    
-
 ### 🎯 Good for:
 - **Backup verification** - Make sure your backup copies are complete and up-to-date
 - **Project synchronization** - Keep development folder trees in sync across different locations
