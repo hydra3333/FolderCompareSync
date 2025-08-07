@@ -2597,249 +2597,316 @@ class FolderCompareSync_class:
         self.file_count_right = 0
         self.total_file_count = 0
 
-    def sort_tree_column(self, tree, column):
+    def sort_tree_column(self, tree, column): # 2025.08.07 v0.3 replaced by updated version
         """Sort tree by column (files only, within folders) with error handling."""
+        logger.debug(f"=== SORT TRIGGER: User clicked column '{column}' ===")
+        
         if self.limit_exceeded:
             messagebox.showwarning("Operation Disabled", "Sorting is disabled when file limits are exceeded.")
+            logger.debug("SORT TRIGGER: Aborted - file limits exceeded")
             return
             
-        logger.debug(f"Sorting tree by column: {column}")
+        logger.debug(f"SORT TRIGGER: Starting sort for column: {column}")
+        logger.debug(f"SORT TRIGGER: Current sort state - column: {self.current_sort_column}, order: {self.current_sort_order}")
         
         # Toggle sort order if same column, otherwise start with ascending
         if self.current_sort_column == column:
             self.current_sort_order = 'desc' if self.current_sort_order == 'asc' else 'asc'
+            logger.debug(f"SORT TRIGGER: Toggled sort order to: {self.current_sort_order}")
         else:
             self.current_sort_column = column
             self.current_sort_order = 'asc'
+            logger.debug(f"SORT TRIGGER: New column selected, order reset to: {self.current_sort_order}")
         
         # Update status
         order_text = "ascending" if self.current_sort_order == 'asc' else "descending"
-        self.add_status_message(f"Sorting by {column} ({order_text})")
+        status_message = f"Sorting by {column} ({order_text})"
+        self.add_status_message(status_message)
+        logger.debug(f"SORT TRIGGER: {status_message}")
+        
+        # Check data availability
+        results_to_check = self.filtered_results if self.is_filtered else self.comparison_results
+        logger.debug(f"SORT TRIGGER: Available data - {'filtered' if self.is_filtered else 'full'} results: {len(results_to_check)} items")
+        
+        if not results_to_check:
+            error_msg = "No comparison data available for sorting"
+            logger.debug(f"SORT TRIGGER: Aborted - {error_msg}")
+            self.add_status_message(f"Sort failed: {error_msg}")
+            return
         
         # Create progress dialog for sorting operation
         progress = ProgressDialog(self.root, "Sorting Tree", f"Sorting by {column}...", max_value=100)
+        logger.debug("SORT TRIGGER: Created progress dialog")
         
         try:
             # Use thread for sorting to keep UI responsive
             def sort_thread():
                 try:
+                    logger.debug("SORT THREAD: Starting background sort thread")
                     self.perform_tree_sort(tree, column, progress)
+                    logger.debug("SORT THREAD: Background sort thread completed successfully")
                 except Exception as e:
-                    logger.error(f"Sort operation failed: {e}")
+                    logger.error(f"SORT THREAD ERROR: Sort operation failed: {e}")
+                    import traceback
+                    logger.debug(f"SORT THREAD ERROR: Full traceback:\n{traceback.format_exc()}")
                     self.root.after(0, lambda: self.add_status_message(f"Sort failed: {str(e)}"))
                 finally:
+                    logger.debug("SORT THREAD: Closing progress dialog")
                     self.root.after(0, progress.close)
             
+            logger.debug("SORT TRIGGER: Starting background sort thread")
             threading.Thread(target=sort_thread, daemon=True).start()
             
         except Exception as e:
             progress.close()
-            logger.error(f"Failed to start sort operation: {e}")
+            logger.error(f"SORT TRIGGER ERROR: Failed to start sort operation: {e}")
+            import traceback
+            logger.debug(f"SORT TRIGGER ERROR: Full traceback:\n{traceback.format_exc()}")
             self.add_status_message(f"Sort failed: {str(e)}")
+        
+        logger.debug("=== SORT TRIGGER: Sort initiation completed ===")
 
-    def parse_size_for_sorting(self, size_str):
-        """Convert human-readable size back to bytes for sorting."""
-        if not size_str:
-            return 0
-        try:
-            # Remove the unit and convert to float
-            size_str = size_str.strip()
-            if size_str.endswith('B'):
-                multiplier = 1
-                number = float(size_str[:-1])
-            elif size_str.endswith('KB'):
-                multiplier = 1024
-                number = float(size_str[:-2])
-            elif size_str.endswith('MB'):
-                multiplier = 1024 * 1024
-                number = float(size_str[:-2])
-            elif size_str.endswith('GB'):
-                multiplier = 1024 * 1024 * 1024
-                number = float(size_str[:-2])
-            elif size_str.endswith('TB'):
-                multiplier = 1024 * 1024 * 1024 * 1024
-                number = float(size_str[:-2])
-            else:
-                return 0
-            
-            return int(number * multiplier)
-        except (ValueError, IndexError):
-            return 0
-
-    # This LARGE commented-out (by ####) code block denotes code which has been replaced by
-    # the code block below it which is bounded by these 2 lines
-    # --- start of tree sorting replacement code 2025.08.07 v0.2 ---
-    # --- end   of tree sorting replacement code 2025.08.07 v0.2 ---
-    ####
-    ####def perform_tree_sort(self, tree, column, progress):
-    ####        """Perform the actual tree sorting operation with limit checking."""
-    ####    logger.debug(f"Performing tree sort by {column} ({self.current_sort_order})")
-    ####    
-    ####    # Get all top-level items (folders and files)
-    ####    all_items = []
-    ####    
-    ####    def collect_items(parent=''):
-    ####        """Recursively collect all items for sorting"""
-    ####        children = tree.get_children(parent)
-    ####        for child in children:
-    ####            item_text = tree.item(child, 'text')
-    ####            item_values = tree.item(child, 'values')
-    ####            
-    ####            # Only sort files, not folders
-    ####            if not item_text.endswith('/') and '[MISSING]' not in item_text:
-    ####                all_items.append((child, item_text, item_values))
-    ####            
-    ####            # Recursively collect from subfolders
-    ####            collect_items(child)
-    ####    
-    ####    # Collect all items
-    ####    progress.update_progress(10, "Collecting items...")
-    ####    collect_items()
-    ####    
-    ####    if not all_items:
-    ####        self.root.after(0, lambda: self.add_status_message("No files to sort"))
-    ####        return
-    ####    
-    ####    progress.update_progress(30, f"Sorting {len(all_items)} files...")
-    ####    
-    ####    # Sort items based on column
-    ####    def get_sort_key(item_tuple):
-    ####        child, text, values = item_tuple
-    ####        try:
-    ####            if column == 'size':
-    ####                # Parse size for sorting (convert back from human readable)
-    ####                size_str = values[0] if values else ""
-    ####                return self.parse_size_for_sorting(size_str)
-    ####            elif column == 'date_created':
-    ####                return values[1] if len(values) > 1 else ""
-    ####            elif column == 'date_modified':
-    ####                return values[2] if len(values) > 2 else ""
-    ####            elif column == 'sha512':
-    ####                return values[3] if len(values) > 3 else ""
-    ####            elif column == 'status':
-    ####                return values[4] if len(values) > 4 else ""
-    ####            else:
-    ####                # Default to name sorting
-    ####                return text.lower()
-    ####        except (IndexError, ValueError):
-    ####            return ""
-    ####    
-    ####    # Perform sort using configurable batch processing
-    ####    sorted_items = sorted(all_items, key=get_sort_key, reverse=(self.current_sort_order == 'desc'))
-    ####    
-    ####    progress.update_progress(70, "Rebuilding tree...")
-    ####    
-    ####    # Update tree display - this is complex, so for now we'll just update the summary
-    ####    # Full tree reordering would require rebuilding the entire tree structure
-    ####    # which is beyond the scope of this initial implementation
-    ####    
-    ####    # Reorder the tree display with sorted items
-    ####    try:
-    ####        # We need to sort files within each folder level while preserving folder structure
-    ####        self._reorder_tree_items(tree, column, sorted_items)
-    ####        
-    ####        sort_summary = f"Sorted {len(sorted_items)} files by {column} ({self.current_sort_order}ending)"
-    ####        self.root.after(0, lambda: self.add_status_message(sort_summary))
-    ####        
-    ####    except Exception as e:
-    ####        logger.error(f"Failed to reorder tree: {e}")
-    ####        self.root.after(0, lambda: self.add_status_message(f"Tree reordering failed: {str(e)}"))
-    ####    
-    ####    progress.update_progress(100, "Sort complete")
-    ####
-    ####def _reorder_tree_items(self, tree, column, sorted_items):
-    ####    """
-    ####    Reorder tree items while maintaining folder structure and selection state.
-    ####    
-    ####    Purpose:
-    ####    --------
-    ####    Sorts files within their parent folders while preserving the overall
-    ####    tree hierarchy and maintaining user selection state.
-    ####    """
-    ####    if not sorted_items:
-    ####        return
-    ####        
-    ####    # Group sorted items by their parent folder
-    ####    items_by_parent = {}
-    ####    for child, text, values in sorted_items:
-    ####        parent = tree.parent(child)
-    ####        if parent not in items_by_parent:
-    ####            items_by_parent[parent] = []
-    ####        items_by_parent[parent].append((child, text, values))
-    ####    
-    ####    # Reorder items within each parent folder
-    ####    for parent, items in items_by_parent.items():
-    ####        if not items:
-    ####            continue
-    ####            
-    ####        # Get current selection state for these items
-    ####        selected_items = set()
-    ####        side = 'left' if tree == self.left_tree else 'right'
-    ####        selected_set = self.selected_left if side == 'left' else self.selected_right
-    ####        
-    ####        for child, text, values in items:
-    ####            if child in selected_set:
-    ####                selected_items.add(child)
-    ####        
-    ####        # Store the item data before detaching
-    ####        item_data = []
-    ####        for child, text, values in items:
-    ####            item_info = {
-    ####                'id': child,
-    ####                'text': text,
-    ####                'values': values,
-    ####                'tags': tree.item(child, 'tags'),
-    ####                'open': tree.item(child, 'open'),
-    ####                'selected': child in selected_items
-    ####            }
-    ####            # Store children if this item has any
-    ####            children = tree.get_children(child)
-    ####            item_info['children'] = list(children)
-    ####            item_data.append(item_info)
-    ####        
-    ####        # Detach all items from their parent
-    ####        for child, text, values in items:
-    ####            tree.detach(child)
-    ####        
-    ####        # Reattach in sorted order
-    ####        for item_info in item_data:
-    ####            # Move item to end of parent (they're already in sorted order)
-    ####            tree.move(item_info['id'], parent, 'end')
-    ####            
-    ####            # Restore item properties
-    ####            tree.item(item_info['id'], 
-    ####                     text=item_info['text'],
-    ####                     values=item_info['values'],
-    ####                     tags=item_info['tags'],
-    ####                     open=item_info['open'])
-    ####
     
-    # --- start of tree sorting replacement code 2025.08.07 v0.2 ---
-    def perform_tree_sort(self, tree, column, progress):
+    """
+    2025.08.07 v0.3 Code Change comments
+    
+    Folder tree structure NEVER changes - folders stay in their hierarchy
+    Only files within each folder level get sorted - files sort among their "siblings" in the same parent folder
+    Row correspondence maintained within each folder - when files in "Folder A" get sorted on the left,
+    the corresponding files in "Folder A" on the right follow the same order,
+    i.e. file/folder pairs across the 2 display treee (including "missing" ones) always
+    display together as a stable pair on one row even when sorted.
+    So if I have:
+        ProjectRoot/
+          ├── Documents/
+          │   ├── file1.txt (100KB)
+          │   ├── file2.txt (50KB) 
+          │   └── file3.txt (200KB)
+          └── Images/
+              ├── photo1.jpg (2MB)
+              └── photo2.jpg (1MB)
+    And I click "Size" in LEFT tree:
+    Documents/ folder files reorder: file2.txt(50KB), file1.txt(100KB), file3.txt(200KB)
+    Images/ folder files reorder: photo2.jpg(1MB), photo1.jpg(2MB)
+    RIGHT tree files in Documents/ and Images/ follow the same reordering to maintain row alignment
+    Folders themselves (Documents/, Images/) stay in original positions
+
+    This approach:
+    - Maintains directory navigation structure
+    - Allows useful sorting of files within each directory
+    - Preserves left↔right comparison alignment within each folder
+    - Keeps the tool's core comparison purpose intact
+
+    SORTING ISSUES FIXED:
+    =====================
+    
+    PROBLEM 1: Trees collapse after sorting
+    ----------------------------------------
+    CAUSE: Rebuilding entire trees loses expansion state
+    SOLUTION: Save and restore folder expansion state during rebuild
+    
+    PROBLEM 2: Sort appears not to work  
+    ----------------------------------
+    CAUSE: User can't see changes because folders are collapsed
+    SOLUTION: Preserve expansion state so user can see sort results
+    
+    PROBLEM 3: Insufficient debugging
+    ---------------------------------
+    CAUSE: Hard to trace what's happening during sort process
+    SOLUTION: Added comprehensive debug logging throughout sort flow
+    
+    PROBLEM 4: Obsolete method
+    -------------------------
+    CAUSE: parse_size_for_sorting() no longer needed
+    SOLUTION: Remove method (we now sort on raw data, not formatted strings)
+    
+    KEY CHANGES MADE:
+    ================
+    
+    1. ENHANCED perform_tree_sort():
+       - Added comprehensive debug logging
+       - Save expansion state before rebuild
+       - Restore expansion state after rebuild
+       - Better error tracking
+    
+    2. ENHANCED sort_tree_column():
+       - Added debug logging for sort initiation
+       - Better data validation
+       - Enhanced error reporting
+    
+    3. NEW _save_tree_expansion_state():
+       - Captures which folders are open/closed
+       - Maps relative paths to expansion state
+    
+    4. NEW _restore_tree_expansion_state():
+       - Restores folder open/closed state after rebuild
+       - Maintains user's view preferences
+    
+    5. NEW _restore_state_after_sort():
+       - Combines selection + expansion restoration
+       - Ensures complete state preservation
+    
+    6. ENHANCED _restore_selections_after_sort():
+       - Added debug logging
+       - Better error handling
+    
+    7. REMOVED parse_size_for_sorting():
+       - No longer needed with new approach
+       - Was parsing formatted strings back to numbers
+       - New approach uses raw data directly
+    
+    DEBUG LOGGING ADDED:
+    ===================
+    - "=== SORT START/END ===" markers for easy identification
+    - "SORT TRIGGER:" - When user clicks column header
+    - "SORT THREAD:" - Background sorting thread activity  
+    - "SORT:" - Main sorting logic flow
+    - "EXPANSION:" - Folder expansion state save/restore
+    - "SELECTION RESTORE:" - Selection state restoration
+    - "STATE RESTORE:" - Overall state restoration
+    
+    The debug logs will now show exactly what happens when you click a column header,
+    making it easy to identify where any remaining issues occur.
+"""
+
+    def _save_tree_expansion_state(self, tree): # 2025.08.07 v0.3 new def
+        """
+        Save the expansion state of all items in a tree.
+        
+        Returns:
+        --------
+        Dict[str, bool]: Dictionary mapping relative paths to expansion state
+        """
+        expansion_state = {}
+        
+        def collect_expansion_state(item_id):
+            """Recursively collect expansion state for all items"""
+            # Get the relative path for this item
+            side = 'left' if tree == self.left_tree else 'right'
+            rel_path = self.get_item_relative_path(item_id, side)
+            
+            if rel_path is not None:
+                # Store expansion state
+                is_open = tree.item(item_id, 'open')
+                expansion_state[rel_path] = is_open
+                logger.debug(f"EXPANSION: Saved {rel_path} = {'open' if is_open else 'closed'}")
+            
+            # Process children
+            for child in tree.get_children(item_id):
+                collect_expansion_state(child)
+        
+        # Start with root items
+        for root_item in tree.get_children():
+            collect_expansion_state(root_item)
+        
+        logger.debug(f"EXPANSION: Saved expansion state for {len(expansion_state)} items")
+        return expansion_state
+    
+    def _restore_tree_expansion_state(self, tree, expansion_state): # 2025.08.07 v0.3 new def
+        """
+        Restore the expansion state of items in a tree.
+        
+        Args:
+        -----
+        tree: Tree widget to restore expansion state for
+        expansion_state: Dict mapping relative paths to expansion state
+        """
+        side = 'left' if tree == self.left_tree else 'right'
+        restored_count = 0
+        
+        def restore_expansion_recursive(item_id):
+            """Recursively restore expansion state"""
+            nonlocal restored_count
+            
+            # Get the relative path for this item
+            rel_path = self.get_item_relative_path(item_id, side)
+            
+            if rel_path in expansion_state:
+                should_be_open = expansion_state[rel_path]
+                tree.item(item_id, open=should_be_open)
+                restored_count += 1
+                logger.debug(f"EXPANSION: Restored {rel_path} = {'open' if should_be_open else 'closed'}")
+            
+            # Process children
+            for child in tree.get_children(item_id):
+                restore_expansion_recursive(child)
+        
+        # Restore expansion state for all items
+        for root_item in tree.get_children():
+            restore_expansion_recursive(root_item)
+        
+        logger.debug(f"EXPANSION: Restored expansion state for {restored_count} items on {side} tree")
+    
+    def _restore_state_after_sort(self, selected_paths_left, selected_paths_right, 
+                                 left_expansion_state, right_expansion_state): # 2025.08.07 v0.3 new def
+        """
+        Restore both selection and expansion state after tree rebuild.
+        
+        Args:
+        -----
+        selected_paths_left: Set of selected paths on left side
+        selected_paths_right: Set of selected paths on right side
+        left_expansion_state: Expansion state for left tree
+        right_expansion_state: Expansion state for right tree
+        """
+        logger.debug("STATE RESTORE: Starting state restoration after sort")
+        
+        try:
+            # First restore selections
+            logger.debug("STATE RESTORE: Restoring selections")
+            self._restore_selections_after_sort(selected_paths_left, selected_paths_right)
+            
+            # Then restore expansion states
+            logger.debug("STATE RESTORE: Restoring expansion states")
+            self._restore_tree_expansion_state(self.left_tree, left_expansion_state)
+            self._restore_tree_expansion_state(self.right_tree, right_expansion_state)
+            
+            logger.debug("STATE RESTORE: State restoration completed successfully")
+            
+        except Exception as e:
+            logger.error(f"STATE RESTORE ERROR: Failed to restore state: {e}")
+            import traceback
+            logger.debug(f"STATE RESTORE ERROR: Full traceback:\n{traceback.format_exc()}")
+
+
+    def perform_tree_sort(self, tree, column, progress): # 2025.08.07 v0.3 replaced by updated version
         """Perform synchronized tree sorting that maintains row correspondence."""
-        logger.debug(f"Performing synchronized tree sort by {column} ({self.current_sort_order})")
+        logger.debug(f"=== SORT START: Performing synchronized tree sort by {column} ({self.current_sort_order}) ===")
         
         # Determine which side was clicked
         clicked_side = 'left' if tree == self.left_tree else 'right'
+        logger.debug(f"SORT: Clicked side: {clicked_side}, column: {column}")
         
         progress.update_progress(10, "Analyzing comparison data...")
         
         # Use appropriate results set (filtered or full)
         results_to_use = self.filtered_results if self.is_filtered else self.comparison_results
+        logger.debug(f"SORT: Using {'filtered' if self.is_filtered else 'full'} results set with {len(results_to_use)} items")
         
         if not results_to_use:
             self.root.after(0, lambda: self.add_status_message("No comparison data to sort"))
+            logger.debug("SORT: No comparison data available")
             return
             
-        progress.update_progress(30, f"Sorting comparison data by {column}...")
+        progress.update_progress(20, "Saving expansion state...")
+        
+        # SAVE EXPANSION STATE before rebuilding trees
+        logger.debug("SORT: Saving expansion state of both trees")
+        left_expansion_state = self._save_tree_expansion_state(self.left_tree)
+        right_expansion_state = self._save_tree_expansion_state(self.right_tree)
+        logger.debug(f"SORT: Saved expansion state - Left: {len(left_expansion_state)} items, Right: {len(right_expansion_state)} items")
+            
+        progress.update_progress(40, f"Sorting comparison data by {column}...")
         
         # Sort comparison results by the selected column from the clicked side
         try:
+            logger.debug(f"SORT: Starting sort by column '{column}' from {clicked_side} side")
             sorted_results = self._sort_comparison_results_by_column(
                 results_to_use, column, clicked_side, self.current_sort_order
             )
+            logger.debug(f"SORT: Sort completed, {len(sorted_results)} items sorted")
             
-            progress.update_progress(70, "Rebuilding both trees...")
+            progress.update_progress(60, "Saving selection state...")
             
             # Store current selection state before rebuilding
             selected_paths_left = set()
@@ -2855,25 +2922,48 @@ class FolderCompareSync_class:
                 if rel_path:
                     selected_paths_right.add(rel_path)
             
-            # Rebuild both trees with sorted data
+            logger.debug(f"SORT: Saved selections - Left: {len(selected_paths_left)}, Right: {len(selected_paths_right)}")
+            
+            progress.update_progress(70, "Rebuilding both trees...")
+            logger.debug("SORT: Starting tree rebuild")
+            
+            # Update the underlying data
             if self.is_filtered:
                 self.filtered_results = sorted_results
-                self.root.after(0, self.update_comparison_ui_filtered)
+                logger.debug("SORT: Updated filtered_results")
             else:
                 self.comparison_results = sorted_results
-                self.root.after(0, self.update_comparison_ui)
+                logger.debug("SORT: Updated comparison_results")
             
-            # Restore selections after rebuild
-            self.root.after(0, lambda: self._restore_selections_after_sort(selected_paths_left, selected_paths_right))
+            # Rebuild both trees with sorted data
+            if self.is_filtered:
+                self.root.after(0, self.update_comparison_ui_filtered)
+                logger.debug("SORT: Scheduled filtered UI update")
+            else:
+                self.root.after(0, self.update_comparison_ui)
+                logger.debug("SORT: Scheduled full UI update")
+            
+            progress.update_progress(85, "Restoring expansion state...")
+            
+            # Restore expansion and selection state after rebuild
+            self.root.after(0, lambda: self._restore_state_after_sort(
+                selected_paths_left, selected_paths_right, 
+                left_expansion_state, right_expansion_state
+            ))
+            logger.debug("SORT: Scheduled state restoration")
             
             sort_summary = f"Synchronized sort by {column} ({self.current_sort_order}ending) from {clicked_side.upper()} tree"
             self.root.after(0, lambda: self.add_status_message(sort_summary))
+            logger.debug(f"SORT: {sort_summary}")
             
         except Exception as e:
-            logger.error(f"Failed to perform synchronized sort: {e}")
+            logger.error(f"SORT ERROR: Failed to perform synchronized sort: {e}")
+            import traceback
+            logger.debug(f"SORT ERROR: Full traceback:\n{traceback.format_exc()}")
             self.root.after(0, lambda: self.add_status_message(f"Synchronized sort failed: {str(e)}"))
         
         progress.update_progress(100, "Synchronized sort complete")
+        logger.debug("=== SORT END: Synchronized sort process completed ===")
 
     def _sort_comparison_results_by_column(self, results_dict, column, clicked_side, sort_order):
         """
@@ -2979,31 +3069,49 @@ class FolderCompareSync_class:
         
         return sorted_results
     
-    def _restore_selections_after_sort(self, selected_paths_left, selected_paths_right):
+    def _restore_selections_after_sort(self, selected_paths_left, selected_paths_right): # 2025.08.07 v0.3 replaced by updated version
         """Restore selection state after tree rebuild."""
+        logger.debug("SELECTION RESTORE: Starting selection restoration")
+        
         try:
             # Clear current selections
             self.selected_left.clear()
             self.selected_right.clear()
+            logger.debug("SELECTION RESTORE: Cleared current selections")
             
             # Restore left selections
+            restored_left = 0
             for rel_path in selected_paths_left:
                 item_id = self.find_tree_item_by_path(rel_path, 'left')
                 if item_id:
                     self.selected_left.add(item_id)
+                    restored_left += 1
+                    logger.debug(f"SELECTION RESTORE: Restored left selection: {rel_path}")
+                else:
+                    logger.debug(f"SELECTION RESTORE: Could not find left item for path: {rel_path}")
             
             # Restore right selections  
+            restored_right = 0
             for rel_path in selected_paths_right:
                 item_id = self.find_tree_item_by_path(rel_path, 'right')
                 if item_id:
                     self.selected_right.add(item_id)
+                    restored_right += 1
+                    logger.debug(f"SELECTION RESTORE: Restored right selection: {rel_path}")
+                else:
+                    logger.debug(f"SELECTION RESTORE: Could not find right item for path: {rel_path}")
+            
+            logger.debug(f"SELECTION RESTORE: Restored {restored_left} left + {restored_right} right selections")
             
             # Update display
+            logger.debug("SELECTION RESTORE: Updating tree display")
             self.update_tree_display_safe()
+            logger.debug("SELECTION RESTORE: Selection restoration completed")
             
         except Exception as e:
-            logger.debug(f"Error restoring selections after sort: {e}")
-    # --- end   of tree sorting replacement code 2025.08.07 v0.2 ---
+            logger.error(f"SELECTION RESTORE ERROR: Error restoring selections after sort: {e}")
+            import traceback
+            logger.debug(f"SELECTION RESTORE ERROR: Full traceback:\n{traceback.format_exc()}")
 
     def apply_filter(self):
         """Apply wildcard filter to display only matching files with limit checking."""
