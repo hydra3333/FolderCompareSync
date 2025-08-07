@@ -229,11 +229,11 @@ def check_dependencies(deps):
 #     pip install --upgrade tzdata
 check_dependencies([
     ("tzdata",          "zoneinfo"),
-    #("python-dateutil", "dateutil.tz"),
+    ("python-dateutil", "dateutil.tz"),
 ])
 # If we get here, we can safely import:
-#from zoneinfo import ZoneInfo
-#import zoneinfo
+from zoneinfo import ZoneInfo
+import zoneinfo
 from dateutil.tz import tzwinlocal
 # ************** At program startup **************
 
