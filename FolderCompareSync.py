@@ -3695,8 +3695,8 @@ class FolderCompareSync_class:
             logger.info(f"Selected right folder: {folder}")
             
     def start_comparison(self):
-        """Start folder comparison in background thread with limit checking."""
-        logger.info("Starting folder comparison")
+        """Start folder comparison in background thread with limit checking and complete reset."""
+        logger.info("Starting folder comparison with complete reset")
         
         if not self.left_folder.get() or not self.right_folder.get():
             error_msg = "Both folders must be selected before comparison"
@@ -3719,8 +3719,14 @@ class FolderCompareSync_class:
             self.show_error(error_msg)
             return
         
-        # Reset limit state for new comparison
+        # COMPLETE RESET - including sort state
         self.limit_exceeded = False
+        self.current_sort_column = None    # Reset sort state
+        self.current_sort_order = 'asc'    # Reset sort state
+        
+        # Log the reset
+        self.add_status_message("RESET: Clearing all sort state and data structures for fresh comparison")
+        logger.info("Complete application reset initiated - clearing sort state and all data")
         
         if __debug__:
             logger.debug(f"Left folder: {self.left_folder.get()}")
@@ -3730,12 +3736,20 @@ class FolderCompareSync_class:
                         f"date_created={self.compare_date_created.get()}, "
                         f"date_modified={self.compare_date_modified.get()}, "
                         f"sha512={self.compare_sha512.get()}")
+            logger.debug("Sort state reset: no sorting will be applied")
             
         # Start comparison in background thread
         self.status_var.set("Comparing folders...")
-        self.add_status_message("Starting folder comparison...")
-        logger.info("Starting background comparison thread")
+        self.add_status_message("Starting fresh folder comparison (no sorting)...")
+        logger.info("Starting background comparison thread with reset state")
         threading.Thread(target=self.perform_comparison, daemon=True).start()
+
+
+
+
+
+
+
         
     def perform_comparison(self):
         """
@@ -4066,8 +4080,11 @@ class FolderCompareSync_class:
         if __debug__:
             logger.debug(f"Cleared {left_items} left tree items and {right_items} right tree items")
             
-        # Build tree structure with root handling
-        self.build_trees_with_root_paths()
+        # Build tree structure with root handling, passing current sort state
+        self.build_trees_with_root_paths(
+            sort_column=self.current_sort_column,
+            sort_order=self.current_sort_order
+        )
         
         # Update status
         self.status_var.set("Ready")
@@ -4088,15 +4105,18 @@ class FolderCompareSync_class:
         for item in self.right_tree.get_children():
             self.right_tree.delete(item)
             
-        # Build tree structure with filtered results
-        self.build_trees_with_filtered_results()
+        # Build tree structure with filtered results, passing current sort state
+        self.build_trees_with_filtered_results(
+            sort_column=self.current_sort_column,
+            sort_order=self.current_sort_order
+        )
         
         # Update status
         self.status_var.set("Ready (Filtered)")
         self.update_summary()
         logger.info("Filtered UI update completed")
 
-    def build_trees_with_filtered_results(self):
+    def build_trees_with_filtered_results(self, sort_column=None, sort_order='asc'):
         """Build tree structures from filtered comparison results with limit checking."""
         if self.limit_exceeded:
             return
@@ -4125,8 +4145,10 @@ class FolderCompareSync_class:
         self.path_to_item_right[''] = self.root_item_right
         
         # For filtered results, show a flattened view under each root
-        # This simplifies the display when filtering
-        for rel_path, result in results_to_use.items():
+        # Sort the items according to the current sort settings
+        sorted_items = self._sort_filtered_items_for_display(results_to_use, sort_column, sort_order)
+        
+        for rel_path, result in sorted_items:
             if not rel_path:
                 continue
                 
@@ -4156,21 +4178,16 @@ class FolderCompareSync_class:
                                                values=(size_str, date_created_str, date_modified_str, sha512_str, status))
                 self.path_to_item_right[rel_path] = item_id
 
-    def build_trees_with_root_paths(self):
+    def build_trees_with_root_paths(self, sort_column=None, sort_order='asc'):
         """
-        Build tree structures from comparison results with fully qualified root paths and limit checking.
-        
-        Purpose:
-        --------
-        to include root paths as selectable tree items and properly handle missing folders.
-        Now shows all metadata columns regardless of comparison settings.
-        Includes comprehensive limit checking to prevent performance issues.
+        Build tree structures from comparison results with fully qualified root paths and sort-aware ordering.
         """
         if self.limit_exceeded:
             return
             
         if __debug__:
             logger.debug(f"Building trees with root paths from {len(self.comparison_results)} comparison results")
+            logger.debug(f"Sort settings: column={sort_column}, order={sort_order}")
         
         start_time = time.time()
         
@@ -4199,13 +4216,13 @@ class FolderCompareSync_class:
             def __init__(self):
                 self.contents = {}
         
-        # Organize paths into tree structure
+        # Organize paths into tree structure (same as before)
         left_structure = {}
         right_structure = {}
         
         # First pass: Build structure for existing items
         for rel_path, result in self.comparison_results.items():
-            if not rel_path:  # Skip empty paths (but this shouldn't happen now)
+            if not rel_path:  # Skip empty paths
                 if __debug__:
                     logger.debug("Skipping empty relative path")
                 continue
@@ -4221,16 +4238,11 @@ class FolderCompareSync_class:
                         if part not in current:
                             current[part] = {}
                         elif not isinstance(current[part], (dict, MissingFolder)):
-                            # Handle conflict: file exists where we need a folder
-                            if __debug__:
-                                logger.debug(f"Path conflict in left structure: '{part}' exists as file, need as folder")
                             current[part] = {}
                         elif isinstance(current[part], MissingFolder):
-                            # Convert missing folder to real folder since we have content
                             current[part] = current[part].contents
                         current = current[part] if isinstance(current[part], dict) else current[part].contents
                 if path_parts[-1]:
-                    # Only add if it doesn't conflict with existing folder
                     final_name = path_parts[-1]
                     if final_name in current and isinstance(current[final_name], (dict, MissingFolder)):
                         if __debug__:
@@ -4246,23 +4258,18 @@ class FolderCompareSync_class:
                         if part not in current:
                             current[part] = {}
                         elif not isinstance(current[part], (dict, MissingFolder)):
-                            # Handle conflict: file exists where we need a folder
-                            if __debug__:
-                                logger.debug(f"Path conflict in right structure: '{part}' exists as file, need as folder")
                             current[part] = {}
                         elif isinstance(current[part], MissingFolder):
-                            # Convert missing folder to real folder since we have content
                             current[part] = current[part].contents
                         current = current[part] if isinstance(current[part], dict) else current[part].contents
                 if path_parts[-1]:
-                    # Only add if it doesn't conflict with existing folder
                     final_name = path_parts[-1]
                     if final_name in current and isinstance(current[final_name], (dict, MissingFolder)):
                         if __debug__:
                             logger.debug(f"Cannot add file '{final_name}' - folder exists with same name")
                     else:
                         current[final_name] = result.right_item
-                    
+                        
         # Second pass: Add missing items as placeholders
         missing_left = 0
         missing_right = 0
@@ -4277,77 +4284,71 @@ class FolderCompareSync_class:
                 missing_left += 1
                 current = left_structure
                 
-                # Build missing folder structure
                 for part in path_parts[:-1]:
                     if part:
                         if part not in current:
-                            current[part] = MissingFolder()  # Mark as missing folder
+                            current[part] = MissingFolder()
                         elif not isinstance(current[part], (dict, MissingFolder)):
                             current[part] = MissingFolder()
                         current = current[part].contents if isinstance(current[part], MissingFolder) else current[part]
                         
                 if path_parts[-1]:
                     final_name = path_parts[-1]
-                    # For missing files/folders, use None for files and MissingFolder for folders
                     if result.right_item and result.right_item.is_folder:
                         if final_name not in current or not isinstance(current[final_name], (dict, MissingFolder)):
-                            current[final_name] = MissingFolder()  # Missing folder
+                            current[final_name] = MissingFolder()
                     else:
                         if final_name not in current or not isinstance(current[final_name], (dict, MissingFolder)):
-                            current[final_name] = None  # Missing file
+                            current[final_name] = None
                     
             # Add missing right items
             if result.right_item is None and result.left_item is not None:
                 missing_right += 1
                 current = right_structure
                 
-                # Build missing folder structure
                 for part in path_parts[:-1]:
                     if part:
                         if part not in current:
-                            current[part] = MissingFolder()  # Mark as missing folder
+                            current[part] = MissingFolder()
                         elif not isinstance(current[part], (dict, MissingFolder)):
                             current[part] = MissingFolder()
                         current = current[part].contents if isinstance(current[part], MissingFolder) else current[part]
                         
                 if path_parts[-1]:
                     final_name = path_parts[-1]
-                    # For missing files/folders, use None for files and MissingFolder for folders
                     if result.left_item and result.left_item.is_folder:
                         if final_name not in current or not isinstance(current[final_name], (dict, MissingFolder)):
-                            current[final_name] = MissingFolder()  # Missing folder
+                            current[final_name] = MissingFolder()
                     else:
                         if final_name not in current or not isinstance(current[final_name], (dict, MissingFolder)):
-                            current[final_name] = None  # Missing file
+                            current[final_name] = None
         
         if __debug__:
             logger.debug(f"Added {missing_left} missing left placeholders, {missing_right} missing right placeholders")
             
-        # Populate trees under root items
-        logger.info("Populating tree views under root paths...")
-        self.populate_tree(self.left_tree, left_structure, self.root_item_left, 'left', '')
-        self.populate_tree(self.right_tree, right_structure, self.root_item_right, 'right', '')
+        # Populate trees under root items with sort-aware ordering
+        logger.info("Populating tree views under root paths with sort-aware ordering...")
+        self.populate_tree(self.left_tree, left_structure, self.root_item_left, 'left', '', 
+                          sort_column=sort_column, sort_order=sort_order)
+        self.populate_tree(self.right_tree, right_structure, self.root_item_right, 'right', '', 
+                          sort_column=sort_column, sort_order=sort_order)
         
         elapsed_time = time.time() - start_time
         if __debug__:
             logger.debug(f"Tree building with root paths completed in {elapsed_time:.3f} seconds")
         
-    def populate_tree(self, tree, structure, parent_id, side, current_path):
+    def populate_tree(self, tree, structure, parent_id, side, current_path, sort_column=None, sort_order='asc'):
         """
-        Recursively populate tree with structure and limit checking.
-        
-        Purpose:
-        --------
-        Missing items (both files and folders) no longer have checkboxes for logical consistency.
-        Now shows all metadata columns regardless of comparison settings.
-        Includes limit checking to prevent performance issues.
+        Recursively populate tree with structure using sort-aware ordering instead of alphabetical.
         """
         if self.limit_exceeded:
             return
-            
+        
+        # Sort items according to current sort settings instead of always alphabetical
+        sorted_items = self._sort_tree_structure_items(structure.items(), current_path, side, sort_column, sort_order)
+        
         # Import the MissingFolder class (defined in build_trees_with_root_paths)
-        # We need to check for this class type
-        for name, content in sorted(structure.items()):
+        for name, content in sorted_items:
             # Build the full relative path for this item
             item_rel_path = current_path + ('/' if current_path else '') + name
             
@@ -4362,14 +4363,16 @@ class FolderCompareSync_class:
                     item_id = tree.insert(parent_id, tk.END, text=item_text, open=False,
                                         values=("", "", "", "", "Missing"), tags=('missing',))
                     # Recursively populate children from the missing folder's contents
-                    self.populate_tree(tree, content.contents, item_id, side, item_rel_path)
+                    self.populate_tree(tree, content.contents, item_id, side, item_rel_path,
+                                     sort_column=sort_column, sort_order=sort_order)
                 else:
                     # Real folder - has checkbox
                     item_text = f"☐ {name}/"
                     item_id = tree.insert(parent_id, tk.END, text=item_text, open=False,
                                         values=("", "", "", "", "Folder"))
                     # Recursively populate children
-                    self.populate_tree(tree, content, item_id, side, item_rel_path)
+                    self.populate_tree(tree, content, item_id, side, item_rel_path,
+                                     sort_column=sort_column, sort_order=sort_order)
                 
                 # Store path mapping for both real and missing folders
                 path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
@@ -4403,6 +4406,129 @@ class FolderCompareSync_class:
                                         
         # Configure missing item styling using configurable color
         tree.tag_configure('missing', foreground=MISSING_ITEM_COLOR)
+
+    def _sort_tree_structure_items(self, items, current_path, side, sort_column, sort_order):
+        """
+        Sort tree structure items according to current sort settings.
+        
+        Purpose:
+        --------
+        Applies the same sorting logic used in comparison results to tree structure items,
+        maintaining consistency between flat sorting and tree display.
+        
+        Args:
+        -----
+        items: Iterator of (name, content) tuples from structure.items()
+        current_path: Current path in the tree hierarchy
+        side: Which side ('left' or 'right') for determining sort values
+        sort_column: Column to sort by (None for alphabetical)
+        sort_order: Sort direction ('asc' or 'desc')
+        
+        Returns:
+        --------
+        List of (name, content) tuples in correct sort order
+        """
+        if not sort_column:
+            # No specific sorting - use default alphabetical
+            return sorted(items)
+    
+        
+        def get_sort_key(name_content_pair):
+            name, content = name_content_pair
+            
+            # Folders always sort before files, then by name
+            is_missing_folder = hasattr(content, 'contents')
+            if isinstance(content, dict) or is_missing_folder:
+                return ("folder", name.lower(), "")
+            
+            # For files, get the actual FileMetadata to sort by
+            if content is None:
+                # Missing files sort to end
+                return ("file", "", name.lower())
+            
+            # Real file - use metadata for sorting
+            try:
+                if sort_column == 'size':
+                    return ("file", content.size or 0, name.lower())
+                elif sort_column == 'date_created':
+                    date_str = content.date_created.strftime("%Y-%m-%d %H:%M:%S") if content.date_created else ""
+                    return ("file", date_str, name.lower())
+                elif sort_column == 'date_modified':
+                    date_str = content.date_modified.strftime("%Y-%m-%d %H:%M:%S") if content.date_modified else ""
+                    return ("file", date_str, name.lower())
+                elif sort_column == 'sha512':
+                    return ("file", content.sha512 or "", name.lower())
+                elif sort_column == 'status':
+                    # Need to look up status from comparison results
+                    item_rel_path = current_path + ('/' if current_path else '') + name
+                    result = self.comparison_results.get(item_rel_path)
+                    status = "Different" if result and result.is_different else "Same"
+                    return ("file", status, name.lower())
+                else:
+                    # Default to name sorting
+                    return ("file", name.lower(), "")
+            except (AttributeError, TypeError):
+                return ("file", "", name.lower())
+        
+        # Sort items with reverse flag for descending order
+        sorted_items = sorted(items, key=get_sort_key, reverse=(sort_order == 'desc'))
+        
+        if __debug__:
+            logger.debug(f"Sorted {len(sorted_items)} items in {current_path} by {sort_column} ({sort_order})")
+        
+        return sorted_items
+
+    def _sort_filtered_items_for_display(self, filtered_results, sort_column, sort_order):
+        """
+        Sort filtered results for display according to current sort settings.
+        
+        Args:
+        -----
+        filtered_results: Dictionary of filtered comparison results
+        sort_column: Column to sort by (None for alphabetical)
+        sort_order: Sort direction ('asc' or 'desc')
+        
+        Returns:
+        --------
+        List of (rel_path, result) tuples in correct sort order
+        """
+        if not sort_column:
+            # No specific sorting - use alphabetical by path
+            return sorted(filtered_results.items())
+        
+        def get_sort_key(path_result_pair):
+            rel_path, result = path_result_pair
+            
+            # Use left item preferentially, fall back to right item
+            item = result.left_item if result.left_item and result.left_item.exists else result.right_item
+            
+            if not item or not item.exists:
+                return ("", 0, rel_path.lower())
+            
+            # Only sort files, folders stay in their original positions
+            if item.is_folder:
+                return ("folder", rel_path.lower(), "")
+            
+            try:
+                if sort_column == 'size':
+                    return ("file", item.size or 0, rel_path.lower())
+                elif sort_column == 'date_created':
+                    date_str = item.date_created.strftime("%Y-%m-%d %H:%M:%S") if item.date_created else ""
+                    return ("file", date_str, rel_path.lower())
+                elif sort_column == 'date_modified':
+                    date_str = item.date_modified.strftime("%Y-%m-%d %H:%M:%S") if item.date_modified else ""
+                    return ("file", date_str, rel_path.lower())
+                elif sort_column == 'sha512':
+                    return ("file", item.sha512 or "", rel_path.lower())
+                elif sort_column == 'status':
+                    status = "Different" if result.is_different else "Same"
+                    return ("file", status, rel_path.lower())
+                else:
+                    return ("file", rel_path.lower(), "")
+            except (AttributeError, TypeError):
+                return ("file", "", rel_path.lower())
+        
+        return sorted(filtered_results.items(), key=get_sort_key, reverse=(sort_order == 'desc'))
         
     def get_item_path(self, tree, item_id):
         """
