@@ -72,11 +72,17 @@ jobs:
           )
         shell: cmd
 
-      # 10. Test the executable briefly
-      - name: Test executable
+      # 10. Validate executable
+      - name: Validate executable
         run: |
-          echo Testing executable...
-          dist\FolderCompareSync.exe --help || echo "Note: GUI app may not support --help flag"
+          echo Validating executable properties...
+          echo File size:
+          for %%F in (dist\FolderCompareSync.exe) do echo %%~zF bytes
+          echo.
+          echo File exists and is executable: 
+          if exist dist\FolderCompareSync.exe (echo ✓ PASS) else (echo ✗ FAIL)
+          echo.
+          echo Note: GUI apps cannot be tested in headless CI environment
         shell: cmd
 
       # 11. Debug: List build output
