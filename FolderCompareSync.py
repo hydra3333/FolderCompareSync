@@ -175,8 +175,8 @@ SORT_BATCH_SIZE = 100             # Process sorting in batches of N items
 
 # ============================================================================
 # LOGGING SETUP (MUST BE BEFORE FileTimestampManager)
+# 2025.08.07 v0.3 replaced by updated version
 # ============================================================================
-
 # Setup logging loglevel based on __debug__ flag
 # using "-O" on the python commandline turns __debug__ off:  python -O FolderCompareSync.py
 if __debug__:
@@ -186,15 +186,28 @@ else:
     log_level = logging.INFO
     log_format = '%(asctime)s - %(levelname)s - %(message)s'
 
-# Create handlers list:
+# Create handlers list with UTF-8 encoding support:
 # Add a handler for file logging, since that is always enabled
 handlers = [
-    logging.FileHandler(os.path.join(os.path.dirname(__file__), 'foldercomparesync.log'), mode='w')   # Always log to file
+    logging.FileHandler(
+        os.path.join(os.path.dirname(__file__), 'foldercomparesync.log'), 
+        mode='w', 
+        encoding='utf-8'  # Ensure UTF-8 encoding for file output
+    )
 ]
 # When in debug mode, when __debug__ is True, add a handler for console logging, only 
 #    ... i.e. when -O is missing from the python commandline
 if __debug__:
-    handlers.append(logging.StreamHandler())  # Console output only when in debug mode
+    # Create console handler with UTF-8 encoding to handle Unicode filenames
+    console_handler = logging.StreamHandler()
+    console_handler.setStream(sys.stdout)  # Explicitly use stdout
+    # Set UTF-8 encoding if possible (for Windows Unicode support)
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass  # If reconfigure fails, continue with default encoding
+    handlers.append(console_handler)
 
 logging.basicConfig(
     level=log_level,
@@ -1199,52 +1212,52 @@ def determine_copy_strategy(source_path: str, target_path: str, file_size: int) 
     # Small files on local drives use direct strategy
     return CopyStrategy.DIRECT
 
-def create_copy_operation_logger(operation_id: str) -> logging.Logger:
-    """
-    Create a dedicated logger for a copy operation with timestamped log file.
-    
-    Purpose:
-    --------
-    Establishes isolated logging for individual copy operations to enable
-    detailed tracking, debugging, and performance analysis per operation.
-    
-    Args:
-    -----
-    operation_id: Unique identifier for the copy operation
-    
-    Returns:
-    --------
-    logging.Logger: Configured logger instance for the operation
-    
-    Usage:
-    ------
-    logger = create_copy_operation_logger("abc123def")
-    logger.info("Copy operation starting...")
-    """
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_filename = f"foldercomparesync_copy_{timestamp}_{operation_id}.log"
-    log_filepath = os.path.join(os.path.dirname(__file__), log_filename)
-    
-    # Create a new logger instance for this operation
-    operation_logger = logging.getLogger(f"copy_operation_{operation_id}")
-    operation_logger.setLevel(logging.DEBUG)
-    
-    # Create file handler for this operation
-    file_handler = logging.FileHandler(log_filepath, mode='w', encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    
-    # Create formatter for operation logs
-    formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler.setFormatter(formatter)
-    
-    # Add handler to logger
-    operation_logger.addHandler(file_handler)
-    operation_logger.propagate = False  # Don't propagate to root logger
-    
-    return operation_logger
+    def create_copy_operation_logger(operation_id: str) -> logging.Logger: # 2025.08.07 v0.3 replaced by updated version
+        """
+        Create a dedicated logger for a copy operation with timestamped log file.
+        
+        Purpose:
+        --------
+        Establishes isolated logging for individual copy operations to enable
+        detailed tracking, debugging, and performance analysis per operation.
+        
+        Args:
+        -----
+        operation_id: Unique identifier for the copy operation
+        
+        Returns:
+        --------
+        logging.Logger: Configured logger instance for the operation
+        
+        Usage:
+        ------
+        logger = create_copy_operation_logger("abc123def")
+        logger.info("Copy operation starting...")
+        """
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        log_filename = f"foldercomparesync_copy_{timestamp}_{operation_id}.log"
+        log_filepath = os.path.join(os.path.dirname(__file__), log_filename)
+        
+        # Create a new logger instance for this operation
+        operation_logger = logging.getLogger(f"copy_operation_{operation_id}")
+        operation_logger.setLevel(logging.DEBUG)
+        
+        # Create file handler for this operation with UTF-8 encoding
+        file_handler = logging.FileHandler(log_filepath, mode='w', encoding='utf-8')
+        file_handler.setLevel(logging.DEBUG)
+        
+        # Create formatter for operation logs
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler.setFormatter(formatter)
+        
+        # Add handler to logger
+        operation_logger.addHandler(file_handler)
+        operation_logger.propagate = False  # Don't propagate to root logger
+        
+        return operation_logger
 
 
 @dataclass
