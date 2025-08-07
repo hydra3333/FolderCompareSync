@@ -2637,82 +2637,10 @@ class FolderCompareSync_class:
             logger.error(f"Failed to start sort operation: {e}")
             self.add_status_message(f"Sort failed: {str(e)}")
 
-    def perform_tree_sort(self, tree, column, progress):
-        """Perform the actual tree sorting operation with limit checking."""
-        logger.debug(f"Performing tree sort by {column} ({self.current_sort_order})")
-        
-        # Get all top-level items (folders and files)
-        all_items = []
-        
-        def collect_items(parent=''):
-            """Recursively collect all items for sorting"""
-            children = tree.get_children(parent)
-            for child in children:
-                item_text = tree.item(child, 'text')
-                item_values = tree.item(child, 'values')
-                
-                # Only sort files, not folders
-                if not item_text.endswith('/') and '[MISSING]' not in item_text:
-                    all_items.append((child, item_text, item_values))
-                
-                # Recursively collect from subfolders
-                collect_items(child)
-        
-        # Collect all items
-        progress.update_progress(10, "Collecting items...")
-        collect_items()
-        
-        if not all_items:
-            self.root.after(0, lambda: self.add_status_message("No files to sort"))
-            return
-        
-        progress.update_progress(30, f"Sorting {len(all_items)} files...")
-        
-        # Sort items based on column
-        def get_sort_key(item_tuple):
-            child, text, values = item_tuple
-            try:
-                if column == 'size':
-                    # Parse size for sorting (convert back from human readable)
-                    size_str = values[0] if values else ""
-                    return self.parse_size_for_sorting(size_str)
-                elif column == 'date_created':
-                    return values[1] if len(values) > 1 else ""
-                elif column == 'date_modified':
-                    return values[2] if len(values) > 2 else ""
-                elif column == 'sha512':
-                    return values[3] if len(values) > 3 else ""
-                elif column == 'status':
-                    return values[4] if len(values) > 4 else ""
-                else:
-                    # Default to name sorting
-                    return text.lower()
-            except (IndexError, ValueError):
-                return ""
-        
-        # Perform sort using configurable batch processing
-        sorted_items = sorted(all_items, key=get_sort_key, reverse=(self.current_sort_order == 'desc'))
-        
-        progress.update_progress(70, "Rebuilding tree...")
-        
-        # Update tree display - this is complex, so for now we'll just update the summary
-        # Full tree reordering would require rebuilding the entire tree structure
-        # which is beyond the scope of this initial implementation
-        
-        progress.update_progress(100, "Sort complete")
-        
-        # Update status
-        sort_summary = f"Sorted {len(all_items)} files by {column} ({self.current_sort_order}ending)"
-        self.root.after(0, lambda: self.add_status_message(sort_summary))
-        
-        # Note: Full tree reordering implementation would go here
-        # For now, we're providing the framework and logging
-
     def parse_size_for_sorting(self, size_str):
         """Convert human-readable size back to bytes for sorting."""
         if not size_str:
             return 0
-        
         try:
             # Remove the unit and convert to float
             size_str = size_str.strip()
@@ -2737,6 +2665,345 @@ class FolderCompareSync_class:
             return int(number * multiplier)
         except (ValueError, IndexError):
             return 0
+
+    # This LARGE commented-out (by ####) code block denotes code which has been replaced by
+    # the code block below it which is bounded by these 2 lines
+    # --- start of tree sorting replacement code 2025.08.07 v0.2 ---
+    # --- end   of tree sorting replacement code 2025.08.07 v0.2 ---
+    ####
+    ####def perform_tree_sort(self, tree, column, progress):
+    ####        """Perform the actual tree sorting operation with limit checking."""
+    ####    logger.debug(f"Performing tree sort by {column} ({self.current_sort_order})")
+    ####    
+    ####    # Get all top-level items (folders and files)
+    ####    all_items = []
+    ####    
+    ####    def collect_items(parent=''):
+    ####        """Recursively collect all items for sorting"""
+    ####        children = tree.get_children(parent)
+    ####        for child in children:
+    ####            item_text = tree.item(child, 'text')
+    ####            item_values = tree.item(child, 'values')
+    ####            
+    ####            # Only sort files, not folders
+    ####            if not item_text.endswith('/') and '[MISSING]' not in item_text:
+    ####                all_items.append((child, item_text, item_values))
+    ####            
+    ####            # Recursively collect from subfolders
+    ####            collect_items(child)
+    ####    
+    ####    # Collect all items
+    ####    progress.update_progress(10, "Collecting items...")
+    ####    collect_items()
+    ####    
+    ####    if not all_items:
+    ####        self.root.after(0, lambda: self.add_status_message("No files to sort"))
+    ####        return
+    ####    
+    ####    progress.update_progress(30, f"Sorting {len(all_items)} files...")
+    ####    
+    ####    # Sort items based on column
+    ####    def get_sort_key(item_tuple):
+    ####        child, text, values = item_tuple
+    ####        try:
+    ####            if column == 'size':
+    ####                # Parse size for sorting (convert back from human readable)
+    ####                size_str = values[0] if values else ""
+    ####                return self.parse_size_for_sorting(size_str)
+    ####            elif column == 'date_created':
+    ####                return values[1] if len(values) > 1 else ""
+    ####            elif column == 'date_modified':
+    ####                return values[2] if len(values) > 2 else ""
+    ####            elif column == 'sha512':
+    ####                return values[3] if len(values) > 3 else ""
+    ####            elif column == 'status':
+    ####                return values[4] if len(values) > 4 else ""
+    ####            else:
+    ####                # Default to name sorting
+    ####                return text.lower()
+    ####        except (IndexError, ValueError):
+    ####            return ""
+    ####    
+    ####    # Perform sort using configurable batch processing
+    ####    sorted_items = sorted(all_items, key=get_sort_key, reverse=(self.current_sort_order == 'desc'))
+    ####    
+    ####    progress.update_progress(70, "Rebuilding tree...")
+    ####    
+    ####    # Update tree display - this is complex, so for now we'll just update the summary
+    ####    # Full tree reordering would require rebuilding the entire tree structure
+    ####    # which is beyond the scope of this initial implementation
+    ####    
+    ####    # Reorder the tree display with sorted items
+    ####    try:
+    ####        # We need to sort files within each folder level while preserving folder structure
+    ####        self._reorder_tree_items(tree, column, sorted_items)
+    ####        
+    ####        sort_summary = f"Sorted {len(sorted_items)} files by {column} ({self.current_sort_order}ending)"
+    ####        self.root.after(0, lambda: self.add_status_message(sort_summary))
+    ####        
+    ####    except Exception as e:
+    ####        logger.error(f"Failed to reorder tree: {e}")
+    ####        self.root.after(0, lambda: self.add_status_message(f"Tree reordering failed: {str(e)}"))
+    ####    
+    ####    progress.update_progress(100, "Sort complete")
+    ####
+    ####def _reorder_tree_items(self, tree, column, sorted_items):
+    ####    """
+    ####    Reorder tree items while maintaining folder structure and selection state.
+    ####    
+    ####    Purpose:
+    ####    --------
+    ####    Sorts files within their parent folders while preserving the overall
+    ####    tree hierarchy and maintaining user selection state.
+    ####    """
+    ####    if not sorted_items:
+    ####        return
+    ####        
+    ####    # Group sorted items by their parent folder
+    ####    items_by_parent = {}
+    ####    for child, text, values in sorted_items:
+    ####        parent = tree.parent(child)
+    ####        if parent not in items_by_parent:
+    ####            items_by_parent[parent] = []
+    ####        items_by_parent[parent].append((child, text, values))
+    ####    
+    ####    # Reorder items within each parent folder
+    ####    for parent, items in items_by_parent.items():
+    ####        if not items:
+    ####            continue
+    ####            
+    ####        # Get current selection state for these items
+    ####        selected_items = set()
+    ####        side = 'left' if tree == self.left_tree else 'right'
+    ####        selected_set = self.selected_left if side == 'left' else self.selected_right
+    ####        
+    ####        for child, text, values in items:
+    ####            if child in selected_set:
+    ####                selected_items.add(child)
+    ####        
+    ####        # Store the item data before detaching
+    ####        item_data = []
+    ####        for child, text, values in items:
+    ####            item_info = {
+    ####                'id': child,
+    ####                'text': text,
+    ####                'values': values,
+    ####                'tags': tree.item(child, 'tags'),
+    ####                'open': tree.item(child, 'open'),
+    ####                'selected': child in selected_items
+    ####            }
+    ####            # Store children if this item has any
+    ####            children = tree.get_children(child)
+    ####            item_info['children'] = list(children)
+    ####            item_data.append(item_info)
+    ####        
+    ####        # Detach all items from their parent
+    ####        for child, text, values in items:
+    ####            tree.detach(child)
+    ####        
+    ####        # Reattach in sorted order
+    ####        for item_info in item_data:
+    ####            # Move item to end of parent (they're already in sorted order)
+    ####            tree.move(item_info['id'], parent, 'end')
+    ####            
+    ####            # Restore item properties
+    ####            tree.item(item_info['id'], 
+    ####                     text=item_info['text'],
+    ####                     values=item_info['values'],
+    ####                     tags=item_info['tags'],
+    ####                     open=item_info['open'])
+    ####
+    
+    # --- start of tree sorting replacement code 2025.08.07 v0.2 ---
+    def perform_tree_sort(self, tree, column, progress):
+        """Perform synchronized tree sorting that maintains row correspondence."""
+        logger.debug(f"Performing synchronized tree sort by {column} ({self.current_sort_order})")
+        
+        # Determine which side was clicked
+        clicked_side = 'left' if tree == self.left_tree else 'right'
+        
+        progress.update_progress(10, "Analyzing comparison data...")
+        
+        # Use appropriate results set (filtered or full)
+        results_to_use = self.filtered_results if self.is_filtered else self.comparison_results
+        
+        if not results_to_use:
+            self.root.after(0, lambda: self.add_status_message("No comparison data to sort"))
+            return
+            
+        progress.update_progress(30, f"Sorting comparison data by {column}...")
+        
+        # Sort comparison results by the selected column from the clicked side
+        try:
+            sorted_results = self._sort_comparison_results_by_column(
+                results_to_use, column, clicked_side, self.current_sort_order
+            )
+            
+            progress.update_progress(70, "Rebuilding both trees...")
+            
+            # Store current selection state before rebuilding
+            selected_paths_left = set()
+            selected_paths_right = set()
+            
+            for item_id in self.selected_left:
+                rel_path = self.get_item_relative_path(item_id, 'left')
+                if rel_path:
+                    selected_paths_left.add(rel_path)
+                    
+            for item_id in self.selected_right:
+                rel_path = self.get_item_relative_path(item_id, 'right')
+                if rel_path:
+                    selected_paths_right.add(rel_path)
+            
+            # Rebuild both trees with sorted data
+            if self.is_filtered:
+                self.filtered_results = sorted_results
+                self.root.after(0, self.update_comparison_ui_filtered)
+            else:
+                self.comparison_results = sorted_results
+                self.root.after(0, self.update_comparison_ui)
+            
+            # Restore selections after rebuild
+            self.root.after(0, lambda: self._restore_selections_after_sort(selected_paths_left, selected_paths_right))
+            
+            sort_summary = f"Synchronized sort by {column} ({self.current_sort_order}ending) from {clicked_side.upper()} tree"
+            self.root.after(0, lambda: self.add_status_message(sort_summary))
+            
+        except Exception as e:
+            logger.error(f"Failed to perform synchronized sort: {e}")
+            self.root.after(0, lambda: self.add_status_message(f"Synchronized sort failed: {str(e)}"))
+        
+        progress.update_progress(100, "Synchronized sort complete")
+
+    def _sort_comparison_results_by_column(self, results_dict, column, clicked_side, sort_order):
+        """
+        Sort comparison results by column values from the specified side.
+        
+        Purpose:
+        --------
+        Sorts the underlying comparison data rather than tree widgets,
+        enabling synchronized tree rebuilding with maintained row correspondence.
+        
+        Args:
+        -----
+        results_dict: Dictionary of comparison results to sort
+        column: Column to sort by ('size', 'date_created', etc.)
+        clicked_side: Which side was clicked ('left' or 'right')
+        sort_order: Sort direction ('asc' or 'desc')
+        
+        Returns:
+        --------
+        Dict: Sorted comparison results maintaining original structure
+        """
+        def get_sort_key_for_path(rel_path_and_result):
+            rel_path, result = rel_path_and_result
+            
+            # Get the item from the clicked side
+            item = result.left_item if clicked_side == 'left' else result.right_item
+            
+            # If item doesn't exist on clicked side, use the other side
+            if not item or not item.exists:
+                item = result.right_item if clicked_side == 'left' else result.left_item
+            
+            # If no item exists on either side, sort to end
+            if not item or not item.exists:
+                return ("", 0, "")  # Will sort to beginning/end depending on reverse flag
+            
+            # Only sort files, folders stay in their original relative positions
+            if item.is_folder:
+                return ("folder", rel_path.lower(), "")  # Folders sort by path
+            
+            try:
+                if column == 'size':
+                    return ("file", item.size or 0, rel_path.lower())
+                elif column == 'date_created':
+                    date_str = item.date_created.strftime("%Y-%m-%d %H:%M:%S") if item.date_created else ""
+                    return ("file", date_str, rel_path.lower())
+                elif column == 'date_modified':
+                    date_str = item.date_modified.strftime("%Y-%m-%d %H:%M:%S") if item.date_modified else ""
+                    return ("file", date_str, rel_path.lower())
+                elif column == 'sha512':
+                    return ("file", item.sha512 or "", rel_path.lower())
+                elif column == 'status':
+                    status = "Different" if result.is_different else "Same"
+                    return ("file", status, rel_path.lower())
+                else:
+                    # Default to name sorting
+                    return ("file", rel_path.lower(), "")
+            except (AttributeError, TypeError):
+                return ("file", "", rel_path.lower())
+        
+        # Sort by folder level to maintain folder structure
+        sorted_items = []
+        
+        # Group by folder level
+        by_folder_level = {}
+        for rel_path, result in results_dict.items():
+            if not rel_path:  # Skip root
+                continue
+                
+            folder_level = rel_path.count('/')
+            if folder_level not in by_folder_level:
+                by_folder_level[folder_level] = []
+            by_folder_level[folder_level].append((rel_path, result))
+        
+        # Sort within each folder level
+        sorted_results = {}
+        
+        # Add root back first if it exists
+        if "" in results_dict:
+            sorted_results[""] = results_dict[""]
+        
+        # Sort each folder level independently
+        for folder_level in sorted(by_folder_level.keys()):
+            level_items = by_folder_level[folder_level]
+            
+            # Group by parent folder within this level
+            by_parent = {}
+            for rel_path, result in level_items:
+                parent_path = '/'.join(rel_path.split('/')[:-1]) if '/' in rel_path else ""
+                if parent_path not in by_parent:
+                    by_parent[parent_path] = []
+                by_parent[parent_path].append((rel_path, result))
+            
+            # Sort files within each parent folder
+            for parent_path, items in by_parent.items():
+                sorted_parent_items = sorted(
+                    items, 
+                    key=get_sort_key_for_path, 
+                    reverse=(sort_order == 'desc')
+                )
+                
+                for rel_path, result in sorted_parent_items:
+                    sorted_results[rel_path] = result
+        
+        return sorted_results
+    
+    def _restore_selections_after_sort(self, selected_paths_left, selected_paths_right):
+        """Restore selection state after tree rebuild."""
+        try:
+            # Clear current selections
+            self.selected_left.clear()
+            self.selected_right.clear()
+            
+            # Restore left selections
+            for rel_path in selected_paths_left:
+                item_id = self.find_tree_item_by_path(rel_path, 'left')
+                if item_id:
+                    self.selected_left.add(item_id)
+            
+            # Restore right selections  
+            for rel_path in selected_paths_right:
+                item_id = self.find_tree_item_by_path(rel_path, 'right')
+                if item_id:
+                    self.selected_right.add(item_id)
+            
+            # Update display
+            self.update_tree_display_safe()
+            
+        except Exception as e:
+            logger.debug(f"Error restoring selections after sort: {e}")
+    # --- end   of tree sorting replacement code 2025.08.07 v0.2 ---
 
     def apply_filter(self):
         """Apply wildcard filter to display only matching files with limit checking."""
