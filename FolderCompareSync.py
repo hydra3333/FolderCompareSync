@@ -3952,7 +3952,6 @@ class FolderCompareSync_class:
                         except Exception as e:
                             if __debug__:
                                 logger.debug(f"SHA512 computation failed for {path}: {e}")
-                            logger.debug(f"In build_file_list_with_progress() SHA512 computation failed for {path}: {e}")
                     
                     # v000.0004 NOTE: Create metadata without SHA512 computation (since SHA512 computation already handled above) # v000.0004 changed
                     metadata = FileMetadata_class.from_path(str(path), compute_hash=False)
