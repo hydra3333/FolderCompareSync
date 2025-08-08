@@ -1,0 +1,94 @@
++ PLEASE USE THESE MANDATORY FEATURES AND CODE CHANGE RULES
+
+++ MANDATORY FEATURES WHICH MUST BE MAINTANED ACROSS ALL CHANGES AND VERSIONS:
+We must ALWAYS explicitly ensure when creating/updating code and when running the program - and 
+verify after all code changes, perhaps through a review and through implementing a verification def which is
+called after (re)building any data structures eg say after a compare or a sort, that:
+(1) the Folder tree structures NEVER changes after a compare - folders in the folder trees in both the LEFT and the RIGHT
+must stay and be displayed in their hierarchy, including missing ones.
+(2) row correspondence is maintained for files and folders across the folder trees in the 
+LEFT and the RIGHT, i.e. when folders and files in "Folder A" (including "missing" ones)
+are shown on the LEFT then the corresponding files in "Folder A" (including "missing" ones)
+are shown on the RIGHT follow the same order so that both matching entries in LEFT and RIGHT
+appear as a pair and are guarenteed to always appear in the same row.
+If in the future we choose to implement file sorting by varying optional criteria then it is mandatory that
+(a) only files within each folder level will get sorted 
+(b) files sort among their "siblings" in the same parent folder
+(c) row correspondence is maintained for files and folders and within each folder across both halves LEFT and RIGHT, 
+i.e. when folders and files in "Folder A" (including "missing" ones) are shown on the LEFT then the corresponding
+files in "Folder A" (including "missing" ones) are shown on the RIGHT follow the same order so that both
+matching entries in LEFT and RIGHT appear as a pair and are guarenteed to always appear in the same row.
+(d) scrolling is still synchromized across the 2 halves so that files/folders are always
+shown  in the same row shen srolling up and down. 
+(e) i.e. file/folder pairs across the 2 display trees always display together as a stable pair on one row even when sorted.
+(f) So if I have:
+ProjectRoot/
+    ├── Documents/
+    │   ├── file1.txt (100KB)
+    │   ├── file2.txt (50KB) 
+    │   └── file3.txt (200KB)
+    └── Images/
+        ├── photo1.jpg (2MB)
+        └── photo2.jpg (1MB)
+and I click "Size" in LEFT tree:
+    Documents/ folder files reorder: file2.txt(50KB), file1.txt(100KB), file3.txt(200KB)
+    Images/ folder files reorder: photo2.jpg(1MB), photo1.jpg(2MB)
+    RIGHT tree files in Documents/ and Images/ follow the same reordering to maintain row alignment
+    Folders themselves (Documents/, Images/) stay in original positions
+
+This approach:
+  - Maintains directory navigation structure
+  - Keeps the tool's core comparison purpose intact 
+  - Preserves left and right comparison alignment within each folder across both halves 
+  - Makes it easy for the end user to compare folder trees
+  - Allows for, at some point in the future, useful sorting of files within each directory ensuring
+    directory/file comparison structure appears consistent, with row correspondence, to the ends user
+
+++ "FolderCompareSync CHANGE SCHEME" CODE CHANGE SCHEME RULES
++++ Overview
+This is our agreed change scheme named "FolderCompareSync CHANGE SCHEME" for making code
+modifications in a clear, traceable way.
++++ Rules:
+1. Always update the version and revision number in the comment near the top of the Program -
+   Version vvv.rrrr 
+2. Clearly mark changed code -
+   with one of these at the end of each added or changed line
+   # vvv.rrrr added
+   # vvv.rrrr changed
+3. No full code display to me - 
+Instead of showing me full program code for changes, only show me the new/changed/deleted def's into
+new downloadable artifacts and also show me in a new downloadable artifact a full structure tree of
+def's a bit like this example format denoting where new/changed/deleted def's are in the
+program in sequence and in relative depth to each other via multi level indentaton:
+Def and Class relative position
+_u64_to_FILETIME()
+_FILETIME_to_u64()
+class FileTimestampManager 
+	├── __init__()
+	├── def_01()
+	├── def_02()
+    │   ├── imaginary_01()
+    │   ├── imaginary_02() # ****UPDATED****
+    │   ├── class MissingFolder
+    │   │   ├──  __init__()
+    │   │   └── nested_imaginary_01() # ****UPDATED****
+    │   └── imaginary_03()
+    ├── Crikey_01()
+    │   ├── Crikey_02()
+    │   └── Crikey_03() # ****UPDATED****
+	├── def_03()
+	└── def_04() # ****NEW****
+class class_05 # ****NEW****
+	├── __init__() # ****NEW****
+	└── def_06() # ****NEW****
+main()
++++ Benefits:
+- Preserves visibility of original code
+- Clearly marks all modifications  
+- Easy to review changes
+- Simple to revert if needed
+- Maintains proper indentation
+- Shows exact scope of each change
+- requires minimal output from Claude AI
+
+

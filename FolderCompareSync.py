@@ -2,43 +2,18 @@
 """
 FolderCompareSync - A Professional Folder Comparison & Synchronization Tool
 
-Version 0.6.2 - Windows timestamp fix (FILETIME + BACKUP_SEMANTICS), pathlib standardization, dry run safety, improved error handling
-
-A GUI application for comparing two directory trees based on metadata and syncing theme.
-This tool provides a visual interface to compare two folder structures, identifying differences based on file 
-existence, size, dates, and SHA512 hashes, then copy files between them using a dual-strategy 
-copy system with a safer backup/copy/revert approach for copying larger files.
-
-KEY FEATURES:
-=============
-- Copy System with dual-strategy approach (Direct Copy +  Staged Copy)
-- Automatic network drive detection and copy system optimization for maximum performance  
-- Complete timestamp preservation (creation and modification times) with rollback capability
-- Atomic file operations using Windows rename primitives for maximum safety
-- 50% reduction in disk space usage during large file operations compared to traditional methods
-- Comprehensive error handling with automatic rollback and timestamp restoration
-- Real-time performance monitoring and strategy selection feedback
-- DRY RUN mode for safe testing of operations without actual file modifications
-- Configurable limits for handling large folder structures with performance warnings
-- error dialogs with detailed information and clipboard support
-
-COPY STRATEGIES:
-================
-- Direct Strategy: Fast copying for small files (<200MB) on local drives
-- Staged Strategy: Safer backup/copy/revert approach for large files (≥200MB) and network drives
-- Automatic selection based on file size and drive type with zero user configuration required
-- Full dry run simulation capability for testing operations before execution
-
-PERFORMANCE LIMITS:
-===================
-- Maximum 100,000 files/folders supported with early abort protection
-- 5,000 line status log history for comprehensive operation tracking
-- Performance warnings displayed to users about large folder operation implications
-- Early detection and graceful handling of operations exceeding system limits
+Version 000.0001 
 
 Author: hydra3333
 License: AGPL-3.0
 GitHub: https://github.com/hydra3333/FolderCompareSync
+
+LIMITS:
+=======
+- Maximum 200,000 files/folders supported with early abort protection
+- 5,000 line status log history for comprehensive operation tracking
+- Performance warnings displayed to users about large folder operation implications
+- Early detection and handling of operations exceeding system limits
 
 DEBUG & LOGGING:
 ================
@@ -49,17 +24,14 @@ This application uses Python's built-in __debug__ flag and logging for debugging
    - False when running with "-O" flag (python optimized mode) on the python commandline :  python -O FolderCompareSync.py
    - i.e. using "-O" turns off debugging via __debug__
    - Controls assert statements and debug-only code
-
 2. Running the application:
    - Debug mode (verbose):            python FolderCompareSync.py
    - python Optimized mode (quiet):   python -O FolderCompareSync.py
-   
 3. Logging output:
    - File: foldercomparesync.log (always enabled, detailed log for troubleshooting)
    - Console: Real-time debug/info messages (only in debug mode when "-O" flag is omitted)
    - Copy Operations: Per-operation log files with timestamps and performance metrics for detailed analysis
    - DRY RUN: Full simulation logging without actual file operations for safe testing
-
 4. Turn debug loglevel on/off within section of code within any Class Method:
     # debug some specific section of code
     self.set_debug_loglevel(True)  # Turn on debug logging
@@ -72,9 +44,6 @@ This application uses Python's built-in __debug__ flag and logging for debugging
         logger.debug("Now getting detailed debug info...")
         ...
         self.set_debug_loglevel(False)  # Turn off debug logging
-
-CHANGELOG: refer to CHANGELOG.md
-================================
 """
 
 import platform
@@ -1094,7 +1063,7 @@ class CopyOperationResult:
     
     Usage:
     ------
-    Used by EnhancedFileCopyManager to return detailed operation results
+    Used by FileCopyManager to return detailed operation results
     for logging, error handling, and performance tracking purposes.
     """
     success: bool
@@ -1468,7 +1437,7 @@ class ProgressDialog:
             pass  # Dialog already destroyed
 
 
-class EnhancedFileCopyManager:
+class FileCopyManager:
     """
     file copy manager implementing Strategy A and Strategy B
     with rename-based backup , comprehensive error handling, and dry run capability.
@@ -1488,7 +1457,7 @@ class EnhancedFileCopyManager:
     
     Usage:
     ------
-    copy_manager = EnhancedFileCopyManager(status_callback=add_status_message)
+    copy_manager = FileCopyManager(status_callback=add_status_message)
     copy_manager.set_dry_run_mode(True)  # For testing
     operation_id = copy_manager.start_copy_operation("Test Copy")
     result = copy_manager.copy_file(source, target, overwrite=True)
@@ -1511,7 +1480,7 @@ class EnhancedFileCopyManager:
         self.operation_sequence = 0  # New: Sequential numbering for operations
         
         # Log timezone information for the copy manager
-        logger.info(f"EnhancedFileCopyManager initialized with timezone: {self.timestamp_manager.get_timezone_string()}")
+        logger.info(f"FileCopyManager initialized with timezone: {self.timestamp_manager.get_timezone_string()}")
     def set_dry_run_mode(self, enabled: bool):
         """
         Enable or disable dry run mode for safe operation testing.
@@ -2094,7 +2063,7 @@ class FolderCompareSync_class:
         self.status_log_text = None  # Will be set in setup_ui
         
         # copy system with staged strategy and dry run support
-        self.copy_manager = EnhancedFileCopyManager(status_callback=self.add_status_message)
+        self.copy_manager = FileCopyManager(status_callback=self.add_status_message)
         
         if __debug__:
             logger.debug("Application state initialized with dual copy system")
@@ -3744,13 +3713,6 @@ class FolderCompareSync_class:
         logger.info("Starting background comparison thread with reset state")
         threading.Thread(target=self.perform_comparison, daemon=True).start()
 
-
-
-
-
-
-
-        
     def perform_comparison(self):
         """
         Perform the actual folder comparison with progress tracking and limit checking.
