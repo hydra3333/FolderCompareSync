@@ -3938,10 +3938,12 @@ class FolderCompareSync_class:
                         try:
                             size = path.stat().st_size
                             if size > SHA512_STATUS_MESSAGE_THRESHOLD:
-                                # Use separate utility function for progress tracking # v000.0004 added
-                                sha512_hash = compute_sha512_with_progress(str(path), progress)
+                                # Large files: Use separate SHA512 computation utility function for progress tracking # v000.0004 added
+                                logger.debug(f"Large file: Performing SHA512 computation via compute_sha512_with_progress() for {path}")
+                                sha512_hash = self.compute_sha512_with_progress(str(path), progress)
                             else:
                                 # Small files: compute directly without progress overhead # v000.0004 added
+                                logger.debug(f"Small file: Performing SHA512 computation locally in build_file_list_with_progress() for {path}")
                                 if size < SHA512_MAX_FILE_SIZE:
                                     hasher = hashlib.sha512()
                                     with open(str(path), 'rb') as f:
@@ -3950,6 +3952,7 @@ class FolderCompareSync_class:
                         except Exception as e:
                             if __debug__:
                                 logger.debug(f"SHA512 computation failed for {path}: {e}")
+                            logger.debug(f"In build_file_list_with_progress() SHA512 computation failed for {path}: {e}")
                     
                     # v000.0004 NOTE: Create metadata without SHA512 computation (since SHA512 computation already handled above) # v000.0004 changed
                     metadata = FileMetadata_class.from_path(str(path), compute_hash=False)
@@ -4005,7 +4008,7 @@ class FolderCompareSync_class:
             
         return files
 
-    def compute_sha512_with_progress(file_path: str, progress_dialog: ProgressDialog) -> Optional[str]: # v000.0004 added - separated SHA512 computation with progress tracking
+    def compute_sha512_with_progress(self, file_path: str, progress_dialog: ProgressDialog) -> Optional[str]: # v000.0004 added - separated SHA512 computation with progress tracking
         """
         Compute SHA512 hash for a file with progress tracking in the UI every ~50MB.
         
@@ -4030,12 +4033,13 @@ class FolderCompareSync_class:
         try:
             path = Path(file_path)
             if not path.exists() or not path.is_file():
+                logger.debug(f"In compute_sha512_with_progress() ... returning None ... not path.exists() or not path.is_file() for {file_path}")
                 return None
                 
             size = path.stat().st_size
             if size >= SHA512_MAX_FILE_SIZE:  # v000.0004 respect configurable limit
                 if __debug__:
-                    logger.debug(f"File too large for SHA512 computation: {size} bytes > {SHA512_MAX_FILE_SIZE} bytes")
+                    logger.debug(f"In compute_sha512_with_progress() File too large for SHA512 computation: {size} bytes > {SHA512_MAX_FILE_SIZE} bytes")
                 return None
             
             hasher = hashlib.sha512()
@@ -4047,7 +4051,7 @@ class FolderCompareSync_class:
             # v000.0004 Show initial progress message for large files
             if size > SHA512_STATUS_MESSAGE_THRESHOLD:
                 size_mb = size / (1024 * 1024)
-                progress_dialog.update_message(f"Computing SHA512 for {path.name} ({size_mb:.1f} MB)...\n(computed 0MB of {size_mb:.1f}MB)")
+                progress_dialog.update_message(f"Computing SHA512 for {path.name} ({size_mb} MB)...\n(computed 0 MB of {size_mb} MB)")
             
             with open(file_path, 'rb') as f:
                 for chunk in iter(lambda: f.read(8 * 1024 * 1024), b''):  # v000.0004 8MB chunks
@@ -4060,13 +4064,13 @@ class FolderCompareSync_class:
                         if chunk_count % 6 == 0 or bytes_processed >= size:  # Update every ~50MB
                             processed_mb = bytes_processed / (1024 * 1024)
                             total_mb = size / (1024 * 1024)
-                            progress_dialog.update_message(f"Computing SHA512 for {path.name} ({total_mb:.1f} MB)...\n(computed {processed_mb:.1f}MB of {total_mb:.1f}MB)")
+                            progress_dialog.update_message(f"Computing SHA512 for {path.name} ({total_mb:.1f} MB)...\n(computed {processed_mb} MB of {total_mb} MB)")
             
             return hasher.hexdigest() # v000.0004
             
         except Exception as e:
             if __debug__:
-                logger.debug(f"SHA512 computation failed for {file_path}: {e}")
+                logger.debug(f"In compute_sha512_with_progress() SHA512 computation failed for {file_path}: {e}")
             return None  # v000.0004 hash computation failed
         
     def compare_items(self, left_item: Optional[FileMetadata_class], 
