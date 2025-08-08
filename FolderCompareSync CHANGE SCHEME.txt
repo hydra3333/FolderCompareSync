@@ -53,7 +53,7 @@ This approach:
 This is our agreed change scheme named "FolderCompareSync CHANGE SCHEME" for making code
 modifications in a clear, traceable way.
 +++ Rules:
-1. Always update the version and revision number in the comment near the top of the Program -
+1. Always update the version and revision number in the comments near the top of the Program -
    Version vvv.rrrr 
 2. Clearly mark changed code -
    with one of these at the end of each and every added and/or changed line
@@ -61,7 +61,11 @@ modifications in a clear, traceable way.
    # vvv.rrrr changed [brief relevant description, or common change identifying text]
 3. All code must be well commented and meaningful and keeping/amending existing comments of
 clarification as appropriate and removing obsolete comments.
-4. No full code display to me - 
+4. Do not unnecessarily change existing variable names or def names or class names or import names unless
+good reason exists to do so, for example the purpose or meaning has changed or for clarification; a change
+of name for the reason of preference in variable nameing only is not necessarily desirable (since the
+original programmer would have had a reason for assigning those names) unless it increases clarity.
+5. No full code display to me - 
 Instead of showing me full program code for changes, only show me the new/changed/deleted def's into
 new downloadable artifacts and also show me in a new downloadable artifact a full structure tree of
 def's a bit like this example format denoting where new/changed/deleted def's are in the
