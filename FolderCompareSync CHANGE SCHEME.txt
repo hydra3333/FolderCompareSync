@@ -1,3 +1,7 @@
+Attached is:
+(a) MANDATORY FEATURES and "FolderCompareSync CHANGE SCHEME"
+(b) The latest "FolderCompareSync" python code to work with
+
 + PLEASE USE THESE MANDATORY FEATURES AND CODE CHANGE RULES
 
 ++ MANDATORY FEATURES WHICH MUST BE MAINTANED ACROSS ALL CHANGES AND VERSIONS:
@@ -55,7 +59,9 @@ modifications in a clear, traceable way.
    with one of these at the end of each added or changed line
    # vvv.rrrr added
    # vvv.rrrr changed
-3. No full code display to me - 
+3. All code must be well commented and meaningful and keeping/amending existing comments of
+clarification as appropriate and removing obsolete comments.
+4. No full code display to me - 
 Instead of showing me full program code for changes, only show me the new/changed/deleted def's into
 new downloadable artifacts and also show me in a new downloadable artifact a full structure tree of
 def's a bit like this example format denoting where new/changed/deleted def's are in the
