@@ -2,7 +2,7 @@
 """
 FolderCompareSync - A Professional Folder Comparison & Synchronization Tool
 
-Version 000.0001 
+Version  000.0002
 
 Author: hydra3333
 License: AGPL-3.0
@@ -140,7 +140,7 @@ FILTER_HIGHLIGHT_COLOR = "#ffffcc"  # Background color for filtered items
 
 # Filtering and sorting configuration
 MAX_FILTER_RESULTS = 200000       # Maximum items to show when filtering (performance)
-SORT_BATCH_SIZE = 100             # Process sorting in batches of N items
+                                                                         
 
 # ============================================================================
 # LOGGING SETUP (MUST BE BEFORE FileTimestampManager)
@@ -1181,52 +1181,52 @@ def determine_copy_strategy(source_path: str, target_path: str, file_size: int) 
     # Small files on local drives use direct strategy
     return CopyStrategy.DIRECT
 
-    def create_copy_operation_logger(operation_id: str) -> logging.Logger: # 2025.08.07 v0.3 replaced by updated version
-        """
-        Create a dedicated logger for a copy operation with timestamped log file.
-        
-        Purpose:
-        --------
-        Establishes isolated logging for individual copy operations to enable
-        detailed tracking, debugging, and performance analysis per operation.
-        
-        Args:
-        -----
-        operation_id: Unique identifier for the copy operation
-        
-        Returns:
-        --------
-        logging.Logger: Configured logger instance for the operation
-        
-        Usage:
-        ------
-        logger = create_copy_operation_logger("abc123def")
-        logger.info("Copy operation starting...")
-        """
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        log_filename = f"foldercomparesync_copy_{timestamp}_{operation_id}.log"
-        log_filepath = os.path.join(os.path.dirname(__file__), log_filename)
-        
-        # Create a new logger instance for this operation
-        operation_logger = logging.getLogger(f"copy_operation_{operation_id}")
-        operation_logger.setLevel(logging.DEBUG)
-        
-        # Create file handler for this operation with UTF-8 encoding
-        file_handler = logging.FileHandler(log_filepath, mode='w', encoding='utf-8')
-        file_handler.setLevel(logging.DEBUG)
-        
-        # Create formatter for operation logs
-        formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        file_handler.setFormatter(formatter)
-        
-        # Add handler to logger
-        operation_logger.addHandler(file_handler)
-        operation_logger.propagate = False  # Don't propagate to root logger
-        
-        return operation_logger
+def create_copy_operation_logger(operation_id: str) -> logging.Logger: # v000.0002 replaced by updated version
+    """
+    Create a dedicated logger for a copy operation with timestamped log file.
+    
+    Purpose:
+    --------
+    Establishes isolated logging for individual copy operations to enable
+    detailed tracking, debugging, and performance analysis per operation.
+    
+    Args:
+    -----
+    operation_id: Unique identifier for the copy operation
+    
+    Returns:
+    --------
+    logging.Logger: Configured logger instance for the operation
+    
+    Usage:
+    ------
+    logger = create_copy_operation_logger("abc123def")
+    logger.info("Copy operation starting...")
+    """
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_filename = f"foldercomparesync_copy_{timestamp}_{operation_id}.log"
+    log_filepath = os.path.join(os.path.dirname(__file__), log_filename)
+    
+    # Create a new logger instance for this operation
+    operation_logger = logging.getLogger(f"copy_operation_{operation_id}")
+    operation_logger.setLevel(logging.DEBUG)
+    
+    # Create file handler for this operation with UTF-8 encoding
+    file_handler = logging.FileHandler(log_filepath, mode='w', encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    
+    # Create formatter for operation logs
+    formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(formatter)
+    
+    # Add handler to logger
+    operation_logger.addHandler(file_handler)
+    operation_logger.propagate = False  # Don't propagate to root logger
+    
+    return operation_logger
 
 
 @dataclass
@@ -1954,7 +1954,7 @@ class FolderCompareSync_class:
     - Dual-pane folder comparison with detailed metadata analysis
     - Configurable file/folder limits (100,000 max) with early abort protection
     - Dry run mode for safe operation testing without file modifications
-    - Advanced filtering, sorting, and selection capabilities
+    - Advanced filtering and selection capabilities
     - Status log export functionality for record keeping
     - Comprehensive error handling and user guidance
     
@@ -2020,10 +2020,10 @@ class FolderCompareSync_class:
         self.overwrite_mode = tk.BooleanVar(value=True)
         self.dry_run_mode = tk.BooleanVar(value=False)
         
-        # Filtering and sorting state
+        # Filtering state # v000.0002 changed - removed sorting
         self.filter_wildcard = tk.StringVar()
-        self.current_sort_column = None
-        self.current_sort_order = 'asc'  # 'asc' or 'desc'
+                                       
+                                                          
         self.filtered_results = {}  # Store filtered comparison results
         self.is_filtered = False
         
@@ -2256,28 +2256,28 @@ class FolderCompareSync_class:
             foreground="royalblue",
             font=("TkDefaultFont", 9, "bold")
         )
-        #   text=f"⚠ Performance Notice: Large folder operations may be slow. Maximum {MAX_FILES_FOLDERS:,} files/folders supported.",
-        #   foreground="darkorange",
+                                                                                                                                        
+                                    
         warning_label.pack(side=tk.LEFT)
         
         # Folder selection frame
         folder_frame = ttk.LabelFrame(main_frame, text="Folder Selection", padding=10)
         folder_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ## OLD:
-        ## Left folder selection
-        #ttk.Label(folder_frame, text="Left Folder:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
-        #left_entry = ttk.Entry(folder_frame, textvariable=self.left_folder, width=60)
-        #left_entry.grid(row=0, column=1, sticky=tk.EW, padx=(0, 5))
-        #ttk.Button(folder_frame, text="Browse", command=self.browse_left_folder).grid(row=0, column=2)
-        ## Right folder selection
-        #ttk.Label(folder_frame, text="Right Folder:").grid(row=1, column=0, sticky=tk.W, padx=(0, 5), pady=(5, 0))
-        #right_entry = ttk.Entry(folder_frame, textvariable=self.right_folder, width=60)
-        #right_entry.grid(row=1, column=1, sticky=tk.EW, padx=(0, 5), pady=(5, 0))
-        #ttk.Button(folder_frame, text="Browse", command=self.browse_right_folder).grid(row=1, column=2, pady=(5, 0))
-        #folder_frame.columnconfigure(1, weight=1)
+               
+                                
+                                                                                                     
+                                                                                      
+                                                                    
+                                                                                                       
+                                 
+                                                                                                                   
+                                                                                        
+                                                                                  
+                                                                                                                     
+                                                  
 
-        # NEW
+             
         # Left folder selection
         ttk.Label(folder_frame, text="Left Folder:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
         ttk.Button(folder_frame, text="Browse", command=self.browse_left_folder).grid(row=0, column=1, padx=(0, 5))
@@ -2332,9 +2332,9 @@ class FolderCompareSync_class:
         
         ttk.Checkbutton(top_controls, text="Overwrite Mode", variable=self.overwrite_mode).pack(side=tk.LEFT, padx=(0, 20))
 
-        # OLD
-        #ttk.Button(top_controls, text="Compare", command=self.start_comparison).pack(side=tk.LEFT, padx=(0, 20))
-        # NEW
+             
+                                                                                                                 
+             
         ttk.Button(top_controls, text="Compare", command=self.start_comparison, style="LimeGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 20))
 
         # selection controls with auto-clear and complete reset functionality
@@ -2409,11 +2409,11 @@ class FolderCompareSync_class:
         copy_frame = ttk.Frame(main_frame)
         copy_frame.pack(fill=tk.X, pady=(0, 5))
         
-        # OLD
-        #ttk.Button(copy_frame, text="Copy LEFT to Right", command=self.copy_left_to_right).pack(side=tk.LEFT, padx=(0, 10))
-        #ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left).pack(side=tk.LEFT, padx=(0, 10))
-        #ttk.Button(copy_frame, text="Quit", command=self.root.quit).pack(side=tk.RIGHT)
-        # NEW
+             
+                                                                                                                            
+                                                                                                                            
+                                                                                        
+             
         ttk.Button(copy_frame, text="Copy LEFT to Right", command=self.copy_left_to_right, style="RedBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left, style="GreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(copy_frame, text="Quit", command=self.root.quit, style="BlueBold.TButton").pack(side=tk.RIGHT)
@@ -2464,14 +2464,15 @@ class FolderCompareSync_class:
         
         logger.debug("User interface setup complete with features")
         
-    def setup_tree_columns(self, tree):
+    def setup_tree_columns(self, tree): # v000.0002 changed - column sorting disabled
         """
-        Setup columns for metadata display in tree.
+        Setup columns for metadata display in tree (sorting disabled).
         
         Purpose:
         --------
-        Configures tree view columns with proper sizing, alignment, and sorting
-        capabilities for comprehensive file metadata display.
+        Configures tree view columns with proper sizing and alignment
+        for comprehensive file metadata display. Column sorting has been
+        disabled to maintain mandatory folder structure compliance.
         
         Args:
         -----
@@ -2480,11 +2481,12 @@ class FolderCompareSync_class:
         # columns to show all metadata regardless of compare settings
         tree['columns'] = ('size', 'date_created', 'date_modified', 'sha512', 'status')
         
-        tree.heading('size', text='Size', anchor=tk.E, command=lambda: self.sort_tree_column(tree, 'size'))
-        tree.heading('date_created', text='Date Created', anchor=tk.CENTER, command=lambda: self.sort_tree_column(tree, 'date_created'))
-        tree.heading('date_modified', text='Date Modified', anchor=tk.CENTER, command=lambda: self.sort_tree_column(tree, 'date_modified'))
-        tree.heading('sha512', text='SHA512', anchor=tk.CENTER, command=lambda: self.sort_tree_column(tree, 'sha512'))
-        tree.heading('status', text='Status', anchor=tk.W, command=lambda: self.sort_tree_column(tree, 'status'))
+        # v000.0002 changed - removed column sorting command bindings to restore mandatory compliance
+        tree.heading('size', text='Size', anchor=tk.E)
+        tree.heading('date_created', text='Date Created', anchor=tk.CENTER)
+        tree.heading('date_modified', text='Date Modified', anchor=tk.CENTER)
+        tree.heading('sha512', text='SHA512', anchor=tk.CENTER)
+        tree.heading('status', text='Status', anchor=tk.W)
         
         # Use configurable column widths
         tree.column('size', width=TREE_SIZE_WIDTH, minwidth=TREE_SIZE_MIN_WIDTH, anchor=tk.E)
@@ -2579,521 +2581,521 @@ class FolderCompareSync_class:
         self.file_count_right = 0
         self.total_file_count = 0
 
-    def sort_tree_column(self, tree, column): # 2025.08.07 v0.3 replaced by updated version
-        """Sort tree by column (files only, within folders) with error handling."""
-        logger.debug(f"=== SORT TRIGGER: User clicked column '{column}' ===")
+                                                                                           
+                                                                                   
+                                                                             
         
-        if self.limit_exceeded:
-            messagebox.showwarning("Operation Disabled", "Sorting is disabled when file limits are exceeded.")
-            logger.debug("SORT TRIGGER: Aborted - file limits exceeded")
-            return
+                               
+                                                                                                              
+                                                                        
+                  
             
-        logger.debug(f"SORT TRIGGER: Starting sort for column: {column}")
-        logger.debug(f"SORT TRIGGER: Current sort state - column: {self.current_sort_column}, order: {self.current_sort_order}")
+                                                                         
+                                                                                                                                
         
-        # Toggle sort order if same column, otherwise start with ascending
-        if self.current_sort_column == column:
-            self.current_sort_order = 'desc' if self.current_sort_order == 'asc' else 'asc'
-            logger.debug(f"SORT TRIGGER: Toggled sort order to: {self.current_sort_order}")
-        else:
-            self.current_sort_column = column
-            self.current_sort_order = 'asc'
-            logger.debug(f"SORT TRIGGER: New column selected, order reset to: {self.current_sort_order}")
+                                                                          
+                                              
+                                                                                           
+                                                                                           
+             
+                                             
+                                           
+                                                                                                         
         
-        # Update status
-        order_text = "ascending" if self.current_sort_order == 'asc' else "descending"
-        status_message = f"Sorting by {column} ({order_text})"
-        self.add_status_message(status_message)
-        logger.debug(f"SORT TRIGGER: {status_message}")
+                       
+                                                                                      
+                                                              
+                                               
+                                                       
         
-        # Check data availability
-        results_to_check = self.filtered_results if self.is_filtered else self.comparison_results
-        logger.debug(f"SORT TRIGGER: Available data - {'filtered' if self.is_filtered else 'full'} results: {len(results_to_check)} items")
+                                 
+                                                                                                 
+                                                                                                                                           
         
-        if not results_to_check:
-            error_msg = "No comparison data available for sorting"
-            logger.debug(f"SORT TRIGGER: Aborted - {error_msg}")
-            self.add_status_message(f"Sort failed: {error_msg}")
-            return
+                                
+                                                                  
+                                                                
+                                                                
+                  
         
-        # Create progress dialog for sorting operation
-        progress = ProgressDialog(self.root, "Sorting Tree", f"Sorting by {column}...", max_value=100)
-        logger.debug("SORT TRIGGER: Created progress dialog")
+                                                      
+                                                                                                      
+                                                             
         
-        try:
-            # Use thread for sorting to keep UI responsive
-            def sort_thread():
-                try:
-                    logger.debug("SORT THREAD: Starting background sort thread")
-                    self.perform_tree_sort(tree, column, progress)
-                    logger.debug("SORT THREAD: Background sort thread completed successfully")
-                except Exception as e:
-                    logger.error(f"SORT THREAD ERROR: Sort operation failed: {e}")
-                    import traceback
-                    logger.debug(f"SORT THREAD ERROR: Full traceback:\n{traceback.format_exc()}")
-                    self.root.after(0, lambda: self.add_status_message(f"Sort failed: {str(e)}"))
-                finally:
-                    logger.debug("SORT THREAD: Closing progress dialog")
-                    self.root.after(0, progress.close)
             
-            logger.debug("SORT TRIGGER: Starting background sort thread")
-            threading.Thread(target=sort_thread, daemon=True).start()
-            
-        except Exception as e:
-            progress.close()
-            logger.error(f"SORT TRIGGER ERROR: Failed to start sort operation: {e}")
-            import traceback
-            logger.debug(f"SORT TRIGGER ERROR: Full traceback:\n{traceback.format_exc()}")
-            self.add_status_message(f"Sort failed: {str(e)}")
-        
-        logger.debug("=== SORT TRIGGER: Sort initiation completed ===")
-
-    
-    """
-    2025.08.07 v0.3 Code Change comments
-    
-    Folder tree structure NEVER changes - folders stay in their hierarchy
-    Only files within each folder level get sorted - files sort among their "siblings" in the same parent folder
-    Row correspondence maintained within each folder - when files in "Folder A" get sorted on the left,
-    the corresponding files in "Folder A" on the right follow the same order,
-    i.e. file/folder pairs across the 2 display treee (including "missing" ones) always
-    display together as a stable pair on one row even when sorted.
-    So if I have:
-        ProjectRoot/
-          ├── Documents/
-          │   ├── file1.txt (100KB)
-          │   ├── file2.txt (50KB) 
-          │   └── file3.txt (200KB)
-          └── Images/
-              ├── photo1.jpg (2MB)
-              └── photo2.jpg (1MB)
-    And I click "Size" in LEFT tree:
-    Documents/ folder files reorder: file2.txt(50KB), file1.txt(100KB), file3.txt(200KB)
-    Images/ folder files reorder: photo2.jpg(1MB), photo1.jpg(2MB)
-    RIGHT tree files in Documents/ and Images/ follow the same reordering to maintain row alignment
-    Folders themselves (Documents/, Images/) stay in original positions
-
-    This approach:
-    - Maintains directory navigation structure
-    - Allows useful sorting of files within each directory
-    - Preserves left↔right comparison alignment within each folder
-    - Keeps the tool's core comparison purpose intact
-
-    SORTING ISSUES FIXED:
-    =====================
-    
-    PROBLEM 1: Trees collapse after sorting
-    ----------------------------------------
-    CAUSE: Rebuilding entire trees loses expansion state
-    SOLUTION: Save and restore folder expansion state during rebuild
-    
-    PROBLEM 2: Sort appears not to work  
-    ----------------------------------
-    CAUSE: User can't see changes because folders are collapsed
-    SOLUTION: Preserve expansion state so user can see sort results
-    
-    PROBLEM 3: Insufficient debugging
-    ---------------------------------
-    CAUSE: Hard to trace what's happening during sort process
-    SOLUTION: Added comprehensive debug logging throughout sort flow
-    
-    PROBLEM 4: Obsolete method
-    -------------------------
-    CAUSE: parse_size_for_sorting() no longer needed
-    SOLUTION: Remove method (we now sort on raw data, not formatted strings)
-    
-    KEY CHANGES MADE:
-    ================
-    
-    1. ENHANCED perform_tree_sort():
-       - Added comprehensive debug logging
-       - Save expansion state before rebuild
-       - Restore expansion state after rebuild
-       - Better error tracking
-    
-    2. ENHANCED sort_tree_column():
-       - Added debug logging for sort initiation
-       - Better data validation
-       - Enhanced error reporting
-    
-    3. NEW _save_tree_expansion_state():
-       - Captures which folders are open/closed
-       - Maps relative paths to expansion state
-    
-    4. NEW _restore_tree_expansion_state():
-       - Restores folder open/closed state after rebuild
-       - Maintains user's view preferences
-    
-    5. NEW _restore_state_after_sort():
-       - Combines selection + expansion restoration
-       - Ensures complete state preservation
-    
-    6. ENHANCED _restore_selections_after_sort():
-       - Added debug logging
-       - Better error handling
-    
-    7. REMOVED parse_size_for_sorting():
-       - No longer needed with new approach
-       - Was parsing formatted strings back to numbers
-       - New approach uses raw data directly
-    
-    DEBUG LOGGING ADDED:
-    ===================
-    - "=== SORT START/END ===" markers for easy identification
-    - "SORT TRIGGER:" - When user clicks column header
-    - "SORT THREAD:" - Background sorting thread activity  
-    - "SORT:" - Main sorting logic flow
-    - "EXPANSION:" - Folder expansion state save/restore
-    - "SELECTION RESTORE:" - Selection state restoration
-    - "STATE RESTORE:" - Overall state restoration
-    
-    The debug logs will now show exactly what happens when you click a column header,
-    making it easy to identify where any remaining issues occur.
-"""
-
-    def _save_tree_expansion_state(self, tree): # 2025.08.07 v0.3 new def
-        """
-        Save the expansion state of all items in a tree.
-        
-        Returns:
-        --------
-        Dict[str, bool]: Dictionary mapping relative paths to expansion state
-        """
-        expansion_state = {}
-        
-        def collect_expansion_state(item_id):
-            """Recursively collect expansion state for all items"""
-            # Get the relative path for this item
-            side = 'left' if tree == self.left_tree else 'right'
-            rel_path = self.get_item_relative_path(item_id, side)
-            
-            if rel_path is not None:
-                # Store expansion state
-                is_open = tree.item(item_id, 'open')
-                expansion_state[rel_path] = is_open
-                logger.debug(f"EXPANSION: Saved {rel_path} = {'open' if is_open else 'closed'}")
-            
-            # Process children
-            for child in tree.get_children(item_id):
-                collect_expansion_state(child)
-        
-        # Start with root items
-        for root_item in tree.get_children():
-            collect_expansion_state(root_item)
-        
-        logger.debug(f"EXPANSION: Saved expansion state for {len(expansion_state)} items")
-        return expansion_state
-    
-    def _restore_tree_expansion_state(self, tree, expansion_state): # 2025.08.07 v0.3 new def
-        """
-        Restore the expansion state of items in a tree.
-        
-        Args:
-        -----
-        tree: Tree widget to restore expansion state for
-        expansion_state: Dict mapping relative paths to expansion state
-        """
-        side = 'left' if tree == self.left_tree else 'right'
-        restored_count = 0
-        
-        def restore_expansion_recursive(item_id):
-            """Recursively restore expansion state"""
-            nonlocal restored_count
-            
-            # Get the relative path for this item
-            rel_path = self.get_item_relative_path(item_id, side)
-            
-            if rel_path in expansion_state:
-                should_be_open = expansion_state[rel_path]
-                tree.item(item_id, open=should_be_open)
-                restored_count += 1
-                logger.debug(f"EXPANSION: Restored {rel_path} = {'open' if should_be_open else 'closed'}")
-            
-            # Process children
-            for child in tree.get_children(item_id):
-                restore_expansion_recursive(child)
-        
-        # Restore expansion state for all items
-        for root_item in tree.get_children():
-            restore_expansion_recursive(root_item)
-        
-        logger.debug(f"EXPANSION: Restored expansion state for {restored_count} items on {side} tree")
-    
-    def _restore_state_after_sort(self, selected_paths_left, selected_paths_right, 
-                                 left_expansion_state, right_expansion_state): # 2025.08.07 v0.3 new def
-        """
-        Restore both selection and expansion state after tree rebuild.
-        
-        Args:
-        -----
-        selected_paths_left: Set of selected paths on left side
-        selected_paths_right: Set of selected paths on right side
-        left_expansion_state: Expansion state for left tree
-        right_expansion_state: Expansion state for right tree
-        """
-        logger.debug("STATE RESTORE: Starting state restoration after sort")
-        
-        try:
-            # First restore selections
-            logger.debug("STATE RESTORE: Restoring selections")
-            self._restore_selections_after_sort(selected_paths_left, selected_paths_right)
-            
-            # Then restore expansion states
-            logger.debug("STATE RESTORE: Restoring expansion states")
-            self._restore_tree_expansion_state(self.left_tree, left_expansion_state)
-            self._restore_tree_expansion_state(self.right_tree, right_expansion_state)
-            
-            logger.debug("STATE RESTORE: State restoration completed successfully")
-            
-        except Exception as e:
-            logger.error(f"STATE RESTORE ERROR: Failed to restore state: {e}")
-            import traceback
-            logger.debug(f"STATE RESTORE ERROR: Full traceback:\n{traceback.format_exc()}")
-
-
-    def perform_tree_sort(self, tree, column, progress): # 2025.08.07 v0.3 replaced by updated version
-        """Perform synchronized tree sorting that maintains row correspondence."""
-        logger.debug(f"=== SORT START: Performing synchronized tree sort by {column} ({self.current_sort_order}) ===")
-        
-        # Determine which side was clicked
-        clicked_side = 'left' if tree == self.left_tree else 'right'
-        logger.debug(f"SORT: Clicked side: {clicked_side}, column: {column}")
-        
-        progress.update_progress(10, "Analyzing comparison data...")
-        
-        # Use appropriate results set (filtered or full)
-        results_to_use = self.filtered_results if self.is_filtered else self.comparison_results
-        logger.debug(f"SORT: Using {'filtered' if self.is_filtered else 'full'} results set with {len(results_to_use)} items")
-        
-        if not results_to_use:
-            self.root.after(0, lambda: self.add_status_message("No comparison data to sort"))
-            logger.debug("SORT: No comparison data available")
-            return
-            
-        progress.update_progress(20, "Saving expansion state...")
-        
-        # SAVE EXPANSION STATE before rebuilding trees
-        logger.debug("SORT: Saving expansion state of both trees")
-        left_expansion_state = self._save_tree_expansion_state(self.left_tree)
-        right_expansion_state = self._save_tree_expansion_state(self.right_tree)
-        logger.debug(f"SORT: Saved expansion state - Left: {len(left_expansion_state)} items, Right: {len(right_expansion_state)} items")
-            
-        progress.update_progress(40, f"Sorting comparison data by {column}...")
-        
-        # Sort comparison results by the selected column from the clicked side
-        try:
-            logger.debug(f"SORT: Starting sort by column '{column}' from {clicked_side} side")
-            sorted_results = self._sort_comparison_results_by_column(
-                results_to_use, column, clicked_side, self.current_sort_order
-            )
-            logger.debug(f"SORT: Sort completed, {len(sorted_results)} items sorted")
-            
-            progress.update_progress(60, "Saving selection state...")
-            
-            # Store current selection state before rebuilding
-            selected_paths_left = set()
-            selected_paths_right = set()
-            
-            for item_id in self.selected_left:
-                rel_path = self.get_item_relative_path(item_id, 'left')
-                if rel_path:
-                    selected_paths_left.add(rel_path)
+                                                          
+                              
                     
-            for item_id in self.selected_right:
-                rel_path = self.get_item_relative_path(item_id, 'right')
-                if rel_path:
-                    selected_paths_right.add(rel_path)
+                                                                                
+                                                                  
+                                                                                              
+                                      
+                                                                                  
+                                    
+                                                                                                 
+                                                                                                 
+                        
+                                                                        
+                                                      
             
-            logger.debug(f"SORT: Saved selections - Left: {len(selected_paths_left)}, Right: {len(selected_paths_right)}")
+                                                                         
+                                                                     
             
-            progress.update_progress(70, "Rebuilding both trees...")
-            logger.debug("SORT: Starting tree rebuild")
-            
-            # Update the underlying data
-            if self.is_filtered:
-                self.filtered_results = sorted_results
-                logger.debug("SORT: Updated filtered_results")
-            else:
-                self.comparison_results = sorted_results
-                logger.debug("SORT: Updated comparison_results")
-            
-            # Rebuild both trees with sorted data
-            if self.is_filtered:
-                self.root.after(0, self.update_comparison_ui_filtered)
-                logger.debug("SORT: Scheduled filtered UI update")
-            else:
-                self.root.after(0, self.update_comparison_ui)
-                logger.debug("SORT: Scheduled full UI update")
-            
-            progress.update_progress(85, "Restoring expansion state...")
-            
-            # Restore expansion and selection state after rebuild
-            self.root.after(0, lambda: self._restore_state_after_sort(
-                selected_paths_left, selected_paths_right, 
-                left_expansion_state, right_expansion_state
-            ))
-            logger.debug("SORT: Scheduled state restoration")
-            
-            sort_summary = f"Synchronized sort by {column} ({self.current_sort_order}ending) from {clicked_side.upper()} tree"
-            self.root.after(0, lambda: self.add_status_message(sort_summary))
-            logger.debug(f"SORT: {sort_summary}")
-            
-        except Exception as e:
-            logger.error(f"SORT ERROR: Failed to perform synchronized sort: {e}")
-            import traceback
-            logger.debug(f"SORT ERROR: Full traceback:\n{traceback.format_exc()}")
-            self.root.after(0, lambda: self.add_status_message(f"Synchronized sort failed: {str(e)}"))
+                              
+                            
+                                                                                    
+                            
+                                                                                          
+                                                             
         
-        progress.update_progress(100, "Synchronized sort complete")
-        logger.debug("=== SORT END: Synchronized sort process completed ===")
+                                                                       
 
-    def _sort_comparison_results_by_column(self, results_dict, column, clicked_side, sort_order):
-        """
-        Sort comparison results by column values from the specified side.
-        
-        Purpose:
-        --------
-        Sorts the underlying comparison data rather than tree widgets,
-        enabling synchronized tree rebuilding with maintained row correspondence.
-        
-        Args:
-        -----
-        results_dict: Dictionary of comparison results to sort
-        column: Column to sort by ('size', 'date_created', etc.)
-        clicked_side: Which side was clicked ('left' or 'right')
-        sort_order: Sort direction ('asc' or 'desc')
-        
-        Returns:
-        --------
-        Dict: Sorted comparison results maintaining original structure
-        """
-        def get_sort_key_for_path(rel_path_and_result):
-            rel_path, result = rel_path_and_result
-            
-            # Get the item from the clicked side
-            item = result.left_item if clicked_side == 'left' else result.right_item
-            
-            # If item doesn't exist on clicked side, use the other side
-            if not item or not item.exists:
-                item = result.right_item if clicked_side == 'left' else result.left_item
-            
-            # If no item exists on either side, sort to end
-            if not item or not item.exists:
-                return ("", 0, "")  # Will sort to beginning/end depending on reverse flag
-            
-            # Only sort files, folders stay in their original relative positions
-            if item.is_folder:
-                return ("folder", rel_path.lower(), "")  # Folders sort by path
-            
-            try:
-                if column == 'size':
-                    return ("file", item.size or 0, rel_path.lower())
-                elif column == 'date_created':
-                    date_str = item.date_created.strftime("%Y-%m-%d %H:%M:%S") if item.date_created else ""
-                    return ("file", date_str, rel_path.lower())
-                elif column == 'date_modified':
-                    date_str = item.date_modified.strftime("%Y-%m-%d %H:%M:%S") if item.date_modified else ""
-                    return ("file", date_str, rel_path.lower())
-                elif column == 'sha512':
-                    return ("file", item.sha512 or "", rel_path.lower())
-                elif column == 'status':
-                    status = "Different" if result.is_different else "Same"
-                    return ("file", status, rel_path.lower())
-                else:
-                    # Default to name sorting
-                    return ("file", rel_path.lower(), "")
-            except (AttributeError, TypeError):
-                return ("file", "", rel_path.lower())
-        
-        # Sort by folder level to maintain folder structure
-        sorted_items = []
-        
-        # Group by folder level
-        by_folder_level = {}
-        for rel_path, result in results_dict.items():
-            if not rel_path:  # Skip root
-                continue
-                
-            folder_level = rel_path.count('/')
-            if folder_level not in by_folder_level:
-                by_folder_level[folder_level] = []
-            by_folder_level[folder_level].append((rel_path, result))
-        
-        # Sort within each folder level
-        sorted_results = {}
-        
-        # Add root back first if it exists
-        if "" in results_dict:
-            sorted_results[""] = results_dict[""]
-        
-        # Sort each folder level independently
-        for folder_level in sorted(by_folder_level.keys()):
-            level_items = by_folder_level[folder_level]
-            
-            # Group by parent folder within this level
-            by_parent = {}
-            for rel_path, result in level_items:
-                parent_path = '/'.join(rel_path.split('/')[:-1]) if '/' in rel_path else ""
-                if parent_path not in by_parent:
-                    by_parent[parent_path] = []
-                by_parent[parent_path].append((rel_path, result))
-            
-            # Sort files within each parent folder
-            for parent_path, items in by_parent.items():
-                sorted_parent_items = sorted(
-                    items, 
-                    key=get_sort_key_for_path, 
-                    reverse=(sort_order == 'desc')
-                )
-                
-                for rel_path, result in sorted_parent_items:
-                    sorted_results[rel_path] = result
-        
-        return sorted_results
     
-    def _restore_selections_after_sort(self, selected_paths_left, selected_paths_right): # 2025.08.07 v0.3 replaced by updated version
-        """Restore selection state after tree rebuild."""
-        logger.debug("SELECTION RESTORE: Starting selection restoration")
+       
+                                        
+    
+                                                                         
+                                                                                                                
+                                                                                                       
+                                                                             
+                                                                                       
+                                                                  
+                 
+                    
+                              
+                                           
+                                           
+                                           
+                           
+                                        
+                                        
+                                    
+                                                                                        
+                                                                  
+                                                                                                   
+                                                                       
+
+                  
+                                              
+                                                          
+                                                                    
+                                                     
+
+                         
+                         
+    
+                                           
+                                            
+                                                        
+                                                                    
+    
+                                         
+                                      
+                                                               
+                                                                   
+    
+                                     
+                                     
+                                                             
+                                                                    
+    
+                              
+                             
+                                                    
+                                                                            
+    
+                     
+                    
+    
+                                    
+                                          
+                                            
+                                              
+                              
+    
+                                   
+                                                
+                               
+                                 
+    
+                                        
+                                               
+                                               
+    
+                                           
+                                                        
+                                          
+    
+                                       
+                                                   
+                                            
+    
+                                                 
+                            
+                              
+    
+                                        
+                                           
+                                                      
+                                            
+    
+                        
+                       
+                                                              
+                                                      
+                                                           
+                                       
+                                                        
+                                                        
+                                                  
+    
+                                                                                     
+                                                                
+   
+
+                                                                         
+           
+                                                        
         
-        try:
-            # Clear current selections
-            self.selected_left.clear()
-            self.selected_right.clear()
-            logger.debug("SELECTION RESTORE: Cleared current selections")
+                
+                
+                                                                             
+           
+                            
+        
+                                             
+                                                                   
+                                                 
+                                                                
+                                                                 
             
-            # Restore left selections
-            restored_left = 0
-            for rel_path in selected_paths_left:
-                item_id = self.find_tree_item_by_path(rel_path, 'left')
-                if item_id:
-                    self.selected_left.add(item_id)
-                    restored_left += 1
-                    logger.debug(f"SELECTION RESTORE: Restored left selection: {rel_path}")
-                else:
-                    logger.debug(f"SELECTION RESTORE: Could not find left item for path: {rel_path}")
+                                    
+                                       
+                                                    
+                                                   
+                                                                                                
             
-            # Restore right selections  
-            restored_right = 0
-            for rel_path in selected_paths_right:
-                item_id = self.find_tree_item_by_path(rel_path, 'right')
-                if item_id:
-                    self.selected_right.add(item_id)
-                    restored_right += 1
-                    logger.debug(f"SELECTION RESTORE: Restored right selection: {rel_path}")
-                else:
-                    logger.debug(f"SELECTION RESTORE: Could not find right item for path: {rel_path}")
+                              
+                                                    
+                                              
+        
+                               
+                                             
+                                              
+        
+                                                                                          
+                              
+    
+                                                                                             
+           
+                                                       
+        
+             
+             
+                                                        
+                                                                       
+           
+                                                            
+                          
+        
+                                                 
+                                                     
+                                   
             
-            logger.debug(f"SELECTION RESTORE: Restored {restored_left} left + {restored_right} right selections")
+                                                 
+                                                                 
             
-            # Update display
-            logger.debug("SELECTION RESTORE: Updating tree display")
-            self.update_tree_display_safe()
-            logger.debug("SELECTION RESTORE: Selection restoration completed")
+                                           
+                                                          
+                                                       
+                                   
+                                                                                                          
             
-        except Exception as e:
-            logger.error(f"SELECTION RESTORE ERROR: Error restoring selections after sort: {e}")
-            import traceback
-            logger.debug(f"SELECTION RESTORE ERROR: Full traceback:\n{traceback.format_exc()}")
+                              
+                                                    
+                                                  
+        
+                                               
+                                             
+                                                  
+        
+                                                                                                      
+    
+                                                                                   
+                                                                                                        
+           
+                                                                      
+        
+             
+             
+                                                               
+                                                                 
+                                                           
+                                                             
+           
+                                                                            
+        
+            
+                                      
+                                                               
+                                                                                          
+            
+                                           
+                                                                     
+                                                                                    
+                                                                                      
+            
+                                                                                   
+            
+                              
+                                                                              
+                            
+                                                                                           
+
+
+                                                                                                      
+                                                                                  
+                                                                                                                      
+        
+                                          
+                                                                    
+                                                                             
+        
+                                                                    
+        
+                                                        
+                                                                                               
+                                                                                                                              
+        
+                              
+                                                                                             
+                                                              
+                  
+            
+                                                                 
+        
+                                                      
+                                                                  
+                                                                              
+                                                                                
+                                                                                                                                         
+            
+                                                                               
+        
+                                                                              
+            
+                                                                                              
+                                                                     
+                                                                             
+             
+                                                                                     
+            
+                                                                     
+            
+                                                             
+                                       
+                                        
+            
+                                              
+                                                                       
+                            
+                                                     
+                    
+                                               
+                                                                        
+                            
+                                                      
+            
+                                                                                                                          
+            
+                                                                    
+                                                       
+            
+                                        
+                                
+                                                      
+                                                              
+                 
+                                                        
+                                                                
+            
+                                                 
+                                
+                                                                      
+                                                                  
+                 
+                                                             
+                                                              
+            
+                                                                        
+            
+                                                                 
+                                                                      
+                                                           
+                                                           
+              
+                                                             
+            
+                                                                                                                              
+                                                                             
+                                                 
+            
+                              
+                                                                                 
+                            
+                                                                                  
+                                                                                                      
+        
+                                                                   
+                                                                             
+
+                                                                                                 
+           
+                                                                         
+        
+                
+                
+                                                                      
+                                                                                 
+        
+             
+             
+                                                              
+                                                                
+                                                                
+                                                    
+        
+                
+                
+                                                                      
+           
+                                                       
+                                                  
+            
+                                                
+                                                                                    
+            
+                                                                       
+                                           
+                                                                                        
+            
+                                                           
+                                           
+                                                                                          
+            
+                                                                                
+                              
+                                                                               
+            
+                
+                                    
+                                                                     
+                                              
+                                                                                                           
+                                                               
+                                               
+                                                                                                             
+                                                               
+                                        
+                                                                        
+                                        
+                                                                           
+                                                             
+                     
+                                             
+                                                         
+                                               
+                                                     
+        
+                                                           
+                         
+        
+                               
+                            
+                                                     
+                                         
+                        
+                
+                                              
+                                                   
+                                                  
+                                                                    
+        
+                                       
+                           
+        
+                                          
+                              
+                                                 
+        
+                                              
+                                                           
+                                                       
+            
+                                                      
+                          
+                                                
+                                                                                           
+                                                
+                                               
+                                                                 
+            
+                                                  
+                                                        
+                                             
+                           
+                                               
+                                                  
+                 
+                
+                                                            
+                                                     
+        
+                             
+    
+                                                                                                                                      
+                                                         
+                                                                         
+        
+            
+                                      
+                                      
+                                       
+                                                                         
+            
+                                     
+                             
+                                                
+                                                                       
+                           
+                                                   
+                                      
+                                                                                           
+                     
+                                                                                                     
+            
+                                        
+                              
+                                                 
+                                                                        
+                           
+                                                    
+                                       
+                                                                                            
+                     
+                                                                                                      
+            
+                                                                                                                 
+            
+                            
+                                                                    
+                                           
+                                                                              
+            
+                              
+                                                                                                
+                            
+                                                                                               
 
     def apply_filter(self):
         """Apply wildcard filter to display only matching files with limit checking."""
@@ -3663,7 +3665,7 @@ class FolderCompareSync_class:
             self.add_status_message(f"Selected right folder: {folder}")
             logger.info(f"Selected right folder: {folder}")
             
-    def start_comparison(self):
+    def start_comparison(self): # v000.0002 changed - removed sorting state reset
         """Start folder comparison in background thread with limit checking and complete reset."""
         logger.info("Starting folder comparison with complete reset")
         
@@ -3688,14 +3690,14 @@ class FolderCompareSync_class:
             self.show_error(error_msg)
             return
         
-        # COMPLETE RESET - including sort state
+        # Reset application state for fresh comparison # v000.0002 changed - removed sorting
         self.limit_exceeded = False
-        self.current_sort_column = None    # Reset sort state
-        self.current_sort_order = 'asc'    # Reset sort state
+                                                             
+                                                             
         
         # Log the reset
-        self.add_status_message("RESET: Clearing all sort state and data structures for fresh comparison")
-        logger.info("Complete application reset initiated - clearing sort state and all data")
+        self.add_status_message("RESET: Clearing all data structures for fresh comparison") # v000.0002 changed - removed sorting
+        logger.info("Complete application reset initiated - clearing all data") # v000.0002 changed - removed sorting
         
         if __debug__:
             logger.debug(f"Left folder: {self.left_folder.get()}")
@@ -3705,11 +3707,11 @@ class FolderCompareSync_class:
                         f"date_created={self.compare_date_created.get()}, "
                         f"date_modified={self.compare_date_modified.get()}, "
                         f"sha512={self.compare_sha512.get()}")
-            logger.debug("Sort state reset: no sorting will be applied")
+                                                                        
             
         # Start comparison in background thread
         self.status_var.set("Comparing folders...")
-        self.add_status_message("Starting fresh folder comparison (no sorting)...")
+        self.add_status_message("Starting fresh folder comparison...") # v000.0002 changed - removed sorting
         logger.info("Starting background comparison thread with reset state")
         threading.Thread(target=self.perform_comparison, daemon=True).start()
 
@@ -4022,8 +4024,8 @@ class FolderCompareSync_class:
                 
         return differences
         
-    def update_comparison_ui(self):
-        """Update UI with comparison results and limit checking."""
+    def update_comparison_ui(self): # v000.0002 changed - removed sorting parameters 
+        """Update UI with comparison results and limit checking (no sorting)."""
         if self.limit_exceeded:
             logger.warning("Skipping UI update due to file limit exceeded")
             return
@@ -4042,19 +4044,19 @@ class FolderCompareSync_class:
         if __debug__:
             logger.debug(f"Cleared {left_items} left tree items and {right_items} right tree items")
             
-        # Build tree structure with root handling, passing current sort state
-        self.build_trees_with_root_paths(
-            sort_column=self.current_sort_column,
-            sort_order=self.current_sort_order
-        )
+        # Build tree structure with root handling # v000.0002 changed - removed sorting
+        self.build_trees_with_root_paths() # v000.0002 changed - (no sorting)
+                                                 
+                                              
+         
         
         # Update status
         self.status_var.set("Ready")
         self.update_summary()
         logger.info("UI update completed")
 
-    def update_comparison_ui_filtered(self):
-        """Update UI with filtered comparison results and limit checking."""
+    def update_comparison_ui_filtered(self): # v000.0002 changed - removed sorting parameters
+        """Update UI with filtered comparison results and limit checking (no sorting)."""
         if self.limit_exceeded:
             logger.warning("Skipping filtered UI update due to file limit exceeded")
             return
@@ -4067,19 +4069,19 @@ class FolderCompareSync_class:
         for item in self.right_tree.get_children():
             self.right_tree.delete(item)
             
-        # Build tree structure with filtered results, passing current sort state
-        self.build_trees_with_filtered_results(
-            sort_column=self.current_sort_column,
-            sort_order=self.current_sort_order
-        )
+        # Build tree structure with filtered results # v000.0002 changed - removed sorting
+        self.build_trees_with_filtered_results() # v000.0002 changed - removed sorting
+                                                 
+                                              
+         
         
         # Update status
         self.status_var.set("Ready (Filtered)")
         self.update_summary()
         logger.info("Filtered UI update completed")
 
-    def build_trees_with_filtered_results(self, sort_column=None, sort_order='asc'):
-        """Build tree structures from filtered comparison results with limit checking."""
+    def build_trees_with_filtered_results(self): # v000.0002 changed - removed sorting parameters
+        """Build tree structures from filtered comparison results with limit checking (no sorting)."""
         if self.limit_exceeded:
             return
             
@@ -4106,11 +4108,11 @@ class FolderCompareSync_class:
         self.path_to_item_left[''] = self.root_item_left  # Empty path represents root
         self.path_to_item_right[''] = self.root_item_right
         
-        # For filtered results, show a flattened view under each root
-        # Sort the items according to the current sort settings
-        sorted_items = self._sort_filtered_items_for_display(results_to_use, sort_column, sort_order)
+        # For filtered results, show a flattened view under each root # v000.0002 changed - removed sorting
+        for rel_path, result in results_to_use.items(): # v000.0002 changed - removed sorting
+                                                                                                     
         
-        for rel_path, result in sorted_items:
+                                             
             if not rel_path:
                 continue
                 
@@ -4140,16 +4142,21 @@ class FolderCompareSync_class:
                                                values=(size_str, date_created_str, date_modified_str, sha512_str, status))
                 self.path_to_item_right[rel_path] = item_id
 
-    def build_trees_with_root_paths(self, sort_column=None, sort_order='asc'):
+    def build_trees_with_root_paths(self): # v000.0002 changed - removed sorting parameters
         """
-        Build tree structures from comparison results with fully qualified root paths and sort-aware ordering.
+        Build tree structures from comparison results with fully qualified root paths # v000.0002 changed - removed sorting
+        
+        Purpose:
+        --------
+        Creates stable tree structure that maintains row correspondence and folder hierarchy
+        without any sorting functionality to comply with mandatory features.
         """
         if self.limit_exceeded:
             return
             
         if __debug__:
             logger.debug(f"Building trees with root paths from {len(self.comparison_results)} comparison results")
-            logger.debug(f"Sort settings: column={sort_column}, order={sort_order}")
+                                                                                    
         
         start_time = time.time()
         
@@ -4288,26 +4295,32 @@ class FolderCompareSync_class:
         if __debug__:
             logger.debug(f"Added {missing_left} missing left placeholders, {missing_right} missing right placeholders")
             
-        # Populate trees under root items with sort-aware ordering
-        logger.info("Populating tree views under root paths with sort-aware ordering...")
-        self.populate_tree(self.left_tree, left_structure, self.root_item_left, 'left', '', 
-                          sort_column=sort_column, sort_order=sort_order)
-        self.populate_tree(self.right_tree, right_structure, self.root_item_right, 'right', '', 
-                          sort_column=sort_column, sort_order=sort_order)
+        # Populate trees under root items with stable alphabetical ordering # v000.0002 changed - removed sorting
+        logger.info("Populating tree views under root paths with stable ordering...") # v000.0002 changed - removed sorting
+        self.populate_tree(self.left_tree, left_structure, self.root_item_left, 'left', '') # v000.0002 changed - removed sorting
+                                                                         
+        self.populate_tree(self.right_tree, right_structure, self.root_item_right, 'right', '') # v000.0002 changed - removed sorting
+                                                                         
         
         elapsed_time = time.time() - start_time
         if __debug__:
             logger.debug(f"Tree building with root paths completed in {elapsed_time:.3f} seconds")
         
-    def populate_tree(self, tree, structure, parent_id, side, current_path, sort_column=None, sort_order='asc'):
+    def populate_tree(self, tree, structure, parent_id, side, current_path): # v000.0002 changed - removed sorting parameters
         """
-        Recursively populate tree with structure using sort-aware ordering instead of alphabetical.
+        Recursively populate tree with structure using stable alphabetical ordering. # v000.0002 changed - removed sorting
+        
+        Purpose:
+        --------
+        Creates stable tree structure that maintains consistent ordering without
+        any custom sorting to comply with mandatory features. Uses simple alphabetical
+        ordering for predictable results.
         """
         if self.limit_exceeded:
             return
         
-        # Sort items according to current sort settings instead of always alphabetical
-        sorted_items = self._sort_tree_structure_items(structure.items(), current_path, side, sort_column, sort_order)
+        # Use simple alphabetical sorting for stable, predictable ordering  # v000.0002 changed - removed sorting
+        sorted_items = sorted(structure.items()) # v000.0002 changed - removed sorting
         
         # Import the MissingFolder class (defined in build_trees_with_root_paths)
         for name, content in sorted_items:
@@ -4325,16 +4338,16 @@ class FolderCompareSync_class:
                     item_id = tree.insert(parent_id, tk.END, text=item_text, open=False,
                                         values=("", "", "", "", "Missing"), tags=('missing',))
                     # Recursively populate children from the missing folder's contents
-                    self.populate_tree(tree, content.contents, item_id, side, item_rel_path,
-                                     sort_column=sort_column, sort_order=sort_order)
+                    self.populate_tree(tree, content.contents, item_id, side, item_rel_path) # v000.0002 changed - removed sorting
+                                                                                    
                 else:
                     # Real folder - has checkbox
                     item_text = f"☐ {name}/"
                     item_id = tree.insert(parent_id, tk.END, text=item_text, open=False,
                                         values=("", "", "", "", "Folder"))
                     # Recursively populate children
-                    self.populate_tree(tree, content, item_id, side, item_rel_path,
-                                     sort_column=sort_column, sort_order=sort_order)
+                    self.populate_tree(tree, content, item_id, side, item_rel_path) # v000.0002 changed - removed sorting
+                                                                                    
                 
                 # Store path mapping for both real and missing folders
                 path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
@@ -4369,128 +4382,128 @@ class FolderCompareSync_class:
         # Configure missing item styling using configurable color
         tree.tag_configure('missing', foreground=MISSING_ITEM_COLOR)
 
-    def _sort_tree_structure_items(self, items, current_path, side, sort_column, sort_order):
-        """
-        Sort tree structure items according to current sort settings.
+                                                                                             
+           
+                                                                     
         
-        Purpose:
-        --------
-        Applies the same sorting logic used in comparison results to tree structure items,
-        maintaining consistency between flat sorting and tree display.
+                
+                
+                                                                                          
+                                                                      
         
-        Args:
-        -----
-        items: Iterator of (name, content) tuples from structure.items()
-        current_path: Current path in the tree hierarchy
-        side: Which side ('left' or 'right') for determining sort values
-        sort_column: Column to sort by (None for alphabetical)
-        sort_order: Sort direction ('asc' or 'desc')
+             
+             
+                                                                        
+                                                        
+                                                                        
+                                                              
+                                                    
         
-        Returns:
-        --------
-        List of (name, content) tuples in correct sort order
-        """
-        if not sort_column:
-            # No specific sorting - use default alphabetical
-            return sorted(items)
+                
+                
+                                                            
+           
+                           
+                                                            
+                                
     
         
-        def get_sort_key(name_content_pair):
-            name, content = name_content_pair
+                                            
+                                             
             
-            # Folders always sort before files, then by name
-            is_missing_folder = hasattr(content, 'contents')
-            if isinstance(content, dict) or is_missing_folder:
-                return ("folder", name.lower(), "")
+                                                            
+                                                            
+                                                              
+                                                   
             
-            # For files, get the actual FileMetadata to sort by
-            if content is None:
-                # Missing files sort to end
-                return ("file", "", name.lower())
+                                                               
+                               
+                                           
+                                                 
             
-            # Real file - use metadata for sorting
-            try:
-                if sort_column == 'size':
-                    return ("file", content.size or 0, name.lower())
-                elif sort_column == 'date_created':
-                    date_str = content.date_created.strftime("%Y-%m-%d %H:%M:%S") if content.date_created else ""
-                    return ("file", date_str, name.lower())
-                elif sort_column == 'date_modified':
-                    date_str = content.date_modified.strftime("%Y-%m-%d %H:%M:%S") if content.date_modified else ""
-                    return ("file", date_str, name.lower())
-                elif sort_column == 'sha512':
-                    return ("file", content.sha512 or "", name.lower())
-                elif sort_column == 'status':
-                    # Need to look up status from comparison results
-                    item_rel_path = current_path + ('/' if current_path else '') + name
-                    result = self.comparison_results.get(item_rel_path)
-                    status = "Different" if result and result.is_different else "Same"
-                    return ("file", status, name.lower())
-                else:
-                    # Default to name sorting
-                    return ("file", name.lower(), "")
-            except (AttributeError, TypeError):
-                return ("file", "", name.lower())
+                                                  
+                
+                                         
+                                                                    
+                                                   
+                                                                                                                 
+                                                           
+                                                    
+                                                                                                                   
+                                                           
+                                             
+                                                                       
+                                             
+                                                                    
+                                                                                       
+                                                                       
+                                                                                      
+                                                         
+                     
+                                             
+                                                     
+                                               
+                                                 
         
-        # Sort items with reverse flag for descending order
-        sorted_items = sorted(items, key=get_sort_key, reverse=(sort_order == 'desc'))
+                                                           
+                                                                                      
         
-        if __debug__:
-            logger.debug(f"Sorted {len(sorted_items)} items in {current_path} by {sort_column} ({sort_order})")
+                     
+                                                                                                               
         
-        return sorted_items
+                           
 
-    def _sort_filtered_items_for_display(self, filtered_results, sort_column, sort_order):
-        """
-        Sort filtered results for display according to current sort settings.
+                                                                                          
+           
+                                                                             
         
-        Args:
-        -----
-        filtered_results: Dictionary of filtered comparison results
-        sort_column: Column to sort by (None for alphabetical)
-        sort_order: Sort direction ('asc' or 'desc')
+             
+             
+                                                                   
+                                                              
+                                                    
         
-        Returns:
-        --------
-        List of (rel_path, result) tuples in correct sort order
-        """
-        if not sort_column:
-            # No specific sorting - use alphabetical by path
-            return sorted(filtered_results.items())
+                
+                
+                                                               
+           
+                           
+                                                            
+                                                   
         
-        def get_sort_key(path_result_pair):
-            rel_path, result = path_result_pair
+                                           
+                                               
             
-            # Use left item preferentially, fall back to right item
-            item = result.left_item if result.left_item and result.left_item.exists else result.right_item
+                                                                   
+                                                                                                          
             
-            if not item or not item.exists:
-                return ("", 0, rel_path.lower())
+                                           
+                                                
             
-            # Only sort files, folders stay in their original positions
-            if item.is_folder:
-                return ("folder", rel_path.lower(), "")
+                                                                       
+                              
+                                                       
             
-            try:
-                if sort_column == 'size':
-                    return ("file", item.size or 0, rel_path.lower())
-                elif sort_column == 'date_created':
-                    date_str = item.date_created.strftime("%Y-%m-%d %H:%M:%S") if item.date_created else ""
-                    return ("file", date_str, rel_path.lower())
-                elif sort_column == 'date_modified':
-                    date_str = item.date_modified.strftime("%Y-%m-%d %H:%M:%S") if item.date_modified else ""
-                    return ("file", date_str, rel_path.lower())
-                elif sort_column == 'sha512':
-                    return ("file", item.sha512 or "", rel_path.lower())
-                elif sort_column == 'status':
-                    status = "Different" if result.is_different else "Same"
-                    return ("file", status, rel_path.lower())
-                else:
-                    return ("file", rel_path.lower(), "")
-            except (AttributeError, TypeError):
-                return ("file", "", rel_path.lower())
+                
+                                         
+                                                                     
+                                                   
+                                                                                                           
+                                                               
+                                                    
+                                                                                                             
+                                                               
+                                             
+                                                                        
+                                             
+                                                                           
+                                                             
+                     
+                                                         
+                                               
+                                                     
         
-        return sorted(filtered_results.items(), key=get_sort_key, reverse=(sort_order == 'desc'))
+                                                                                                 
         
     def get_item_path(self, tree, item_id):
         """
@@ -4847,8 +4860,8 @@ class FolderCompareSync_class:
             for i, rel_path in enumerate(selected_paths):
                 try:
                     # Update progress with dry run indication if required
-                    # --- start of change to progress ---
-                    #changed from: progress_text = f"{'Simulating' if is_dry_run else 'Copying'} {i+1} of {len(selected_paths)}: {os.path.basename(rel_path)}"
+                                                         
+                                                                                                                                                              
                     source_path = str(Path(source_folder) / rel_path)
                     # Check if this file will use staged strategy for large file indication
                     base_progress_text = f"{'Simulating' if is_dry_run else 'Copying'} {i+1} of {len(selected_paths)}: {os.path.basename(rel_path)}"
@@ -4862,11 +4875,11 @@ class FolderCompareSync_class:
                             progress_text = base_progress_text
                     else:
                         progress_text = base_progress_text
-                    # --- end of change to progress ---
+                                                       
                     progress.update_progress(i+1, progress_text)
-                    # --- start of change to progress ---
-                    #source_path = str(Path(source_folder) / rel_path)
-                    # --- end of change to progress ---
+                                                         
+                                                                      
+                                                       
                     dest_path = str(Path(dest_folder) / rel_path)
                     
                     # Skip if source doesn't exist

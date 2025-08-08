@@ -56,9 +56,9 @@ modifications in a clear, traceable way.
 1. Always update the version and revision number in the comment near the top of the Program -
    Version vvv.rrrr 
 2. Clearly mark changed code -
-   with one of these at the end of each added or changed line
-   # vvv.rrrr added
-   # vvv.rrrr changed
+   with one of these at the end of each and every added and/or changed line
+   # vvv.rrrr added [brief relevant description, or common change identifying text]
+   # vvv.rrrr changed [brief relevant description, or common change identifying text]
 3. All code must be well commented and meaningful and keeping/amending existing comments of
 clarification as appropriate and removing obsolete comments.
 4. No full code display to me - 
