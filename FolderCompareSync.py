@@ -2,7 +2,7 @@
 """
 FolderCompareSync - A Professional Folder Comparison & Synchronization Tool
 
-Version  000.0002
+Version  v000.0003 - fixed false conflict detection bug
 
 Author: hydra3333
 License: AGPL-3.0
@@ -4142,7 +4142,7 @@ class FolderCompareSync_class:
                                                values=(size_str, date_created_str, date_modified_str, sha512_str, status))
                 self.path_to_item_right[rel_path] = item_id
 
-    def build_trees_with_root_paths(self): # v000.0002 changed - removed sorting parameters
+    def build_trees_with_root_paths(self): # v000.0003 changed - fixed false conflict detection bug
         """
         Build tree structures from comparison results with fully qualified root paths # v000.0002 changed - removed sorting
         
@@ -4213,11 +4213,25 @@ class FolderCompareSync_class:
                         current = current[part] if isinstance(current[part], dict) else current[part].contents
                 if path_parts[-1]:
                     final_name = path_parts[-1]
-                    if final_name in current and isinstance(current[final_name], (dict, MissingFolder)):
-                        if __debug__:
-                            logger.debug(f"Cannot add file '{final_name}' - folder exists with same name")
+                    
+                    # v000.0003 changed - fixed folder vs file handling to prevent false conflicts
+                    if result.left_item.is_folder:
+                        # This is a folder - ensure it exists as a dict structure
+                        if final_name not in current:
+                            current[final_name] = {}  # v000.0003 added - create folder dict structure
+                        elif not isinstance(current[final_name], (dict, MissingFolder)):
+                            # Real conflict: folder trying to replace a file (should be very rare)
+                            if __debug__:
+                                logger.debug(f"REAL CONFLICT: Cannot add folder '{final_name}' - file exists with same name")
+                        # v000.0003 changed - for folders, don't store metadata directly, just ensure dict exists
                     else:
-                        current[final_name] = result.left_item
+                        # This is a file
+                        if final_name in current and isinstance(current[final_name], (dict, MissingFolder)):
+                            # Real conflict: file trying to replace a folder (should be very rare)
+                            if __debug__:
+                                logger.debug(f"REAL CONFLICT: Cannot add file '{final_name}' - folder exists with same name")
+                        else:
+                            current[final_name] = result.left_item  # v000.0003 changed - only store file metadata for files
             
             # Build right structure  
             if result.right_item is not None:
@@ -4233,12 +4247,26 @@ class FolderCompareSync_class:
                         current = current[part] if isinstance(current[part], dict) else current[part].contents
                 if path_parts[-1]:
                     final_name = path_parts[-1]
-                    if final_name in current and isinstance(current[final_name], (dict, MissingFolder)):
-                        if __debug__:
-                            logger.debug(f"Cannot add file '{final_name}' - folder exists with same name")
+                    
+                    # v000.0003 changed - fixed folder vs file handling to prevent false conflicts
+                    if result.right_item.is_folder:
+                        # This is a folder - ensure it exists as a dict structure
+                        if final_name not in current:
+                            current[final_name] = {}  # v000.0003 added - create folder dict structure
+                        elif not isinstance(current[final_name], (dict, MissingFolder)):
+                            # Real conflict: folder trying to replace a file (should be very rare)
+                            if __debug__:
+                                logger.debug(f"REAL CONFLICT: Cannot add folder '{final_name}' - file exists with same name")
+                        # v000.0003 changed - for folders, don't store metadata directly, just ensure dict exists
                     else:
-                        current[final_name] = result.right_item
-                        
+                        # This is a file
+                        if final_name in current and isinstance(current[final_name], (dict, MissingFolder)):
+                            # Real conflict: file trying to replace a folder (should be very rare)
+                            if __debug__:
+                                logger.debug(f"REAL CONFLICT: Cannot add file '{final_name}' - folder exists with same name")
+                        else:
+                            current[final_name] = result.right_item  # v000.0003 changed - only store file metadata for files
+                            
         # Second pass: Add missing items as placeholders
         missing_left = 0
         missing_right = 0
@@ -4305,7 +4333,7 @@ class FolderCompareSync_class:
         elapsed_time = time.time() - start_time
         if __debug__:
             logger.debug(f"Tree building with root paths completed in {elapsed_time:.3f} seconds")
-        
+            
     def populate_tree(self, tree, structure, parent_id, side, current_path): # v000.0002 changed - removed sorting parameters
         """
         Recursively populate tree with structure using stable alphabetical ordering. # v000.0002 changed - removed sorting
