@@ -2,7 +2,7 @@
 """
 FolderCompareSync - A Professional Folder Comparison & Synchronization Tool
 
-Version  v000.0003 - fixed false conflict detection bug
+Version  v000.0004 - SHA512 computation with progress tracking for large files
 
 Author: hydra3333
 License: AGPL-3.0
@@ -3924,14 +3924,40 @@ class FolderCompareSync_class:
                     
                     rel_path = path.relative_to(root).as_posix()
                     
-                    # Check if we need to compute SHA512 for large files
+                    # v000.0004 added - handle SHA512 computation with progress at scanning level for better separation.
+					#                   Yes that's a trade-off for a clean FileMetadata_class ... so be it.
+                    #                   Even though all other metadata is calculated by "FileMetadata_class.from_path"
+					#                   we remove the sha512 computation to here so as to be able to display progress here
+					#                   since the FileMetadata_class must not interact with the UI.
+					#                   Note that FileMetadata_class.from_path can still compute the hash if compute_hash=False,
+					#                   however that does not update the UI with progress.
+					#                   Put compute_sha512_with_progress() underneath this def at the same level
+					#                   
+                    sha512_hash = None
                     if self.compare_sha512.get() and path.is_file():
-                        size = path.stat().st_size
-                        if size > SHA512_STATUS_MESSAGE_THRESHOLD:
-                            size_mb = size / (1024 * 1024)
-                            progress.update_message(f"Computing SHA512 for {path.name} ({size_mb:.1f} MB)...")
+                        try:
+                            size = path.stat().st_size
+                            if size > SHA512_STATUS_MESSAGE_THRESHOLD:
+                                # Use separate utility function for progress tracking # v000.0004 added
+                                sha512_hash = compute_sha512_with_progress(str(path), progress)
+                            else:
+                                # Small files: compute directly without progress overhead # v000.0004 added
+                                if size < SHA512_MAX_FILE_SIZE:
+                                    hasher = hashlib.sha512()
+                                    with open(str(path), 'rb') as f:
+                                        hasher.update(f.read())
+                                    sha512_hash = hasher.hexdigest()
+                        except Exception as e:
+                            if __debug__:
+                                logger.debug(f"SHA512 computation failed for {path}: {e}")
                     
-                    metadata = FileMetadata_class.from_path(str(path), self.compare_sha512.get())
+                    # v000.0004 NOTE: Create metadata without SHA512 computation (since SHA512 computation already handled above) # v000.0004 changed
+                    metadata = FileMetadata_class.from_path(str(path), compute_hash=False)
+                    
+                    # v000.0004 added - manually (re)set SHA512 if we computed it at scanning level
+                    if sha512_hash:
+                        metadata.sha512 = sha512_hash
+                    
                     files[rel_path] = metadata
                     
                     if path.is_file():
@@ -3951,7 +3977,7 @@ class FolderCompareSync_class:
                     if path.is_dir() and path != root:
                         rel_path = path.relative_to(root).as_posix()
                         if rel_path not in files:  # Only add if not already added
-                            metadata = FileMetadata_class.from_path(str(path), False)
+                            metadata = FileMetadata_class.from_path(str(path), compute_hash=False)  # Directories don't need SHA512
                             files[rel_path] = metadata
                             dir_count += 1
                             
@@ -3978,6 +4004,70 @@ class FolderCompareSync_class:
             logger.debug(f"Total items found: {len(files)}")
             
         return files
+
+    def compute_sha512_with_progress(file_path: str, progress_dialog: ProgressDialog) -> Optional[str]: # v000.0004 added - separated SHA512 computation with progress tracking
+        """
+        Compute SHA512 hash for a file with progress tracking in the UI every ~50MB.
+        
+        Purpose:
+        --------
+        Provides SHA512 computation with user progress feedback for large files,
+        maintaining separation of UI updating concerns from the metadata creation only in class FileMetadata_class.
+        
+        Args:
+        -----
+        file_path: Path to the file to hash
+        progress_dialog: Progress dialog for user feedback
+        
+        Returns:
+        --------
+        str: SHA512 hash as hexadecimal string, or None if computation failed
+        
+        Usage:
+        ------
+        hash_value = compute_sha512_with_progress("/path/to/large_file.dat", progress)
+        """
+        try:
+            path = Path(file_path)
+            if not path.exists() or not path.is_file():
+                return None
+                
+            size = path.stat().st_size
+            if size >= SHA512_MAX_FILE_SIZE:  # v000.0004 respect configurable limit
+                if __debug__:
+                    logger.debug(f"File too large for SHA512 computation: {size} bytes > {SHA512_MAX_FILE_SIZE} bytes")
+                return None
+            
+            hasher = hashlib.sha512()
+            
+            # v000.0004 progress tracking variables
+            bytes_processed = 0
+            chunk_count = 0
+            
+            # v000.0004 Show initial progress message for large files
+            if size > SHA512_STATUS_MESSAGE_THRESHOLD:
+                size_mb = size / (1024 * 1024)
+                progress_dialog.update_message(f"Computing SHA512 for {path.name} ({size_mb:.1f} MB)...\n(computed 0MB of {size_mb:.1f}MB)")
+            
+            with open(file_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(8 * 1024 * 1024), b''):  # v000.0004 8MB chunks
+                    hasher.update(chunk)
+                    bytes_processed += len(chunk) # v000.0004
+                    chunk_count += 1 # v000.0004
+                    
+                    # v000.0004 update progress every ~6 chunks (48MB) for large files
+                    if size > SHA512_STATUS_MESSAGE_THRESHOLD:
+                        if chunk_count % 6 == 0 or bytes_processed >= size:  # Update every ~50MB
+                            processed_mb = bytes_processed / (1024 * 1024)
+                            total_mb = size / (1024 * 1024)
+                            progress_dialog.update_message(f"Computing SHA512 for {path.name} ({total_mb:.1f} MB)...\n(computed {processed_mb:.1f}MB of {total_mb:.1f}MB)")
+            
+            return hasher.hexdigest() # v000.0004
+            
+        except Exception as e:
+            if __debug__:
+                logger.debug(f"SHA512 computation failed for {file_path}: {e}")
+            return None  # v000.0004 hash computation failed
         
     def compare_items(self, left_item: Optional[FileMetadata_class], 
                      right_item: Optional[FileMetadata_class]) -> Set[str]:
@@ -4888,8 +4978,6 @@ class FolderCompareSync_class:
             for i, rel_path in enumerate(selected_paths):
                 try:
                     # Update progress with dry run indication if required
-                                                         
-                                                                                                                                                              
                     source_path = str(Path(source_folder) / rel_path)
                     # Check if this file will use staged strategy for large file indication
                     base_progress_text = f"{'Simulating' if is_dry_run else 'Copying'} {i+1} of {len(selected_paths)}: {os.path.basename(rel_path)}"
@@ -4903,10 +4991,7 @@ class FolderCompareSync_class:
                             progress_text = base_progress_text
                     else:
                         progress_text = base_progress_text
-                                                       
                     progress.update_progress(i+1, progress_text)
-                                                         
-                                                                      
                                                        
                     dest_path = str(Path(dest_folder) / rel_path)
                     
