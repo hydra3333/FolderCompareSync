@@ -2,7 +2,7 @@
 """
 FolderCompareSync - A Professional Folder Comparison & Synchronization Tool
 
-Version  v000.0007 - show full precision timestamp displays
+Version  v001.0000 - show full precision timestamp displays
 
 Author: hydra3333
 License: AGPL-3.0
