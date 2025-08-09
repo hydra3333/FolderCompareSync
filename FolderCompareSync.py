@@ -2,7 +2,7 @@
 """
 FolderCompareSync - A Professional Folder Comparison & Synchronization Tool
 
-Version  v001.0000 - show full precision timestamp displays
+Version  v001.0010 - really, this time, show full precision timestamp displays
 
 Author: hydra3333
 License: AGPL-3.0
@@ -123,10 +123,10 @@ TREE_STRUCTURE_WIDTH = 350         # Default structure column width
 TREE_STRUCTURE_MIN_WIDTH = 120     # Minimum structure column width
 TREE_SIZE_WIDTH = 50               # Size column width
 TREE_SIZE_MIN_WIDTH = 30           # Minimum size column width
-TREE_DATE_CREATED_WIDTH = 120      # Date created column width # v000.0007 changed - increased width for full precision timestamps
-TREE_DATE_CREATED_MIN_WIDTH = 120  # Minimum date created column width # v000.0007 changed - increased minimum width for full precision timestamps
-TREE_DATE_MODIFIED_WIDTH = 120     # Date modified column width # v000.0007 changed - increased width for full precision timestamps
-TREE_DATE_MODIFIED_MIN_WIDTH = 100 # Minimum date modified column width # v000.0007 changed - increased minimum width for full precision timestamps
+TREE_DATE_CREATED_WIDTH = 140      # Date created column width # v001.0010 changed - increased width for full precision timestamps
+TREE_DATE_CREATED_MIN_WIDTH = 120  # Minimum date created column width # v001.0010 changed - increased minimum width for full precision timestamps
+TREE_DATE_MODIFIED_WIDTH = 140     # Date modified column width # v001.0010 changed - increased width for full precision timestamps
+TREE_DATE_MODIFIED_MIN_WIDTH = 120 # Minimum date modified column width # v001.0010 changed - increased minimum width for full precision timestamps
 TREE_SHA512_WIDTH = 100            # SHA512 column width (first 16 chars)
 TREE_SHA512_MIN_WIDTH = 80         # Minimum SHA512 column width
 TREE_STATUS_WIDTH = 100            # Status column width
@@ -890,9 +890,9 @@ class FileTimestampManager:
             Formatted datetime string
         """
         if include_timezone:
-            return dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+            return dt.strftime("%Y-%m-%d %H:%M:%S.%f %Z") # v001.0010 changed - full microsecond precision display
         else:
-            return dt.strftime("%Y-%m-%d %H:%M:%S")
+            return dt.strftime("%Y-%m-%d %H:%M:%S.%f") # v001.0010 changed - full microsecond precision display
     
     def verify_timestamps(self, file_path: Union[str, Path], 
                          expected_creation: Optional[datetime] = None,
@@ -4107,9 +4107,35 @@ class FolderCompareSync_class:
                 
             if self.compare_date_created.get() and left_item.date_created != right_item.date_created:
                 differences.add('date_created')
+                # v001.0010 added [debug date created comparison with full microsecond precision]
+                if __debug__:
+                    left_display = left_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f") if left_item.date_created else "None" # v001.0010 changed - full microsecond precision debug display
+                    right_display = right_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f") if right_item.date_created else "None" # v001.0010 changed - full microsecond precision debug display
+                    left_raw = left_item.date_created.timestamp() if left_item.date_created else 0 # v001.0010 added [debug date created comparison with full microsecond precision]
+                    right_raw = right_item.date_created.timestamp() if right_item.date_created else 0 # v001.0010 added [debug date created comparison with full microsecond precision]
+                    diff_microseconds = abs(left_raw - right_raw) * 1_000_000 # v001.0010 added [debug date created comparison with full microsecond precision]
+                    logger.debug(f"DATE CREATED DIFFERENCE found for {left_item.path}:") # v001.0010 added [debug date created comparison with full microsecond precision]
+                    logger.debug(f"  Left display : {left_display}") # v001.0010 added [debug date created comparison with full microsecond precision]
+                    logger.debug(f"  Right display: {right_display}") # v001.0010 added [debug date created comparison with full microsecond precision]
+                    logger.debug(f"  Left raw     : {left_item.date_created}") # v001.0010 added [debug date created comparison with full microsecond precision]
+                    logger.debug(f"  Right raw    : {right_item.date_created}") # v001.0010 added [debug date created comparison with full microsecond precision]
+                    logger.debug(f"  Difference   : {diff_microseconds:.1f} microseconds") # v001.0010 added [debug date created comparison with full microsecond precision]
                 
             if self.compare_date_modified.get() and left_item.date_modified != right_item.date_modified:
                 differences.add('date_modified')
+                # v001.0010 added [debug date modified comparison with full microsecond precision]
+                if __debug__:
+                    left_display = left_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f") if left_item.date_modified else "None" # v001.0010 changed - full microsecond precision debug display
+                    right_display = right_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f") if right_item.date_modified else "None" # v001.0010 changed - full microsecond precision debug display
+                    left_raw = left_item.date_modified.timestamp() if left_item.date_modified else 0 # v001.0010 added [debug date modified comparison with full microsecond precision]
+                    right_raw = right_item.date_modified.timestamp() if right_item.date_modified else 0 # v001.0010 added [debug date modified comparison with full microsecond precision]
+                    diff_microseconds = abs(left_raw - right_raw) * 1_000_000 # v001.0010 added [debug date modified comparison with full microsecond precision]
+                    logger.debug(f"DATE MODIFIED DIFFERENCE found for {left_item.path}:") # v001.0010 added [debug date modified comparison with full microsecond precision]
+                    logger.debug(f"  Left display : {left_display}") # v001.0010 added [debug date modified comparison with full microsecond precision]
+                    logger.debug(f"  Right display: {right_display}") # v001.0010 added [debug date modified comparison with full microsecond precision]
+                    logger.debug(f"  Left raw     : {left_item.date_modified}") # v001.0010 added [debug date modified comparison with full microsecond precision]
+                    logger.debug(f"  Right raw    : {right_item.date_modified}") # v001.0010 added [debug date modified comparison with full microsecond precision]
+                    logger.debug(f"  Difference   : {diff_microseconds:.1f} microseconds") # v001.0010 added [debug date modified comparison with full microsecond precision]
                 
             if (self.compare_sha512.get() and left_item.sha512 and right_item.sha512 
                 and left_item.sha512 != right_item.sha512):
@@ -4209,8 +4235,8 @@ class FolderCompareSync_class:
                 # v000.0006 added - Handle folder vs file display with timestamps
                 if result.left_item.is_folder:
                     # This is a folder - show timestamps and smart status
-                    date_created_str = result.left_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.left_item.date_created else ""     # v000.0007 changed - full precision timestamp display
-                    date_modified_str = result.left_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.left_item.date_modified else ""  # v000.0007 changed - full precision timestamp display
+                    date_created_str = result.left_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f") if result.left_item.date_created else ""     # v001.0010 changed - full microsecond precision timestamp display
+                    date_modified_str = result.left_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f") if result.left_item.date_modified else ""  # v001.0010 changed - full microsecond precision timestamp display
                     sha512_str = ""  # Folders never have SHA512
                     
                     # Determine smart status for folders
@@ -4227,8 +4253,8 @@ class FolderCompareSync_class:
                 else:
                     # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display
                     # This is a file - show all metadata as before
-                    date_created_str = result.left_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.left_item.date_created else ""     # v000.0007 changed - full precision timestamp display
-                    date_modified_str = result.left_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.left_item.date_modified else ""  # v000.0007 changed - full precision timestamp display
+                    date_created_str = result.left_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f") if result.left_item.date_created else ""     # v001.0010 changed - full microsecond precision timestamp display
+                    date_modified_str = result.left_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f") if result.left_item.date_modified else ""  # v001.0010 changed - full microsecond precision timestamp display
                     sha512_str = result.left_item.sha512[:16] + "..." if result.left_item.sha512 else ""
                     status = "Different" if result.is_different else "Same"
                     item_text = f"☐ {rel_path}"
@@ -4244,8 +4270,8 @@ class FolderCompareSync_class:
                 # v000.0006 added - Handle folder vs file display with timestamps
                 if result.right_item.is_folder:
                     # This is a folder - show timestamps and smart status
-                    date_created_str = result.right_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.right_item.date_created else ""     # v000.0007 changed - full precision timestamp display
-                    date_modified_str = result.right_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.right_item.date_modified else ""  # v000.0007 changed - full precision timestamp display
+                    date_created_str = result.right_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f") if result.right_item.date_created else ""     # v001.0010 changed - full microsecond precision timestamp display
+                    date_modified_str = result.right_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f") if result.right_item.date_modified else ""  # v001.0010 changed - full microsecond precision timestamp display
                     sha512_str = ""  # Folders never have SHA512
                     
                     # Determine smart status for folders
@@ -4262,8 +4288,8 @@ class FolderCompareSync_class:
                 else:
                     # This is a file - show all metadata as before
                     # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display
-                    date_created_str = result.right_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.right_item.date_created else ""     # v000.0007 changed - full precision timestamp display
-                    date_modified_str = result.right_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.right_item.date_modified else ""  # v000.0007 changed - full precision timestamp display
+                    date_created_str = result.right_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f") if result.right_item.date_created else ""     # v001.0010 changed - full microsecond precision timestamp display
+                    date_modified_str = result.right_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f") if result.right_item.date_modified else ""  # v001.0010 changed - full microsecond precision timestamp display
                     sha512_str = result.right_item.sha512[:16] + "..." if result.right_item.sha512 else ""
                     status = "Different" if result.is_different else "Same"
                     item_text = f"☐ {rel_path}"
@@ -4468,7 +4494,7 @@ class FolderCompareSync_class:
             
     def populate_tree(self, tree, structure, parent_id, side, current_path):
         """
-        Recursively populate tree with structure using stable alphabetical ordering. # v000.0002 changed - removed sorting
+        Recursively populate tree with structure using stable alphabetical ordering.
         
         Purpose:
         --------
@@ -4521,9 +4547,9 @@ class FolderCompareSync_class:
                         # v000.0006 added - Format folder timestamps if available
                         if folder_metadata and folder_metadata.is_folder:
                             if folder_metadata.date_created:
-                                date_created_str = folder_metadata.date_created.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]    # v000.0007 changed - full precision timestamp display
+                                date_created_str = folder_metadata.date_created.strftime("%Y-%m-%d %H:%M:%S.%f")    # v001.0010 changed - full microsecond precision timestamp display
                             if folder_metadata.date_modified:
-                                date_modified_str = folder_metadata.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # v000.0007 changed - full precision timestamp display
+                                date_modified_str = folder_metadata.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f")  # v001.0010 changed - full microsecond precision timestamp display
                         
                         # v000.0006 added - Determine smart status for folders
                         if result.is_different and result.differences:
@@ -4556,8 +4582,8 @@ class FolderCompareSync_class:
                 else:
                     # Existing file - has checkbox and shows ALL metadata
                     size_str = self.format_size(content.size) if content.size else ""
-                    date_created_str = content.date_created.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if content.date_created else ""     # v000.0007 changed - full precision timestamp display
-                    date_modified_str = content.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if content.date_modified else ""  # v000.0007 changed - full precision timestamp display
+                    date_created_str = content.date_created.strftime("%Y-%m-%d %H:%M:%S.%f") if content.date_created else ""     # v001.0010 changed - full microsecond precision timestamp display
+                    date_modified_str = content.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f") if content.date_modified else ""  # v001.0010 changed - full microsecond precision timestamp display
                     sha512_str = content.sha512[:16] + "..." if content.sha512 else ""
                     
                     # Determine status using proper path lookup
