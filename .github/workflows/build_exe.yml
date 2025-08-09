@@ -157,6 +157,15 @@ jobs:
             - Python 3.13
             - PyInstaller (optimized build)
             - All required dependencies bundled
+            - Perhaps, to verify that the `FolderCompareSync.exe` you downloaded matches the published github auto-built Release and has not been tampered with, you may choose to follow these steps:
+              1. Download both of these from the Release:
+                 `FolderCompareSync.exe`
+                 `FolderCompareSync.exe.sha512`
+              2. Open **Command Prompt** in the folder containing these files.
+              3. Run the following command to compute the SHA512 hash of the EXE:
+                 `certutil -hashfile FolderCompareSync.exe SHA512`
+              4. Compare the output hash with the contents of the `FolderCompareSync.exe.sha512` file. They **should** match exactly.
+              If the SHA512 hashes do not match, do not run the executable as it may have been tampered with.
             
             ### Dependencies Included:
             - `python-dateutil` - Advanced timezone support
@@ -164,7 +173,10 @@ jobs:
             - `tkinter` - GUI framework
             
             ### Usage:
-            Simply download `FolderCompareSync.exe` and run it - no Python installation required!
+            Download `FolderCompareSync.exe` and run it - no Python installation required!
+            Or, download he source .zip and extract FolderCompareSync.py then
+              `pip install --upgrade --retries 10 tzdata python-dateutil`
+              `python FolderCompareSync.py -O`
             
             ### Files:
             - `FolderCompareSync.exe` - Main executable
