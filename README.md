@@ -99,9 +99,58 @@ Enabling SHA512 comparison is slow (where lots of files or large files eg 2GB+) 
 - **Python 3.13+** installer downloadable from [python.org](https://www.python.org/downloads/) - installation is per-user, no need for Admin privilege
 - **8GB RAM** + additional memory for large folders
 
+## Installation Requirements
+- **Self-contained Standalone EXE version:** No requirements (**PyInstaller** packs a python interpreter runtime into the .exe so no need to install python separately)
+- **Python script version:** 
+1. Python 3.13+ i.e. if running the source .py rather than the self-contained Standalone EXE
+2. Python moodules `tzdata` and `python-dateutil`
+
 ### Installation
-1. **Download** `FolderCompareSync.py` to your computer and use python to run it
-   - *Open a Windows Command Prompt (cmd, not powershell) and run:* `python FolderCompareSync.py`
+
+`FolderCompareSync.py`can be downloaded and run as a single Windows Self-contained Standalone `.exe` without installing Python,
+or alternatively as a standard .py file in the Release source (the .exe is built automatically by github for each Release).
+
+Ensure the latest timezone modules and data are available for python to correctly perform timestamping actions.
+Install them using:
+```
+pip install --upgrade --retries 10 tzdata python-dateutil
+```
+
+#### ✅ [**Download the latest Windows self-contained Standalone EXE here**](https://github.com/hydra3333/FolderCompareSync/releases/latest/download/FolderCompareSync.exe)
+
+- This is a **self-contained Standalone EXE** built using **PyInstaller**.
+- No Python installation or external dependencies required.
+- Works on **Windows 10 and 11**.
+- Once automatically packed into a **self-contained Standalone EXE** by the ubiquitous **PyInstaller**, Windows Defender falsely flags it as containing malware.
+If you're uncomfortable with that, perhaps download (and review) the source .py and run that instead.
+- Or, perhaps, to verify that the `FolderCompareSync.exe` you downloaded matches the published github auto-built Release and has not been tampered with, you may choose to follow these steps:
+1. Download both of these from the Release:
+   - `FolderCompareSync.exe`
+   - `FolderCompareSync.exe.sha512`
+2. Open **Command Prompt** in the folder containing these files.
+3. Run the following command to compute the SHA512 hash of the EXE:
+```
+certutil -hashfile FolderCompareSync.exe SHA512
+```
+4. Compare the output hash with the contents of the `FolderCompareSync.exe.sha512` file. They **should** match exactly.
+If the SHA512 hashes do not match, do not run the executable as it may have been tampered with.
+
+#### ✅ [**Or, Download the latest source .zip to obtain `FolderCompareSync.py`**](https://github.com/hydra3333/FolderCompareSync/releases/latest)
+
+- `FolderCompareSync.py` is in the downloadable .zip file and can be reviewed by you for your safety and peace of mind.
+- `FolderCompareSync.py` uses the same comandline options as the **self-contained Standalone EXE**.
+- Requires and works in **Python 3.13.5+**.
+
+### Running the Self-contained Standalone EXE   
+#### (`FolderCompareSync.py` uses the same comandline options)
+
+Open **Command Prompt** in the folder with your patch file and run:
+
+```cmd
+REM Ensure latest timezone modules and data are available to python for correct timestamping actions
+pip install --upgrade --retries 10 tzdata python-dateutil
+python FolderCompareSync.py -O
+```
 
 ### Basic Usage
 1. **Select folders**: Click "Browse" to choose your "Left" and "Right" folders
@@ -115,6 +164,9 @@ Enabling SHA512 comparison is slow (where lots of files or large files eg 2GB+) 
 ---
 
 ## 🔧 More Info
+
+### **Foreward**
+Drafted, fixed, and extended by Claude AI.
 
 ### **Copy Strategies**
 The program automatically selects the optimal copy method.    
