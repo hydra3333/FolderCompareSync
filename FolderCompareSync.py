@@ -2,7 +2,7 @@
 """
 FolderCompareSync - A Professional Folder Comparison & Synchronization Tool
 
-Version  v001.0010 - really, this time, show full precision timestamp displays
+Version  v001.0011 - centralize timestamp formatting using format_timestamp() method
 
 Author: hydra3333
 License: AGPL-3.0
@@ -878,21 +878,24 @@ class FileTimestampManager:
             logger.error(f"Error copying timestamps: {e}")
             return False
     
-    def format_timestamp(self, dt: datetime, include_timezone: bool = True) -> str:
+    def format_timestamp(self, dt: Optional[datetime], include_timezone: bool = True) -> str: # v001.0011 changed [accept Optional datetime and handle None gracefully]
         """
-        Format a datetime object for display.
+        Format a datetime object for display with graceful None handling. # v001.0011 changed [updated docstring for None handling]
         
         Args:
-            dt: Datetime object
+            dt: Datetime object or None # v001.0011 changed [clarify None handling in docstring]
             include_timezone: Whether to include timezone info in output
             
         Returns:
-            Formatted datetime string
+            Formatted datetime string, or empty string if dt is None # v001.0011 changed [document None return behavior]
         """
+        if dt is None: # v001.0011 added [graceful None handling]
+            return ""  # v001.0011 added [return empty string for None]
+            
         if include_timezone:
-            return dt.strftime("%Y-%m-%d %H:%M:%S.%f %Z") # v001.0010 changed - full microsecond precision display
+            return dt.strftime("%Y-%m-%d %H:%M:%S.%f %Z") # v001.0011 changed - full microsecond precision display
         else:
-            return dt.strftime("%Y-%m-%d %H:%M:%S.%f") # v001.0010 changed - full microsecond precision display
+            return dt.strftime("%Y-%m-%d %H:%M:%S.%f") # v001.0011 changed - full microsecond precision display
     
     def verify_timestamps(self, file_path: Union[str, Path], 
                          expected_creation: Optional[datetime] = None,
@@ -4109,8 +4112,8 @@ class FolderCompareSync_class:
                 differences.add('date_created')
                 # v001.0010 added [debug date created comparison with full microsecond precision]
                 if __debug__:
-                    left_display = left_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f") if left_item.date_created else "None" # v001.0010 changed - full microsecond precision debug display
-                    right_display = right_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f") if right_item.date_created else "None" # v001.0010 changed - full microsecond precision debug display
+                    left_display = self.copy_manager.timestamp_manager.format_timestamp(left_item.date_created, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
+                    right_display = self.copy_manager.timestamp_manager.format_timestamp(right_item.date_created, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
                     left_raw = left_item.date_created.timestamp() if left_item.date_created else 0 # v001.0010 added [debug date created comparison with full microsecond precision]
                     right_raw = right_item.date_created.timestamp() if right_item.date_created else 0 # v001.0010 added [debug date created comparison with full microsecond precision]
                     diff_microseconds = abs(left_raw - right_raw) * 1_000_000 # v001.0010 added [debug date created comparison with full microsecond precision]
@@ -4125,8 +4128,8 @@ class FolderCompareSync_class:
                 differences.add('date_modified')
                 # v001.0010 added [debug date modified comparison with full microsecond precision]
                 if __debug__:
-                    left_display = left_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f") if left_item.date_modified else "None" # v001.0010 changed - full microsecond precision debug display
-                    right_display = right_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f") if right_item.date_modified else "None" # v001.0010 changed - full microsecond precision debug display
+                    left_display = self.copy_manager.timestamp_manager.format_timestamp(left_item.date_modified, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
+                    right_display = self.copy_manager.timestamp_manager.format_timestamp(right_item.date_modified, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
                     left_raw = left_item.date_modified.timestamp() if left_item.date_modified else 0 # v001.0010 added [debug date modified comparison with full microsecond precision]
                     right_raw = right_item.date_modified.timestamp() if right_item.date_modified else 0 # v001.0010 added [debug date modified comparison with full microsecond precision]
                     diff_microseconds = abs(left_raw - right_raw) * 1_000_000 # v001.0010 added [debug date modified comparison with full microsecond precision]
@@ -4235,8 +4238,8 @@ class FolderCompareSync_class:
                 # v000.0006 added - Handle folder vs file display with timestamps
                 if result.left_item.is_folder:
                     # This is a folder - show timestamps and smart status
-                    date_created_str = result.left_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f") if result.left_item.date_created else ""     # v001.0010 changed - full microsecond precision timestamp display
-                    date_modified_str = result.left_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f") if result.left_item.date_modified else ""  # v001.0010 changed - full microsecond precision timestamp display
+                    date_created_str = self.copy_manager.timestamp_manager.format_timestamp(result.left_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = self.copy_manager.timestamp_manager.format_timestamp(result.left_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = ""  # Folders never have SHA512
                     
                     # Determine smart status for folders
@@ -4253,8 +4256,8 @@ class FolderCompareSync_class:
                 else:
                     # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display
                     # This is a file - show all metadata as before
-                    date_created_str = result.left_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f") if result.left_item.date_created else ""     # v001.0010 changed - full microsecond precision timestamp display
-                    date_modified_str = result.left_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f") if result.left_item.date_modified else ""  # v001.0010 changed - full microsecond precision timestamp display
+                    date_created_str = self.copy_manager.timestamp_manager.format_timestamp(result.left_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = self.copy_manager.timestamp_manager.format_timestamp(result.left_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = result.left_item.sha512[:16] + "..." if result.left_item.sha512 else ""
                     status = "Different" if result.is_different else "Same"
                     item_text = f"☐ {rel_path}"
@@ -4270,8 +4273,8 @@ class FolderCompareSync_class:
                 # v000.0006 added - Handle folder vs file display with timestamps
                 if result.right_item.is_folder:
                     # This is a folder - show timestamps and smart status
-                    date_created_str = result.right_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f") if result.right_item.date_created else ""     # v001.0010 changed - full microsecond precision timestamp display
-                    date_modified_str = result.right_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f") if result.right_item.date_modified else ""  # v001.0010 changed - full microsecond precision timestamp display
+                    date_created_str = self.copy_manager.timestamp_manager.format_timestamp(result.right_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = self.copy_manager.timestamp_manager.format_timestamp(result.right_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = ""  # Folders never have SHA512
                     
                     # Determine smart status for folders
@@ -4288,8 +4291,8 @@ class FolderCompareSync_class:
                 else:
                     # This is a file - show all metadata as before
                     # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display
-                    date_created_str = result.right_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f") if result.right_item.date_created else ""     # v001.0010 changed - full microsecond precision timestamp display
-                    date_modified_str = result.right_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f") if result.right_item.date_modified else ""  # v001.0010 changed - full microsecond precision timestamp display
+                    date_created_str = self.copy_manager.timestamp_manager.format_timestamp(result.right_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = self.copy_manager.timestamp_manager.format_timestamp(result.right_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = result.right_item.sha512[:16] + "..." if result.right_item.sha512 else ""
                     status = "Different" if result.is_different else "Same"
                     item_text = f"☐ {rel_path}"
@@ -4546,10 +4549,8 @@ class FolderCompareSync_class:
                         
                         # v000.0006 added - Format folder timestamps if available
                         if folder_metadata and folder_metadata.is_folder:
-                            if folder_metadata.date_created:
-                                date_created_str = folder_metadata.date_created.strftime("%Y-%m-%d %H:%M:%S.%f")    # v001.0010 changed - full microsecond precision timestamp display
-                            if folder_metadata.date_modified:
-                                date_modified_str = folder_metadata.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f")  # v001.0010 changed - full microsecond precision timestamp display
+                            date_created_str = self.copy_manager.timestamp_manager.format_timestamp(folder_metadata.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                            date_modified_str = self.copy_manager.timestamp_manager.format_timestamp(folder_metadata.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                         
                         # v000.0006 added - Determine smart status for folders
                         if result.is_different and result.differences:
@@ -4582,8 +4583,8 @@ class FolderCompareSync_class:
                 else:
                     # Existing file - has checkbox and shows ALL metadata
                     size_str = self.format_size(content.size) if content.size else ""
-                    date_created_str = content.date_created.strftime("%Y-%m-%d %H:%M:%S.%f") if content.date_created else ""     # v001.0010 changed - full microsecond precision timestamp display
-                    date_modified_str = content.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f") if content.date_modified else ""  # v001.0010 changed - full microsecond precision timestamp display
+                    date_created_str = self.copy_manager.timestamp_manager.format_timestamp(content.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = self.copy_manager.timestamp_manager.format_timestamp(content.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = content.sha512[:16] + "..." if content.sha512 else ""
                     
                     # Determine status using proper path lookup
