@@ -10,22 +10,22 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # 1. Checkout source code
+      # 1) Checkout source code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Set up Python
+      # 2) Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
-      # 3. Install dependencies
+      # 3) Install dependencies
       - name: Install required packages
         run: |
           pip install --upgrade --retries 10 pyinstaller python-dateutil tzdata
 
-      # 4. Verify dependencies are installed correctly
+      # 4) Verify dependencies
       - name: Verify dependencies
         run: |
           python -c "import zoneinfo; print('zoneinfo: OK')"
@@ -33,7 +33,7 @@ jobs:
           python -c "import tkinter; print('tkinter: OK')"
         shell: cmd
 
-      # 5. Find Python site-packages path dynamically
+      # 5) Find Python site-packages path dynamically
       - name: Get site-packages path
         id: python_paths
         run: |
@@ -41,21 +41,23 @@ jobs:
           python -c "import zoneinfo; print('ZONEINFO_PATH=' + zoneinfo.__file__.replace('__init__.py', ''))" >> %GITHUB_ENV%
         shell: cmd
 
-      # 6. Build EXE with PyInstaller (optimized for GUI app)
-      - name: Build executable
+      # 6) Build EXE (GUI)
+      - name: Build executable with PyInstaller (for GUI app)
         run: |
           echo Using zoneinfo path: %ZONEINFO_PATH%
           set PYTHONOPTIMIZE=1 && pyinstaller --onefile --clean --name FolderCompareSync --windowed --noupx --add-data "%ZONEINFO_PATH%;zoneinfo" FolderCompareSync.py
         shell: cmd
+        #continue-on-error: true
 
-      # 7. Fallback: Try console mode if windowed fails
+      # 7) Fallback: console mode if GUI build failed
       - name: Build executable (console fallback)
         if: failure()
         run: |
           set PYTHONOPTIMIZE=1 && pyinstaller --onefile --clean --name FolderCompareSync --console --noupx --add-data "%ZONEINFO_PATH%;zoneinfo" FolderCompareSync.py
         shell: cmd
+        #continue-on-error: true
 
-      # 8. Fallback: Try without explicit zoneinfo data if still failing
+      # 8) Fallback: minimal build if still failing
       - name: Build executable (minimal fallback)
         if: failure()
         run: |
@@ -63,7 +65,7 @@ jobs:
           set PYTHONOPTIMIZE=1 && pyinstaller --onefile --clean --name FolderCompareSync --console --noupx FolderCompareSync.py
         shell: cmd
 
-      # 9. Fail early if EXE is missing
+      # 9) Fail early if EXE is missing
       - name: Verify EXE exists
         run: |
           if not exist dist\FolderCompareSync.exe (
@@ -72,7 +74,7 @@ jobs:
           )
         shell: cmd
 
-      # 10. Validate executable
+      # 10) Validate executable
       - name: Validate executable
         run: |
           echo Validating executable properties...
@@ -85,7 +87,7 @@ jobs:
           echo Note: GUI apps cannot be tested in headless CI environment
         shell: cmd
 
-      # 11. Debug: List build output
+      # 11) Debug: list build output
       - name: List build output
         run: |
           echo === Root directory ===
@@ -98,7 +100,7 @@ jobs:
           dir dist\FolderCompareSync.exe
         shell: cmd
 
-      # 12. Determine artifact name (include release tag or 'manual-build')
+      # 12) Determine artifact name (include release tag or 'manual-build')
       - name: Set artifact name
         id: artifact_name
         run: |
@@ -109,29 +111,13 @@ jobs:
           )
         shell: cmd
 
-      # 13. Generate SHA512 checksum
+      # 13) Generate SHA512 checksum
       - name: Generate SHA512 checksum
         run: |
           certutil -hashfile dist\FolderCompareSync.exe SHA512 > dist\FolderCompareSync.exe.sha512
         shell: cmd
 
-      # 14. Create release notes file
-      - name: Create release info
-        run: |
-          echo FolderCompareSync Standalone Executable > dist\README.txt
-          echo. >> dist\README.txt
-          echo Built with Python 3.13 and PyInstaller >> dist\README.txt
-          echo Includes all required dependencies: >> dist\README.txt
-          echo - python-dateutil for timezone support >> dist\README.txt
-          echo - tzdata for timezone database >> dist\README.txt
-          echo - tkinter for GUI interface >> dist\README.txt
-          echo. >> dist\README.txt
-          echo Run FolderCompareSync.exe to start the application >> dist\README.txt
-          echo. >> dist\README.txt
-          echo Build date: %DATE% %TIME% >> dist\README.txt
-        shell: cmd
-
-      # 15. Upload EXE, SHA512, and README as a GitHub Actions artifact
+      # 14) Upload build artifacts
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -139,9 +125,8 @@ jobs:
           path: |
             dist/FolderCompareSync.exe
             dist/FolderCompareSync.exe.sha512
-            dist/README.txt
 
-      # 16. Upload to GitHub Release (only if triggered by release)
+      # 15) Upload to GitHub Release (append notes to what is typed in when creating the Release)
       - name: Upload to GitHub release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
@@ -149,38 +134,13 @@ jobs:
           files: |
             dist/FolderCompareSync.exe
             dist/FolderCompareSync.exe.sha512
-            dist/README.txt
+          append_body: true
           body: |
-            ## FolderCompareSync Standalone Executable
-            
-            This release includes a standalone Windows executable built with:
-            - Python 3.13
-            - PyInstaller (optimized build)
-            - All required dependencies bundled
-            - Perhaps, to verify that the `FolderCompareSync.exe` you downloaded matches the published github auto-built Release and has not been tampered with, you may choose to follow these steps:
-              1. Download both of these from the Release:
-                 `FolderCompareSync.exe`
-                 `FolderCompareSync.exe.sha512`
-              2. Open **Command Prompt** in the folder containing these files.
-              3. Run the following command to compute the SHA512 hash of the EXE:
-                 `certutil -hashfile FolderCompareSync.exe SHA512`
-              4. Compare the output hash with the contents of the `FolderCompareSync.exe.sha512` file. They **should** match exactly.
-              If the SHA512 hashes do not match, do not run the executable as it may have been tampered with.
-            
-            ### Dependencies Included:
-            - `python-dateutil` - Advanced timezone support
-            - `tzdata` - Timezone database  
-            - `tkinter` - GUI framework
-            
-            ### Usage:
-            Download `FolderCompareSync.exe` and run it - no Python installation required!
-            Or, download he source .zip and extract FolderCompareSync.py then
-              `pip install --upgrade --retries 10 tzdata python-dateutil`
-              `python FolderCompareSync.py -O`
-            
-            ### Files:
-            - `FolderCompareSync.exe` - Main executable
-            - `FolderCompareSync.exe.sha512` - Checksum for verification
-            - `README.txt` - Build information
+            ---
+            **Standalone EXE build details (CI)**
+            • Python 3.13 + PyInstaller (optimized)
+            • Bundled python modules: tzdata, python-dateutil, tkinter
+            • A SHA512 checksum is attached (FolderCompareSync.exe.sha512) for verification of github auto-built Standalone EXE
+
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
