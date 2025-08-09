@@ -4,10 +4,8 @@
 
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-lightgrey)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-green) 
-![Status](https://img.shields.io/badge/status-Initial%20Release-green)
-
 ![Language](https://img.shields.io/badge/language-Python3-blue)
-![BEWARE](https://img.shields.io/badge/BEWARE-Incomplete%20Unreleased-red)
+![Status](https://img.shields.io/badge/status-Initial%20Release-green)
 
 <!--
 Common Statuses
