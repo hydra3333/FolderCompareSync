@@ -2,7 +2,7 @@
 """
 FolderCompareSync - A Professional Folder Comparison & Synchronization Tool
 
-Version  v000.0004 - SHA512 computation with progress tracking for large files
+Version  v000.0006 - show folder timestamps and smart status display
 
 Author: hydra3333
 License: AGPL-3.0
@@ -4164,16 +4164,13 @@ class FolderCompareSync_class:
             
         # Build tree structure with filtered results # v000.0002 changed - removed sorting
         self.build_trees_with_filtered_results() # v000.0002 changed - removed sorting
-                                                 
-                                              
-         
         
         # Update status
         self.status_var.set("Ready (Filtered)")
         self.update_summary()
         logger.info("Filtered UI update completed")
 
-    def build_trees_with_filtered_results(self): # v000.0002 changed - removed sorting parameters
+    def build_trees_with_filtered_results(self): # v000.0006 changed - added folder timestamp display for filtered results
         """Build tree structures from filtered comparison results with limit checking (no sorting)."""
         if self.limit_exceeded:
             return
@@ -4203,38 +4200,77 @@ class FolderCompareSync_class:
         
         # For filtered results, show a flattened view under each root # v000.0002 changed - removed sorting
         for rel_path, result in results_to_use.items(): # v000.0002 changed - removed sorting
-                                                                                                     
-        
-                                             
             if not rel_path:
                 continue
                 
             # Add left item if it exists
             if result.left_item and result.left_item.exists:
-                size_str = self.format_size(result.left_item.size) if result.left_item.size else ""
-                date_created_str = result.left_item.date_created.strftime("%Y-%m-%d %H:%M") if result.left_item.date_created else ""
-                date_modified_str = result.left_item.date_modified.strftime("%Y-%m-%d %H:%M") if result.left_item.date_modified else ""
-                sha512_str = result.left_item.sha512[:16] + "..." if result.left_item.sha512 else ""
-                status = "Different" if result.is_different else "Same"
+                # v000.0006 ---------- START CODE BLOCK - facilitate folder timestamp and smart status display
+                # v000.0006 added - Handle folder vs file display with timestamps
+                if result.left_item.is_folder:
+                    # This is a folder - show timestamps and smart status
+                    date_created_str = result.left_item.date_created.strftime("%Y-%m-%d %H:%M") if result.left_item.date_created else ""
+                    date_modified_str = result.left_item.date_modified.strftime("%Y-%m-%d %H:%M") if result.left_item.date_modified else ""
+                    sha512_str = ""  # Folders never have SHA512
+                    # Determine smart status for folders
+                    if result.is_different and result.differences:
+                        # Check if folder is different ONLY due to timestamps
+                        timestamp_only_differences = {'date_created', 'date_modified'}
+                        if result.differences.issubset(timestamp_only_differences):
+                            status = "Folder (timestamp)"
+                        else:
+                            status = "Folder"
+                    else:
+                        status = "Folder"
+                    item_text = f"☐ {rel_path}/"  # Add folder indicator
+                else:
+                    # This is a file - show all metadata as before
+                    # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display
+                    date_created_str = result.left_item.date_created.strftime("%Y-%m-%d %H:%M") if result.left_item.date_created else ""
+                    date_modified_str = result.left_item.date_modified.strftime("%Y-%m-%d %H:%M") if result.left_item.date_modified else ""
+                    sha512_str = result.left_item.sha512[:16] + "..." if result.left_item.sha512 else ""
+                    status = "Different" if result.is_different else "Same"
+                    item_text = f"☐ {rel_path}"
                 
-                item_text = f"☐ {rel_path}"
+                
+                size_str = self.format_size(result.left_item.size) if result.left_item.size else "" # v000.0006 changed - Use folder-aware display values
                 item_id = self.left_tree.insert(self.root_item_left, tk.END, text=item_text,
                                               values=(size_str, date_created_str, date_modified_str, sha512_str, status))
                 self.path_to_item_left[rel_path] = item_id
                 
             # Add right item if it exists
             if result.right_item and result.right_item.exists:
-                size_str = self.format_size(result.right_item.size) if result.right_item.size else ""
-                date_created_str = result.right_item.date_created.strftime("%Y-%m-%d %H:%M") if result.right_item.date_created else ""
-                date_modified_str = result.right_item.date_modified.strftime("%Y-%m-%d %H:%M") if result.right_item.date_modified else ""
-                sha512_str = result.right_item.sha512[:16] + "..." if result.right_item.sha512 else ""
-                status = "Different" if result.is_different else "Same"
+                # v000.0006 ---------- START CODE BLOCK - facilitate folder timestamp and smart status display
+                # v000.0006 added - Handle folder vs file display with timestamps
+                if result.right_item.is_folder:
+                    # This is a folder - show timestamps and smart status
+                    date_created_str = result.right_item.date_created.strftime("%Y-%m-%d %H:%M") if result.right_item.date_created else ""
+                    date_modified_str = result.right_item.date_modified.strftime("%Y-%m-%d %H:%M") if result.right_item.date_modified else ""
+                    sha512_str = ""  # Folders never have SHA512
+                    # Determine smart status for folders
+                    if result.is_different and result.differences:
+                        # Check if folder is different ONLY due to timestamps
+                        timestamp_only_differences = {'date_created', 'date_modified'}
+                        if result.differences.issubset(timestamp_only_differences):
+                            status = "Folder (timestamp)"
+                        else:
+                            status = "Folder"
+                    else:
+                        status = "Folder"
+                    item_text = f"☐ {rel_path}/"  # Add folder indicator
+                else:
+                    # This is a file - show all metadata as before
+                    # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display
+                    date_created_str = result.right_item.date_created.strftime("%Y-%m-%d %H:%M") if result.right_item.date_created else ""
+                    date_modified_str = result.right_item.date_modified.strftime("%Y-%m-%d %H:%M") if result.right_item.date_modified else ""
+                    sha512_str = result.right_item.sha512[:16] + "..." if result.right_item.sha512 else ""
+                    status = "Different" if result.is_different else "Same"
+                    item_text = f"☐ {rel_path}"
                 
-                item_text = f"☐ {rel_path}"
+                size_str = self.format_size(result.right_item.size) if result.right_item.size else ""  # v000.0006 changed - Use folder-aware display values
                 item_id = self.right_tree.insert(self.root_item_right, tk.END, text=item_text,
                                                values=(size_str, date_created_str, date_modified_str, sha512_str, status))
                 self.path_to_item_right[rel_path] = item_id
-
     def build_trees_with_root_paths(self): # v000.0003 changed - fixed false conflict detection bug
         """
         Build tree structures from comparison results with fully qualified root paths # v000.0002 changed - removed sorting
@@ -4427,9 +4463,9 @@ class FolderCompareSync_class:
         if __debug__:
             logger.debug(f"Tree building with root paths completed in {elapsed_time:.3f} seconds")
             
-    def populate_tree(self, tree, structure, parent_id, side, current_path): # v000.0002 changed - removed sorting parameters
+def populate_tree(self, tree, structure, parent_id, side, current_path): # v000.0006 changed - added folder timestamp display
         """
-        Recursively populate tree with structure using stable alphabetical ordering. # v000.0002 changed - removed sorting
+        Recursively populate tree with structure using stable alphabetical ordering.
         
         Purpose:
         --------
@@ -4464,8 +4500,41 @@ class FolderCompareSync_class:
                 else:
                     # Real folder - has checkbox
                     item_text = f"☐ {name}/"
+                    # v000.0006 ---------- START CODE BLOCK - facilitate folder timestamp and smart status display
+                    # v000.0006 added - Get folder metadata for timestamp display and smart status
+                    result = self.comparison_results.get(item_rel_path)
+                    folder_metadata = None
+                    date_created_str = ""
+                    date_modified_str = ""
+                    status = "Folder"
+                    
+                    if result:
+                        # Get the folder metadata from the appropriate side
+                        if side == 'left' and result.left_item:
+                            folder_metadata = result.left_item
+                        elif side == 'right' and result.right_item:
+                            folder_metadata = result.right_item
+                        
+                        # v000.0006 added - Format folder timestamps if available
+                        if folder_metadata and folder_metadata.is_folder:
+                            if folder_metadata.date_created:
+                                date_created_str = folder_metadata.date_created.strftime("%Y-%m-%d %H:%M")
+                            if folder_metadata.date_modified:
+                                date_modified_str = folder_metadata.date_modified.strftime("%Y-%m-%d %H:%M")
+                        
+                        # v000.0006 added - Determine smart status for folders
+                        if result.is_different and result.differences:
+                            # Check if folder is different ONLY due to timestamps
+                            timestamp_only_differences = {'date_created', 'date_modified'}
+                            if result.differences.issubset(timestamp_only_differences):
+                                status = "Folder (timestamp)"
+                            elif result.differences:
+                                # Other differences exist (existence, contents, etc.)
+                                status = "Folder"
+                    # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display
+                    
                     item_id = tree.insert(parent_id, tk.END, text=item_text, open=False,
-                                        values=("", "", "", "", "Folder"))
+                                        values=("", date_created_str, date_modified_str, "", status))  # v000.0006 changed - Insert folder with timestamp data and smart status
                     # Recursively populate children
                     self.populate_tree(tree, content, item_id, side, item_rel_path) # v000.0002 changed - removed sorting
                                                                                     
@@ -4503,129 +4572,6 @@ class FolderCompareSync_class:
         # Configure missing item styling using configurable color
         tree.tag_configure('missing', foreground=MISSING_ITEM_COLOR)
 
-                                                                                             
-           
-                                                                     
-        
-                
-                
-                                                                                          
-                                                                      
-        
-             
-             
-                                                                        
-                                                        
-                                                                        
-                                                              
-                                                    
-        
-                
-                
-                                                            
-           
-                           
-                                                            
-                                
-    
-        
-                                            
-                                             
-            
-                                                            
-                                                            
-                                                              
-                                                   
-            
-                                                               
-                               
-                                           
-                                                 
-            
-                                                  
-                
-                                         
-                                                                    
-                                                   
-                                                                                                                 
-                                                           
-                                                    
-                                                                                                                   
-                                                           
-                                             
-                                                                       
-                                             
-                                                                    
-                                                                                       
-                                                                       
-                                                                                      
-                                                         
-                     
-                                             
-                                                     
-                                               
-                                                 
-        
-                                                           
-                                                                                      
-        
-                     
-                                                                                                               
-        
-                           
-
-                                                                                          
-           
-                                                                             
-        
-             
-             
-                                                                   
-                                                              
-                                                    
-        
-                
-                
-                                                               
-           
-                           
-                                                            
-                                                   
-        
-                                           
-                                               
-            
-                                                                   
-                                                                                                          
-            
-                                           
-                                                
-            
-                                                                       
-                              
-                                                       
-            
-                
-                                         
-                                                                     
-                                                   
-                                                                                                           
-                                                               
-                                                    
-                                                                                                             
-                                                               
-                                             
-                                                                        
-                                             
-                                                                           
-                                                             
-                     
-                                                         
-                                               
-                                                     
-        
-                                                                                                 
-        
     def get_item_path(self, tree, item_id):
         """
         Get the full relative path for a tree item.
