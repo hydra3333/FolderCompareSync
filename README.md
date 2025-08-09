@@ -99,27 +99,29 @@ Enabling SHA512 comparison is slow (where lots of files or large files eg 2GB+) 
 - **Python 3.13+** installer downloadable from [python.org](https://www.python.org/downloads/) - installation is per-user, no need for Admin privilege
 - **8GB RAM** + additional memory for large folders
 
-## Installation Requirements
+### Installation Requirements
 - **Self-contained Standalone EXE version:** No requirements (**PyInstaller** packs a python interpreter runtime into the .exe so no need to install python separately)
 - **Python script version:** 
 1. Python 3.13+ i.e. if running the source .py rather than the self-contained Standalone EXE
 2. Python moodules `tzdata` and `python-dateutil`
 
-### Installation
+#### Installation
 
 `FolderCompareSync.py`can be downloaded and run as a single Windows Self-contained Standalone `.exe` without installing Python,
 or alternatively as a standard .py file in the Release source (the .exe is built automatically by github for each Release).
 
-Ensure the latest timezone modules and data are available for python to correctly perform timestamping actions.
-Install them using:
+If running the source `FolderCompareSync.py` then ensure the latest timezone modules and data 
+(modules `tzdata` and `python-dateutil`) are available for python to correctly perform timestamping actions.
+Install modules `tzdata` and `python-dateutil` using the pip command (you may need upgrade these when timezone data updates are released):
 ```
 pip install --upgrade --retries 10 tzdata python-dateutil
 ```
+You may also need upgrade these modules when timezone data updates are released).
 
 #### ✅ [**Download the latest Windows self-contained Standalone EXE here**](https://github.com/hydra3333/FolderCompareSync/releases/latest/download/FolderCompareSync.exe)
 
 - This is a **self-contained Standalone EXE** built using **PyInstaller**.
-- No Python installation or external dependencies required.
+- No Python installation or external dependencies are required since these are bundled inside the self-contained Standalone EXE file.
 - Works on **Windows 10 and 11**.
 - Once automatically packed into a **self-contained Standalone EXE** by the ubiquitous **PyInstaller**, Windows Defender falsely flags it as containing malware.
 If you're uncomfortable with that, perhaps download (and review) the source .py and run that instead.
@@ -138,11 +140,9 @@ If the SHA512 hashes do not match, do not run the executable as it may have been
 #### ✅ [**Or, Download the latest source .zip to obtain `FolderCompareSync.py`**](https://github.com/hydra3333/FolderCompareSync/releases/latest)
 
 - `FolderCompareSync.py` is in the downloadable .zip file and can be reviewed by you for your safety and peace of mind.
-- `FolderCompareSync.py` uses the same comandline options as the **self-contained Standalone EXE**.
 - Requires and works in **Python 3.13.5+**.
 
 ### Running the Self-contained Standalone EXE   
-#### (`FolderCompareSync.py` uses the same comandline options)
 
 Open **Command Prompt** in the folder with your patch file and run:
 
