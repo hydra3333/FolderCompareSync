@@ -2,7 +2,7 @@
 """
 FolderCompareSync - A Professional Folder Comparison & Synchronization Tool
 
-Version  v000.0006 - show folder timestamps and smart status display
+Version  v000.0007 - show full precision timestamp displays
 
 Author: hydra3333
 License: AGPL-3.0
@@ -119,18 +119,18 @@ TREE_UPDATE_BATCH_SIZE = 200000     # Process tree updates in batches of N items
 MEMORY_EFFICIENT_THRESHOLD = 10000  # Switch to memory-efficient mode above N items
 
 # Tree column configuration (default widths) - for new columns
-TREE_STRUCTURE_WIDTH = 280         # Default structure column width
-TREE_STRUCTURE_MIN_WIDTH = 150     # Minimum structure column width
-TREE_SIZE_WIDTH = 80              # Size column width
-TREE_SIZE_MIN_WIDTH = 60          # Minimum size column width
-TREE_DATE_CREATED_WIDTH = 110     # Date created column width
-TREE_DATE_CREATED_MIN_WIDTH = 90  # Minimum date created column width
-TREE_DATE_MODIFIED_WIDTH = 110    # Date modified column width
-TREE_DATE_MODIFIED_MIN_WIDTH = 90 # Minimum date modified column width
-TREE_SHA512_WIDTH = 100           # SHA512 column width (first 16 chars)
-TREE_SHA512_MIN_WIDTH = 80        # Minimum SHA512 column width
-TREE_STATUS_WIDTH = 100           # Status column width
-TREE_STATUS_MIN_WIDTH = 80        # Minimum status column width
+TREE_STRUCTURE_WIDTH = 350         # Default structure column width
+TREE_STRUCTURE_MIN_WIDTH = 120     # Minimum structure column width
+TREE_SIZE_WIDTH = 50               # Size column width
+TREE_SIZE_MIN_WIDTH = 30           # Minimum size column width
+TREE_DATE_CREATED_WIDTH = 120      # Date created column width # v000.0007 changed - increased width for full precision timestamps
+TREE_DATE_CREATED_MIN_WIDTH = 120  # Minimum date created column width # v000.0007 changed - increased minimum width for full precision timestamps
+TREE_DATE_MODIFIED_WIDTH = 120     # Date modified column width # v000.0007 changed - increased width for full precision timestamps
+TREE_DATE_MODIFIED_MIN_WIDTH = 100 # Minimum date modified column width # v000.0007 changed - increased minimum width for full precision timestamps
+TREE_SHA512_WIDTH = 100            # SHA512 column width (first 16 chars)
+TREE_SHA512_MIN_WIDTH = 80         # Minimum SHA512 column width
+TREE_STATUS_WIDTH = 100            # Status column width
+TREE_STATUS_MIN_WIDTH = 80         # Minimum status column width
 
 # Display colors and styling
 MISSING_ITEM_COLOR = "gray"       # Color for missing items in tree
@@ -4170,7 +4170,7 @@ class FolderCompareSync_class:
         self.update_summary()
         logger.info("Filtered UI update completed")
 
-    def build_trees_with_filtered_results(self): # v000.0006 changed - added folder timestamp display for filtered results
+    def build_trees_with_filtered_results(self):
         """Build tree structures from filtered comparison results with limit checking (no sorting)."""
         if self.limit_exceeded:
             return
@@ -4205,13 +4205,13 @@ class FolderCompareSync_class:
                 
             # Add left item if it exists
             if result.left_item and result.left_item.exists:
-                # v000.0006 ---------- START CODE BLOCK - facilitate folder timestamp and smart status display
-                # v000.0006 added - Handle folder vs file display with timestamps
+                # v000.0004 added - Handle folder vs file display with timestamps
                 if result.left_item.is_folder:
                     # This is a folder - show timestamps and smart status
-                    date_created_str = result.left_item.date_created.strftime("%Y-%m-%d %H:%M") if result.left_item.date_created else ""
-                    date_modified_str = result.left_item.date_modified.strftime("%Y-%m-%d %H:%M") if result.left_item.date_modified else ""
+                    date_created_str = result.left_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.left_item.date_created else ""     # v000.0007 changed - full precision timestamp display
+                    date_modified_str = result.left_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.left_item.date_modified else ""  # v000.0007 changed - full precision timestamp display
                     sha512_str = ""  # Folders never have SHA512
+                    
                     # Determine smart status for folders
                     if result.is_different and result.differences:
                         # Check if folder is different ONLY due to timestamps
@@ -4222,31 +4222,31 @@ class FolderCompareSync_class:
                             status = "Folder"
                     else:
                         status = "Folder"
+                    
                     item_text = f"☐ {rel_path}/"  # Add folder indicator
                 else:
                     # This is a file - show all metadata as before
-                    # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display
-                    date_created_str = result.left_item.date_created.strftime("%Y-%m-%d %H:%M") if result.left_item.date_created else ""
-                    date_modified_str = result.left_item.date_modified.strftime("%Y-%m-%d %H:%M") if result.left_item.date_modified else ""
+                    date_created_str = result.left_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.left_item.date_created else ""     # v000.0007 changed - full precision timestamp display
+                    date_modified_str = result.left_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.left_item.date_modified else ""  # v000.0007 changed - full precision timestamp display
                     sha512_str = result.left_item.sha512[:16] + "..." if result.left_item.sha512 else ""
                     status = "Different" if result.is_different else "Same"
                     item_text = f"☐ {rel_path}"
                 
-                
-                size_str = self.format_size(result.left_item.size) if result.left_item.size else "" # v000.0006 changed - Use folder-aware display values
+                # v000.0004 changed - Use folder-aware display values
+                size_str = self.format_size(result.left_item.size) if result.left_item.size else ""
                 item_id = self.left_tree.insert(self.root_item_left, tk.END, text=item_text,
                                               values=(size_str, date_created_str, date_modified_str, sha512_str, status))
                 self.path_to_item_left[rel_path] = item_id
                 
             # Add right item if it exists
             if result.right_item and result.right_item.exists:
-                # v000.0006 ---------- START CODE BLOCK - facilitate folder timestamp and smart status display
-                # v000.0006 added - Handle folder vs file display with timestamps
+                # v000.0004 added - Handle folder vs file display with timestamps
                 if result.right_item.is_folder:
                     # This is a folder - show timestamps and smart status
-                    date_created_str = result.right_item.date_created.strftime("%Y-%m-%d %H:%M") if result.right_item.date_created else ""
-                    date_modified_str = result.right_item.date_modified.strftime("%Y-%m-%d %H:%M") if result.right_item.date_modified else ""
+                    date_created_str = result.right_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.right_item.date_created else ""     # v000.0007 changed - full precision timestamp display
+                    date_modified_str = result.right_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.right_item.date_modified else ""  # v000.0007 changed - full precision timestamp display
                     sha512_str = ""  # Folders never have SHA512
+                    
                     # Determine smart status for folders
                     if result.is_different and result.differences:
                         # Check if folder is different ONLY due to timestamps
@@ -4257,20 +4257,23 @@ class FolderCompareSync_class:
                             status = "Folder"
                     else:
                         status = "Folder"
+                    
                     item_text = f"☐ {rel_path}/"  # Add folder indicator
                 else:
                     # This is a file - show all metadata as before
-                    # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display
-                    date_created_str = result.right_item.date_created.strftime("%Y-%m-%d %H:%M") if result.right_item.date_created else ""
-                    date_modified_str = result.right_item.date_modified.strftime("%Y-%m-%d %H:%M") if result.right_item.date_modified else ""
+                    date_created_str = result.right_item.date_created.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.right_item.date_created else ""     # v000.0007 changed - full precision timestamp display
+                    date_modified_str = result.right_item.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if result.right_item.date_modified else ""  # v000.0007 changed - full precision timestamp display
                     sha512_str = result.right_item.sha512[:16] + "..." if result.right_item.sha512 else ""
                     status = "Different" if result.is_different else "Same"
+                    
                     item_text = f"☐ {rel_path}"
                 
-                size_str = self.format_size(result.right_item.size) if result.right_item.size else ""  # v000.0006 changed - Use folder-aware display values
+                # v000.0004 changed - Use folder-aware display values
+                size_str = self.format_size(result.right_item.size) if result.right_item.size else ""
                 item_id = self.right_tree.insert(self.root_item_right, tk.END, text=item_text,
                                                values=(size_str, date_created_str, date_modified_str, sha512_str, status))
                 self.path_to_item_right[rel_path] = item_id
+
     def build_trees_with_root_paths(self): # v000.0003 changed - fixed false conflict detection bug
         """
         Build tree structures from comparison results with fully qualified root paths # v000.0002 changed - removed sorting
@@ -4463,9 +4466,9 @@ class FolderCompareSync_class:
         if __debug__:
             logger.debug(f"Tree building with root paths completed in {elapsed_time:.3f} seconds")
             
-    def populate_tree(self, tree, structure, parent_id, side, current_path): # v000.0006 changed - added folder timestamp display
+    def populate_tree(self, tree, structure, parent_id, side, current_path):
         """
-        Recursively populate tree with structure using stable alphabetical ordering.
+        Recursively populate tree with structure using stable alphabetical ordering. # v000.0002 changed - removed sorting
         
         Purpose:
         --------
@@ -4496,12 +4499,11 @@ class FolderCompareSync_class:
                                         values=("", "", "", "", "Missing"), tags=('missing',))
                     # Recursively populate children from the missing folder's contents
                     self.populate_tree(tree, content.contents, item_id, side, item_rel_path) # v000.0002 changed - removed sorting
-                                                                                    
                 else:
-                    # Real folder - has checkbox
+                    # Real folder - has checkbox # v000.0004 changed - added folder timestamp and smart status display
                     item_text = f"☐ {name}/"
-                    # v000.0006 ---------- START CODE BLOCK - facilitate folder timestamp and smart status display
-                    # v000.0006 added - Get folder metadata for timestamp display and smart status
+                    
+                    # v000.0004 added - Get folder metadata for timestamp display and smart status
                     result = self.comparison_results.get(item_rel_path)
                     folder_metadata = None
                     date_created_str = ""
@@ -4515,14 +4517,14 @@ class FolderCompareSync_class:
                         elif side == 'right' and result.right_item:
                             folder_metadata = result.right_item
                         
-                        # v000.0006 added - Format folder timestamps if available
+                        # v000.0004 added - Format folder timestamps if available
                         if folder_metadata and folder_metadata.is_folder:
                             if folder_metadata.date_created:
-                                date_created_str = folder_metadata.date_created.strftime("%Y-%m-%d %H:%M")
+                                date_created_str = folder_metadata.date_created.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]    # v000.0007 changed - full precision timestamp display
                             if folder_metadata.date_modified:
-                                date_modified_str = folder_metadata.date_modified.strftime("%Y-%m-%d %H:%M")
+                                date_modified_str = folder_metadata.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # v000.0007 changed - full precision timestamp display
                         
-                        # v000.0006 added - Determine smart status for folders
+                        # v000.0004 added - Determine smart status for folders
                         if result.is_different and result.differences:
                             # Check if folder is different ONLY due to timestamps
                             timestamp_only_differences = {'date_created', 'date_modified'}
@@ -4531,10 +4533,10 @@ class FolderCompareSync_class:
                             elif result.differences:
                                 # Other differences exist (existence, contents, etc.)
                                 status = "Folder"
-                    # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display
                     
+                    # v000.0004 changed - Insert folder with timestamp data and smart status
                     item_id = tree.insert(parent_id, tk.END, text=item_text, open=False,
-                                        values=("", date_created_str, date_modified_str, "", status))  # v000.0006 changed - Insert folder with timestamp data and smart status
+                                        values=("", date_created_str, date_modified_str, "", status))
                     # Recursively populate children
                     self.populate_tree(tree, content, item_id, side, item_rel_path) # v000.0002 changed - removed sorting
                                                                                     
@@ -4553,8 +4555,8 @@ class FolderCompareSync_class:
                 else:
                     # Existing file - has checkbox and shows ALL metadata
                     size_str = self.format_size(content.size) if content.size else ""
-                    date_created_str = content.date_created.strftime("%Y-%m-%d %H:%M") if content.date_created else ""
-                    date_modified_str = content.date_modified.strftime("%Y-%m-%d %H:%M") if content.date_modified else ""
+                    date_created_str = content.date_created.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if content.date_created else ""     # v000.0007 changed - full precision timestamp display
+                    date_modified_str = content.date_modified.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if content.date_modified else ""  # v000.0007 changed - full precision timestamp display
                     sha512_str = content.sha512[:16] + "..." if content.sha512 else ""
                     
                     # Determine status using proper path lookup
