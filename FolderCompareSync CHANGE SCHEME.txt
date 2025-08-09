@@ -54,11 +54,11 @@ This is our agreed change scheme named "FolderCompareSync CHANGE SCHEME" for mak
 modifications in a clear, traceable way.
 +++ Rules:
 1. Always update the version and revision number in the comments near the top of the Program
-   eg like Version  v000.0004
+   eg like Version  v000.0004  where 0004 is to be bumped up to the next number in sequence for this change
 2. Clearly mark every added or changed line of code with one of these at the end of each added or changed line
    # vxxxx.yyyy added [brief relevant description, or common change identifying text]
    # vxxxx.yyyy changed [brief relevant description, or common change identifying text]
-   eg v000.0004
+   eg v000.0005
 3. All code must be well commented and meaningful and keeping/amending existing comments of
 clarification as appropriate and removing obsolete comments.
 4. Do not change existing variable names or def names or class names or import names etc unless

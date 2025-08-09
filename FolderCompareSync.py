@@ -4923,7 +4923,7 @@ class FolderCompareSync_class:
         self.status_var.set(status_text)
         threading.Thread(target=self.perform_enhanced_copy_operation, args=('right_to_left', selected_paths), daemon=True).start()
 
-    def perform_enhanced_copy_operation(self, direction, selected_paths):
+    def perform_enhanced_copy_operation(self, direction, selected_paths): # changed for v000.0005
         """
         Perform file copy operations with comprehensive logging, dry run support, and tracking.
         
@@ -5004,7 +5004,7 @@ class FolderCompareSync_class:
                         self.copy_manager._log_status(f"Source file not found, skipping: {source_path}")
                         continue
                     
-                    # Handle directories separately (create them, don't copy as files)
+                    # Handle directories separately (create them, don't copy as files) # v000.0005 changed - added folder timestamp copying
                     if Path(source_path).is_dir():
                         # Create destination directory if needed (or simulate in dry run)
                         if not Path(dest_path).exists():
@@ -5012,13 +5012,32 @@ class FolderCompareSync_class:
                                 Path(dest_path).mkdir(parents=True, exist_ok=True)
                                 copied_count += 1
                                 self.copy_manager._log_status(f"Created directory: {dest_path}")
+                                
+                                # v000.0005 added - Copy timestamps for newly created directories
+                                try:                                                                                                     # v000.0005 added - Copy timestamps for newly created directories
+                                    self.copy_manager.timestamp_manager.copy_timestamps(source_path, dest_path)                          # v000.0005 added - Copy timestamps for newly created directories
+                                    self.copy_manager._log_status(f"Copied directory timestamps: {dest_path}")                           # v000.0005 added - Copy timestamps for newly created directories
+                                except Exception as e:                                                                                   # v000.0005 added - Copy timestamps for newly created directories
+                                    # Non-critical error - directory was created successfully                                            # v000.0005 added - Copy timestamps for newly created directories
+                                    self.copy_manager._log_status(f"Warning: Could not copy directory timestamps for {dest_path}: {e}")  # v000.0005 added - Copy timestamps for newly created directories
                             else:
                                 copied_count += 1
                                 self.copy_manager._log_status(f"DRY RUN: Would create directory: {dest_path}")
+                                self.copy_manager._log_status(f"DRY RUN: Would copy directory timestamps: {dest_path}")  # v000.0005 added
                         else:
-                            skipped_count += 1
-                            skip_msg = f"{'DRY RUN: Would skip - d' if is_dry_run else 'D'}irectory already exists: {dest_path}"
-                            self.copy_manager._log_status(skip_msg)
+                            # v000.0005 added - Directory already exists - still copy timestamps to sync metadata  
+                            if not is_dry_run:                                                                                             # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
+                                try:                                                                                                       # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
+                                    self.copy_manager.timestamp_manager.copy_timestamps(source_path, dest_path)                            # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
+                                    copied_count += 1  # Count as a successful operation                                                   # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
+                                    self.copy_manager._log_status(f"Updated directory timestamps: {dest_path}")                            # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
+                                except Exception as e:                                                                                     # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
+                                    # Non-critical error - directory exists                                                                # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
+                                    self.copy_manager._log_status(f"Warning: Could not update directory timestamps for {dest_path}: {e}")  # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
+                                    skipped_count += 1                                                                                     # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
+                            else:                                                                                                          # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
+                                copied_count += 1                                                                                          # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
+                                self.copy_manager._log_status(f"DRY RUN: Would update directory timestamps: {dest_path}")                  # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
                         continue
                     
                     # Copy individual file using copy manager with dry run support
