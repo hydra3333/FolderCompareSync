@@ -4463,7 +4463,7 @@ class FolderCompareSync_class:
         if __debug__:
             logger.debug(f"Tree building with root paths completed in {elapsed_time:.3f} seconds")
             
-def populate_tree(self, tree, structure, parent_id, side, current_path): # v000.0006 changed - added folder timestamp display
+    def populate_tree(self, tree, structure, parent_id, side, current_path): # v000.0006 changed - added folder timestamp display
         """
         Recursively populate tree with structure using stable alphabetical ordering.
         
