@@ -2,7 +2,7 @@
 """
 FolderCompareSync - A Folder Comparison & Synchronization Tool
 
-Version  v001.0012 - add delete orphans functionality with dual deletion methods 
+Version  v001.0013 - add local dry run mode control to delete orphans dialog
 
 Author: hydra3333
 License: AGPL-3.0
@@ -5984,12 +5984,13 @@ class DeleteOrphansManager_class:
         self.orphaned_files = orphaned_files.copy()  # Create local copy
         self.side = side
         self.source_folder = source_folder
-        self.dry_run_mode = dry_run_mode
+        self.dry_run_mode = dry_run_mode  # v001.0013 Keep original for reference only
         self.comparison_results = comparison_results
         self.active_filter = active_filter
         
         # Dialog state variables
         self.deletion_method = tk.StringVar(value="recycle_bin")  # Default to safer option
+        self.local_dry_run_mode = tk.BooleanVar(value=dry_run_mode)  # v001.0013 added [local dry run mode for delete orphans dialog]
         self.dialog_filter = tk.StringVar()  # Dialog-specific filter
         self.result = None  # Result of dialog operation
         
@@ -6221,6 +6222,9 @@ class DeleteOrphansManager_class:
         # Header section with explanation and statistics
         self.setup_header_section(main_frame)
         
+        # Local dry run mode section # v001.0013 added [local dry run mode section for delete orphans dialog]
+        self.setup_local_dry_run_section(main_frame) # v001.0013 added [local dry run mode section for delete orphans dialog]
+        
         # Deletion method selection
         self.setup_deletion_method_section(main_frame)
         
@@ -6267,17 +6271,41 @@ class DeleteOrphansManager_class:
             foreground="blue"
         )
         statistics_label.pack(pady=(0, 5))
+        # Note: Removed original dry run notice here since we now have a dedicated section for local dry run control # v001.0013 changed [removed main app dry run notice from header]
+
+    def setup_local_dry_run_section(self, parent): # v001.0013 added [local dry run mode section for delete orphans dialog]
+        """Setup local dry run mode section with checkbox.""" # v001.0013 added [local dry run mode section for delete orphans dialog]
+        dry_run_frame = ttk.LabelFrame(parent, text="Local Operation Mode", padding=10) # v001.0013 added [local dry run mode section for delete orphans dialog]
+        dry_run_frame.pack(fill=tk.X, pady=(0, 10)) # v001.0013 added [local dry run mode section for delete orphans dialog]
         
-        # Dry run notice if applicable
-        if self.dry_run_mode:
-            dry_run_label = ttk.Label(
-                header_frame,
-                text="*** DRY RUN MODE - Simulate deletion only ***",
-                font=("TkDefaultFont", 10, "bold"),
-                foreground="red"
-            )
-            dry_run_label.pack(pady=(0, 10))
-            
+        # Checkbox for local dry run mode # v001.0013 added [local dry run mode section for delete orphans dialog]
+        dry_run_cb = ttk.Checkbutton( # v001.0013 added [local dry run mode section for delete orphans dialog]
+            dry_run_frame, # v001.0013 added [local dry run mode section for delete orphans dialog]
+            text="DRY RUN Only (simulate deletion without actually removing files)", # v001.0013 added [local dry run mode section for delete orphans dialog]
+            variable=self.local_dry_run_mode, # v001.0013 added [local dry run mode section for delete orphans dialog]
+            command=self.on_local_dry_run_changed # v001.0013 added [local dry run mode section for delete orphans dialog]
+        ) # v001.0013 added [local dry run mode section for delete orphans dialog]
+        dry_run_cb.pack(side=tk.LEFT, padx=(0, 10)) # v001.0013 added [local dry run mode section for delete orphans dialog]
+        
+        # Status indicator showing main app setting # v001.0013 added [local dry run mode section for delete orphans dialog]
+        main_app_text = f"(Main app DRY RUN mode: {'ON' if self.dry_run_mode else 'OFF'})" # v001.0013 added [local dry run mode section for delete orphans dialog]
+        main_app_label = ttk.Label( # v001.0013 added [local dry run mode section for delete orphans dialog]
+            dry_run_frame, # v001.0013 added [local dry run mode section for delete orphans dialog]
+            text=main_app_text, # v001.0013 added [local dry run mode section for delete orphans dialog]
+            foreground="gray", # v001.0013 added [local dry run mode section for delete orphans dialog]
+            font=("TkDefaultFont", 8) # v001.0013 added [local dry run mode section for delete orphans dialog]
+        ) # v001.0013 added [local dry run mode section for delete orphans dialog]
+        main_app_label.pack(side=tk.LEFT) # v001.0013 added [local dry run mode section for delete orphans dialog]
+        
+        # Explanation text # v001.0013 added [local dry run mode section for delete orphans dialog]
+        explanation_label = ttk.Label( # v001.0013 added [local dry run mode section for delete orphans dialog]
+            dry_run_frame, # v001.0013 added [local dry run mode section for delete orphans dialog]
+            text="This setting is local to this dialog and overrides the main app setting", # v001.0013 added [local dry run mode section for delete orphans dialog]
+            foreground="blue", # v001.0013 added [local dry run mode section for delete orphans dialog]
+            font=("TkDefaultFont", 8, "italic") # v001.0013 added [local dry run mode section for delete orphans dialog]
+        ) # v001.0013 added [local dry run mode section for delete orphans dialog]
+        explanation_label.pack(pady=(5, 0)) # v001.0013 added [local dry run mode section for delete orphans dialog]
+
     def setup_deletion_method_section(self, parent):
         """Setup deletion method selection with radio buttons."""
         method_frame = ttk.LabelFrame(parent, text="Deletion Method", padding=10)
@@ -6435,22 +6463,23 @@ class DeleteOrphansManager_class:
         
         ttk.Button(right_buttons, text="Cancel", command=self.close_dialog).pack(side=tk.RIGHT, padx=(5, 0))
         
-        # Delete button with conditional text
-        delete_text = "SIMULATE DELETION" if self.dry_run_mode else "DELETE SELECTED ORPHANED FILES"
-        delete_button = ttk.Button(
+        # Delete button with conditional text based on local dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
+        is_local_dry_run = self.local_dry_run_mode.get() # v001.0013 changed [use local dry run mode instead of main app dry run mode]
+        delete_text = "SIMULATE DELETION" if is_local_dry_run else "DELETE SELECTED ORPHANED FILES" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
+        self.delete_button = ttk.Button( # v001.0013 changed [store button reference for dynamic updates]
             right_buttons, 
             text=delete_text, 
             command=self.delete_selected_files
         )
-        delete_button.pack(side=tk.RIGHT, padx=(5, 0))
+        self.delete_button.pack(side=tk.RIGHT, padx=(5, 0)) # v001.0013 changed [use stored button reference]
         
-        # Style the delete button
-        if self.dry_run_mode:
+        # Style the delete button based on local dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
+        if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
             # Use existing blue style for simulation
-            delete_button.configure(style="BlueBold.TButton")
+            self.delete_button.configure(style="BlueBold.TButton") # v001.0013 changed [use stored button reference]
         else:
             # Use red style for actual deletion
-            delete_button.configure(style="RedBold.TButton")
+            self.delete_button.configure(style="RedBold.TButton") # v001.0013 changed [use stored button reference]
             
     def export_status_log(self):
         """Export status log to clipboard and optionally to file."""
@@ -6973,8 +7002,11 @@ class DeleteOrphansManager_class:
         deletion_method = self.deletion_method.get()
         method_text = "Move to Recycle Bin" if deletion_method == "recycle_bin" else "Permanently Delete"
         
+        # Use local dry run mode instead of main app dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
+        is_local_dry_run = self.local_dry_run_mode.get() # v001.0013 changed [use local dry run mode instead of main app dry run mode]
+        
         # Show confirmation dialog
-        dry_run_text = " (DRY RUN SIMULATION)" if self.dry_run_mode else ""
+        dry_run_text = " (DRY RUN SIMULATION)" if is_local_dry_run else "" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         
         confirmation_message = (
             f"Are you SURE you want to {method_text.lower()} the selected orphaned files{dry_run_text}?\n\n"
@@ -6982,7 +7014,7 @@ class DeleteOrphansManager_class:
             f"from {self.side.upper()} folder\n\n"
         )
         
-        if self.dry_run_mode:
+        if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
             confirmation_message += "*** DRY RUN MODE - No files will be actually deleted ***\n\n"
         elif deletion_method == "permanent":
             confirmation_message += "⚠ WARNING: Permanent deletion cannot be undone! ⚠\n\n"
@@ -6997,7 +7029,7 @@ class DeleteOrphansManager_class:
             confirmation_message += f"\n... and {len(selected_accessible) - 10} more files"
             
         # Create confirmation dialog with appropriate button styling
-        if self.dry_run_mode:
+        if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
             title = "Confirm Deletion Simulation"
             button_text = "Yes, SIMULATE DELETION"
         else:
@@ -7036,8 +7068,11 @@ class DeleteOrphansManager_class:
         # Create dedicated logger for this operation
         deletion_logger = self.create_deletion_logger(operation_id)
         
+        # Use local dry run mode instead of main app dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
+        is_local_dry_run = self.local_dry_run_mode.get() # v001.0013 changed [use local dry run mode instead of main app dry run mode]
+        
         # Log operation start
-        dry_run_text = " (DRY RUN)" if self.dry_run_mode else ""
+        dry_run_text = " (DRY RUN)" if is_local_dry_run else "" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         method_text = "Recycle Bin" if deletion_method == "recycle_bin" else "Permanent"
         
         deletion_logger.info("=" * 80)
@@ -7047,15 +7082,15 @@ class DeleteOrphansManager_class:
         deletion_logger.info(f"Source Folder: {self.source_folder}")
         deletion_logger.info(f"Deletion Method: {method_text}")
         deletion_logger.info(f"Files to delete: {len(selected_paths)}")
-        deletion_logger.info(f"Dry Run Mode: {self.dry_run_mode}")
+        deletion_logger.info(f"Local Dry Run Mode: {is_local_dry_run}") # v001.0013 changed [log local dry run mode instead of main app dry run mode]
         deletion_logger.info("=" * 80)
         
         # Create progress dialog
-        progress_title = f"{'Simulating' if self.dry_run_mode else 'Deleting'} Orphaned Files"
+        progress_title = f"{'Simulating' if is_local_dry_run else 'Deleting'} Orphaned Files" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         progress = ProgressDialog(
             self.parent,
             progress_title,
-            f"{'Simulating' if self.dry_run_mode else 'Processing'} orphaned files...",
+            f"{'Simulating' if is_local_dry_run else 'Processing'} orphaned files...", # v001.0013 changed [use local dry run mode instead of main app dry run mode]
             max_value=len(selected_paths)
         )
         
@@ -7069,7 +7104,7 @@ class DeleteOrphansManager_class:
                 try:
                     # Update progress
                     file_name = rel_path.split('/')[-1]
-                    progress_text = f"{'Simulating' if self.dry_run_mode else 'Processing'} {i+1} of {len(selected_paths)}: {file_name}"
+                    progress_text = f"{'Simulating' if is_local_dry_run else 'Processing'} {i+1} of {len(selected_paths)}: {file_name}" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
                     progress.update_progress(i+1, progress_text)
                     
                     # Get full path
@@ -7090,7 +7125,7 @@ class DeleteOrphansManager_class:
                         file_size = 0
                         
                     # Perform deletion
-                    if self.dry_run_mode:
+                    if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
                         # Simulate deletion
                         deletion_logger.info(f"DRY RUN: Would {method_text.lower()} delete: {full_path}")
                         success_count += 1
@@ -7129,7 +7164,7 @@ class DeleteOrphansManager_class:
             deletion_logger.info(f"Files skipped: {skipped_count}")
             deletion_logger.info(f"Total bytes processed: {total_bytes_processed:,}")
             deletion_logger.info(f"Duration: {elapsed_time:.2f} seconds")
-            if self.dry_run_mode:
+            if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
                 deletion_logger.info("NOTE: This was a DRY RUN simulation - no actual files were modified")
             deletion_logger.info("=" * 80)
             
@@ -7140,7 +7175,7 @@ class DeleteOrphansManager_class:
             )
             
             self.parent.after(0, lambda: messagebox.showinfo(
-                f"{'Simulation' if self.dry_run_mode else 'Deletion'} Complete",
+                f"{'Simulation' if is_local_dry_run else 'Deletion'} Complete", # v001.0013 changed [use local dry run mode instead of main app dry run mode]
                 completion_message
             ))
             
@@ -7175,8 +7210,11 @@ class DeleteOrphansManager_class:
     def format_completion_message(self, success_count, error_count, skipped_count, 
                                 total_bytes, elapsed_time, method_text, operation_id):
         """Format completion message for deletion operation."""
-        dry_run_text = " simulation" if self.dry_run_mode else ""
-        action_text = "simulated" if self.dry_run_mode else method_text.lower() + " deleted"
+        # Use local dry run mode instead of main app dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
+        is_local_dry_run = self.local_dry_run_mode.get() # v001.0013 changed [use local dry run mode instead of main app dry run mode]
+        
+        dry_run_text = " simulation" if is_local_dry_run else "" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
+        action_text = "simulated" if is_local_dry_run else method_text.lower() + " deleted" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         
         message = f"Deletion{dry_run_text} completed!\n\n"
         message += f"Successfully {action_text}: {success_count} files\n"
@@ -7195,13 +7233,43 @@ class DeleteOrphansManager_class:
         log_filename = f"foldercomparesync_delete_{self.side}_{timestamp}_{operation_id}.log"
         message += f"Detailed log saved to:\n{log_filename}\n\n"
         
-        if self.dry_run_mode:
+        if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
             message += "*** DRY RUN SIMULATION ***\n"
             message += "No actual files were modified.\n\n"
         else:
             message += "The main window will now refresh to show the updated folder state.\n"
             
         return message
+
+    def update_delete_button_appearance(self): # v001.0013 added [update delete button appearance based on local dry run mode]
+        """Update delete button text and styling based on local dry run mode.""" # v001.0013 added [update delete button appearance based on local dry run mode]
+        if not hasattr(self, 'delete_button'): # v001.0013 added [update delete button appearance based on local dry run mode]
+            return  # Button not created yet # v001.0013 added [update delete button appearance based on local dry run mode]
+        
+        is_dry_run = self.local_dry_run_mode.get() # v001.0013 added [update delete button appearance based on local dry run mode]
+        
+        # Update button text based on local dry run mode # v001.0013 added [update delete button appearance based on local dry run mode]
+        if is_dry_run: # v001.0013 added [update delete button appearance based on local dry run mode]
+            button_text = "SIMULATE DELETION" # v001.0013 added [update delete button appearance based on local dry run mode]
+            button_style = "BlueBold.TButton"  # Blue for simulation # v001.0013 added [update delete button appearance based on local dry run mode]
+        else: # v001.0013 added [update delete button appearance based on local dry run mode]
+            button_text = "DELETE SELECTED ORPHANED FILES" # v001.0013 added [update delete button appearance based on local dry run mode]
+            button_style = "RedBold.TButton"   # Red for actual deletion # v001.0013 added [update delete button appearance based on local dry run mode]
+        
+        # Apply changes to button # v001.0013 added [update delete button appearance based on local dry run mode]
+        self.delete_button.configure(text=button_text, style=button_style) # v001.0013 added [update delete button appearance based on local dry run mode]
+
+    def on_local_dry_run_changed(self): # v001.0013 added [local dry run mode change handler for delete orphans dialog]
+        """Handle local dry run mode checkbox changes.""" # v001.0013 added [local dry run mode change handler for delete orphans dialog]
+        is_dry_run = self.local_dry_run_mode.get() # v001.0013 added [local dry run mode change handler for delete orphans dialog]
+        
+        if is_dry_run: # v001.0013 added [local dry run mode change handler for delete orphans dialog]
+            self.add_status_message("Local DRY RUN mode enabled - deletion will be simulated only") # v001.0013 added [local dry run mode change handler for delete orphans dialog]
+        else: # v001.0013 added [local dry run mode change handler for delete orphans dialog]
+            self.add_status_message("Local DRY RUN mode disabled - actual deletion enabled") # v001.0013 added [local dry run mode change handler for delete orphans dialog]
+        
+        # Update button text and styling to reflect current mode # v001.0013 added [local dry run mode change handler for delete orphans dialog]
+        self.update_delete_button_appearance() # v001.0013 added [local dry run mode change handler for delete orphans dialog]
 
 def main():
     """
