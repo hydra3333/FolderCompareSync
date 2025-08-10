@@ -5748,7 +5748,7 @@ class DeleteOrphansManager_class:
 
     @staticmethod
     def create_orphan_metadata_dict(comparison_results: Dict, orphaned_paths: List[str], 
-                                   side: str, source_folder: str) -> Dict[str, Dict, Any]:
+                                   side: str, source_folder: str) -> Dict[str, Dict[str, Any]]:
         """
         Create metadata dictionary for orphaned files with validation status.
         
@@ -5811,7 +5811,7 @@ class DeleteOrphansManager_class:
         return orphan_metadata
 
     @staticmethod
-    def refresh_orphan_metadata_status(orphan_metadata: Dict[str, Dict, Any]) -> Tuple[int, int]:
+    def refresh_orphan_metadata_status(orphan_metadata: Dict[str, Dict[str, Any]]) -> Tuple[int, int]:
         """
         Refresh the validation status of orphaned files to detect external changes.
         
