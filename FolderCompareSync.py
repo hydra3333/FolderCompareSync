@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-FolderCompareSync - A Professional Folder Comparison & Synchronization Tool
+FolderCompareSync - A Folder Comparison & Synchronization Tool
 
-Version  v001.0011 - centralize timestamp formatting using format_timestamp() method
+Version  v001.0012 - add delete orphans functionality with dual deletion methods 
 
 Author: hydra3333
 License: AGPL-3.0
@@ -52,21 +52,24 @@ import sys
 import importlib
 import hashlib
 import time
+import stat
 import fnmatch
 import shutil
 import uuid
 import ctypes
 import ctypes.wintypes
+from ctypes import wintypes, Structure, c_char_p, c_int, c_void_p, POINTER, byref
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple, Any
+from typing import Dict, List, Optional, Set, Tuple, Any, Union
 from enum import Enum
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import tkinter.font as tkfont
 import threading
 import logging
+import gc # for python garbage collection of unused structures etc
 
 # ============================================================================
 # GLOBAL CONFIGURATION CONSTANTS
@@ -141,6 +144,53 @@ FILTER_HIGHLIGHT_COLOR = "#ffffcc"  # Background color for filtered items
 # Filtering and sorting configuration
 MAX_FILTER_RESULTS = 200000       # Maximum items to show when filtering (performance)
                                                                          
+# ============================================================================
+# DELETE ORPHANS CONFIGURATION CONSTANTS
+# ============================================================================
+# Delete Orphans Dialog Configuration
+DELETE_ORPHANS_DIALOG_WIDTH_PERCENT = 0.85    # 85% of main window width  # v001.0012 added [delete orphans dialog sizing]
+DELETE_ORPHANS_DIALOG_HEIGHT_PERCENT = 1.0    # Full height               # v001.0012 added [delete orphans dialog sizing]
+DELETE_ORPHANS_STATUS_LINES = 10               # Visible lines in status log  # v001.0012 added [delete orphans status area]
+DELETE_ORPHANS_STATUS_MAX_HISTORY = 5000       # Maximum lines to keep     # v001.0012 added [delete orphans status area]
+
+# Delete Orphans Memory Management Thresholds
+DELETE_LARGE_FILE_LIST_THRESHOLD = 1000        # Clear if >1000 files      # v001.0012 added [delete orphans memory management]
+DELETE_LARGE_TREE_DATA_THRESHOLD = 5000        # Clear if >5000 tree items # v001.0012 added [delete orphans memory management]
+DELETE_LARGE_SELECTION_THRESHOLD = 500         # Clear if >500 selected items # v001.0012 added [delete orphans memory management]
+
+# Delete Orphans Progress and UI Configuration
+DELETE_ORPHANS_PROGRESS_UPDATE_FREQUENCY = 50  # Update progress every N files # v001.0012 added [delete orphans progress]
+DELETE_ORPHANS_TREE_STRUCTURE_WIDTH = 400      # Tree structure column width   # v001.0012 added [delete orphans tree display]
+DELETE_ORPHANS_TREE_SIZE_WIDTH = 80            # Size column width             # v001.0012 added [delete orphans tree display]
+DELETE_ORPHANS_TREE_STATUS_WIDTH = 120         # Status column width           # v001.0012 added [delete orphans tree display]
+
+# ============================
+# WINDOWS SHELL API STRUCTURES
+# ============================
+# Windows Shell API constants
+
+FO_DELETE = 0x0003                   # Delete operation
+FOF_ALLOWUNDO = 0x0040               # Allow undo (moves to Recycle Bin)
+FOF_NOCONFIRMATION = 0x0010          # No confirmation dialogs
+FOF_SILENT = 0x0004                  # No progress dialog
+FOF_NOERRORUI = 0x0400               # No error UI dialogs
+
+class SHFILEOPSTRUCT(Structure):
+    """
+    Structure for SHFileOperation - Windows Shell file operations.
+    Used for moving files to Recycle Bin with proper user feedback.
+    """
+    _fields_ = [
+        ("hwnd", wintypes.HWND),          # Handle to parent window
+        ("wFunc", wintypes.UINT),         # Operation type (delete, move, etc.)
+        ("pFrom", c_char_p),              # Source file paths (null-terminated)
+        ("pTo", c_char_p),                # Destination paths (null for delete)
+        ("fFlags", wintypes.WORD),        # Operation flags
+        ("fAnyOperationsAborted", wintypes.BOOL),  # Set if user cancelled
+        ("hNameMappings", c_void_p),      # Handle to name mappings
+        ("lpszProgressTitle", c_char_p),  # Progress dialog title
+    ]
+
 
 # ============================================================================
 # LOGGING SETUP (MUST BE BEFORE FileTimestampManager)
@@ -218,6 +268,82 @@ from zoneinfo import ZoneInfo
 import zoneinfo
 from dateutil.tz import tzwinlocal
 # ************** At program startup **************
+
+# ============================================================================
+# TOP-LEVEL UTILITY FUNCTION - Place this near the top of the program
+# after imports but before the main classes
+# ============================================================================
+
+def format_timestamp(timestamp: Union[datetime, float, int, None], 
+                    include_timezone: bool = False, 
+                    include_microseconds: bool = True) -> str:
+    """
+    Universal timestamp formatting utility function.
+    
+    Purpose:
+    --------
+    Handles multiple timestamp input types and formatting options for consistent
+    timestamp display throughout the application.
+    
+    Args:
+    -----
+    timestamp: Can be datetime object, float/int epoch time, or None
+    include_timezone: Whether to include timezone info in output
+    include_microseconds: Whether to include microsecond precision
+    
+    Returns:
+    --------
+    str: Formatted timestamp string or empty string if None
+    
+    Examples:
+    ---------
+    >>> format_timestamp(datetime.now())
+    "2024-12-08 14:30:22.123456"
+    
+    >>> format_timestamp(1701234567.123456, include_microseconds=True)
+    "2023-11-29 08:02:47.123456"
+    
+    >>> format_timestamp(None)
+    ""
+    
+    >>> dt_with_tz = datetime.now(timezone.utc)
+    >>> format_timestamp(dt_with_tz, include_timezone=True)
+    "2024-12-08 14:30:22.123456 UTC"
+    """
+    if timestamp is None:
+        return ""
+    try:
+        # Convert input to datetime object
+        if isinstance(timestamp, datetime):
+            dt = timestamp
+        elif isinstance(timestamp, (int, float)):
+            # Convert epoch timestamp to datetime in local timezone
+            dt = datetime.fromtimestamp(timestamp)
+        else:
+            # Fallback for unexpected types
+            return str(timestamp)
+        
+        # Build format string based on options
+        if include_microseconds:
+            base_format = "%Y-%m-%d %H:%M:%S.%f"
+        else:
+            base_format = "%Y-%m-%d %H:%M:%S"
+        
+        # Format the datetime
+        formatted = dt.strftime(base_format)
+        
+        # Add timezone if requested and available
+        if include_timezone and dt.tzinfo is not None:
+            tz_name = dt.strftime("%Z")
+            if tz_name:  # Only add if timezone name is available
+                formatted += f" {tz_name}"
+        
+        return formatted
+    except (ValueError, OSError, OverflowError) as e:
+        # Handle invalid timestamps gracefully
+        logger.debug(f"Invalid timestamp formatting: {timestamp} - {e}")
+        return f"Invalid timestamp: {timestamp}"
+
 
 # ---------- Start of Common FileTimestampManager Code ----------
 """
@@ -877,25 +1003,6 @@ class FileTimestampManager:
         except Exception as e:
             logger.error(f"Error copying timestamps: {e}")
             return False
-    
-    def format_timestamp(self, dt: Optional[datetime], include_timezone: bool = True) -> str: # v001.0011 changed [accept Optional datetime and handle None gracefully]
-        """
-        Format a datetime object for display with graceful None handling. # v001.0011 changed [updated docstring for None handling]
-        
-        Args:
-            dt: Datetime object or None # v001.0011 changed [clarify None handling in docstring]
-            include_timezone: Whether to include timezone info in output
-            
-        Returns:
-            Formatted datetime string, or empty string if dt is None # v001.0011 changed [document None return behavior]
-        """
-        if dt is None: # v001.0011 added [graceful None handling]
-            return ""  # v001.0011 added [return empty string for None]
-            
-        if include_timezone:
-            return dt.strftime("%Y-%m-%d %H:%M:%S.%f %Z") # v001.0011 changed - full microsecond precision display
-        else:
-            return dt.strftime("%Y-%m-%d %H:%M:%S.%f") # v001.0011 changed - full microsecond precision display
     
     def verify_timestamps(self, file_path: Union[str, Path], 
                          expected_creation: Optional[datetime] = None,
@@ -2230,6 +2337,118 @@ class FolderCompareSync_class:
             mode = "DEBUG" if enabled else "NORMAL"
             self.status_var.set(f"{current_status} ({mode})")
 
+def delete_left_orphans(self): # v001.0012 added [delete left orphans button command]
+        """Handle Delete LEFT-only Orphaned Files button.""" # v001.0012 added [delete left orphans button command]
+        if self.limit_exceeded: # v001.0012 added [delete left orphans button command]
+            messagebox.showwarning("Operation Disabled", "Delete operations are disabled when file limits are exceeded.") # v001.0012 added [delete left orphans button command]
+            return # v001.0012 added [delete left orphans button command]
+            
+        if not self.comparison_results: # v001.0012 added [delete left orphans button command]
+            self.add_status_message("No comparison data available - please run comparison first") # v001.0012 added [delete left orphans button command]
+            messagebox.showinfo("No Data", "Please perform a folder comparison first.") # v001.0012 added [delete left orphans button command]
+            return # v001.0012 added [delete left orphans button command]
+            
+        # Get current filter if active # v001.0012 added [delete left orphans button command]
+        active_filter = self.filter_wildcard.get() if self.is_filtered else None # v001.0012 added [delete left orphans button command]
+        
+        # Detect orphaned files on left side # v001.0012 added [delete left orphans button command]
+        orphaned_files = DeleteOrphansManager_class.detect_orphaned_files(self.comparison_results, 'left', active_filter) # v001.0012 changed [use DeleteOrphansManager_class class method]
+        
+        if not orphaned_files: # v001.0012 added [delete left orphans button command]
+            filter_text = f" (with active filter: {active_filter})" if active_filter else "" # v001.0012 added [delete left orphans button command]
+            self.add_status_message(f"No orphaned files found on LEFT side{filter_text}") # v001.0012 added [delete left orphans button command]
+            messagebox.showinfo("No Orphans", f"No orphaned files found on LEFT side{filter_text}.") # v001.0012 added [delete left orphans button command]
+            return # v001.0012 added [delete left orphans button command]
+            
+        self.add_status_message(f"Opening delete orphans dialog for LEFT side: {len(orphaned_files)} files") # v001.0012 added [delete left orphans button command]
+        
+        try: # v001.0012 added [delete left orphans button command]
+            # Create and show delete orphans manager/dialog # v001.0012 added [delete left orphans button command]
+            manager = DeleteOrphansManager_class ( # v001.0012 changed [use DeleteOrphansManager_class instead of DeleteOrphansDialog]
+                parent=self.root, # v001.0012 added [delete left orphans button command]
+                orphaned_files=orphaned_files, # v001.0012 added [delete left orphans button command]
+                side='left', # v001.0012 added [delete left orphans button command]
+                source_folder=self.left_folder.get(), # v001.0012 added [delete left orphans button command]
+                dry_run_mode=self.dry_run_mode.get(), # v001.0012 added [delete left orphans button command]
+                comparison_results=self.comparison_results, # v001.0012 added [delete left orphans button command]
+                active_filter=active_filter # v001.0012 added [delete left orphans button command]
+            ) # v001.0012 added [delete left orphans button command]
+            
+            # Wait for dialog to complete # v001.0012 added [delete left orphans button command]
+            self.root.wait_window(manager.dialog) # v001.0012 changed [use manager.dialog instead of dialog.dialog]
+            
+            # Check if files were actually deleted (not dry run) # v001.0012 added [delete left orphans button command]
+            if hasattr(manager, 'result') and manager.result == 'deleted' and not self.dry_run_mode.get(): # v001.0012 changed [use manager instead of dialog]
+                self.add_status_message("Delete operation completed - refreshing folder comparison...") # v001.0012 added [delete left orphans button command]
+                # Refresh comparison to show updated state # v001.0012 added [delete left orphans button command]
+                self.refresh_after_copy_operation() # v001.0012 added [delete left orphans button command]
+            else: # v001.0012 added [delete left orphans button command]
+                self.add_status_message("Delete orphans dialog closed") # v001.0012 added [delete left orphans button command]
+                
+        except Exception as e: # v001.0012 added [delete left orphans button command]
+            error_msg = f"Error opening delete orphans dialog: {str(e)}" # v001.0012 added [delete left orphans button command]
+            self.add_status_message(f"ERROR: {error_msg}") # v001.0012 added [delete left orphans button command]
+            self.show_error(error_msg) # v001.0012 added [delete left orphans button command]
+        finally: # v001.0012 added [delete left orphans button command]
+            # Cleanup memory after dialog operations # v001.0012 added [delete left orphans button command]
+            gc.collect() # v001.0012 added [delete left orphans button command]
+
+    def delete_right_orphans(self): # v001.0012 added [delete right orphans button command]
+        """Handle Delete RIGHT-only Orphaned Files button.""" # v001.0012 added [delete right orphans button command]
+        if self.limit_exceeded: # v001.0012 added [delete right orphans button command]
+            messagebox.showwarning("Operation Disabled", "Delete operations are disabled when file limits are exceeded.") # v001.0012 added [delete right orphans button command]
+            return # v001.0012 added [delete right orphans button command]
+            
+        if not self.comparison_results: # v001.0012 added [delete right orphans button command]
+            self.add_status_message("No comparison data available - please run comparison first") # v001.0012 added [delete right orphans button command]
+            messagebox.showinfo("No Data", "Please perform a folder comparison first.") # v001.0012 added [delete right orphans button command]
+            return # v001.0012 added [delete right orphans button command]
+            
+        # Get current filter if active # v001.0012 added [delete right orphans button command]
+        active_filter = self.filter_wildcard.get() if self.is_filtered else None # v001.0012 added [delete right orphans button command]
+        
+        # Detect orphaned files on right side # v001.0012 added [delete right orphans button command]
+        orphaned_files = DeleteOrphansManager.detect_orphaned_files(self.comparison_results, 'right', active_filter) # v001.0012 changed [use DeleteOrphansManager class method]
+        
+        if not orphaned_files: # v001.0012 added [delete right orphans button command]
+            filter_text = f" (with active filter: {active_filter})" if active_filter else "" # v001.0012 added [delete right orphans button command]
+            self.add_status_message(f"No orphaned files found on RIGHT side{filter_text}") # v001.0012 added [delete right orphans button command]
+            messagebox.showinfo("No Orphans", f"No orphaned files found on RIGHT side{filter_text}.") # v001.0012 added [delete right orphans button command]
+            return # v001.0012 added [delete right orphans button command]
+            
+        self.add_status_message(f"Opening delete orphans dialog for RIGHT side: {len(orphaned_files)} files") # v001.0012 added [delete right orphans button command]
+        
+        try: # v001.0012 added [delete right orphans button command]
+            # Create and show delete orphans manager/dialog # v001.0012 added [delete right orphans button command]
+            manager = DeleteOrphansManager( # v001.0012 changed [use DeleteOrphansManager instead of DeleteOrphansDialog]
+                parent=self.root, # v001.0012 added [delete right orphans button command]
+                orphaned_files=orphaned_files, # v001.0012 added [delete right orphans button command]
+                side='right', # v001.0012 added [delete right orphans button command]
+                source_folder=self.right_folder.get(), # v001.0012 added [delete right orphans button command]
+                dry_run_mode=self.dry_run_mode.get(), # v001.0012 added [delete right orphans button command]
+                comparison_results=self.comparison_results, # v001.0012 added [delete right orphans button command]
+                active_filter=active_filter # v001.0012 added [delete right orphans button command]
+            ) # v001.0012 added [delete right orphans button command]
+            
+            # Wait for dialog to complete # v001.0012 added [delete right orphans button command]
+            self.root.wait_window(manager.dialog) # v001.0012 changed [use manager.dialog instead of dialog.dialog]
+            
+            # Check if files were actually deleted (not dry run) # v001.0012 added [delete right orphans button command]
+            if hasattr(manager, 'result') and manager.result == 'deleted' and not self.dry_run_mode.get(): # v001.0012 changed [use manager instead of dialog]
+                self.add_status_message("Delete operation completed - refreshing folder comparison...") # v001.0012 added [delete right orphans button command]
+                # Refresh comparison to show updated state # v001.0012 added [delete right orphans button command]
+                self.refresh_after_copy_operation() # v001.0012 added [delete right orphans button command]
+            else: # v001.0012 added [delete right orphans button command]
+                self.add_status_message("Delete orphans dialog closed") # v001.0012 added [delete right orphans button command]
+                
+        except Exception as e: # v001.0012 added [delete right orphans button command]
+            error_msg = f"Error opening delete orphans dialog: {str(e)}" # v001.0012 added [delete right orphans button command]
+            self.add_status_message(f"ERROR: {error_msg}") # v001.0012 added [delete right orphans button command]
+            self.show_error(error_msg) # v001.0012 added [delete right orphans button command]
+        finally: # v001.0012 added [delete right orphans button command]
+            # Cleanup memory after dialog operations # v001.0012 added [delete right orphans button command]
+            gc.collect() # v001.0012 added [delete right orphans button command]
+
     def setup_ui(self):
         """
         Initialize the user interface with features including dry run and export capabilities.
@@ -2259,28 +2478,13 @@ class FolderCompareSync_class:
             foreground="royalblue",
             font=("TkDefaultFont", 9, "bold")
         )
-                                                                                                                                        
-                                    
+
         warning_label.pack(side=tk.LEFT)
         
         # Folder selection frame
         folder_frame = ttk.LabelFrame(main_frame, text="Folder Selection", padding=10)
         folder_frame.pack(fill=tk.X, pady=(0, 5))
-        
-               
-                                
-                                                                                                     
-                                                                                      
-                                                                    
-                                                                                                       
-                                 
-                                                                                                                   
-                                                                                        
-                                                                                  
-                                                                                                                     
-                                                  
 
-             
         # Left folder selection
         ttk.Label(folder_frame, text="Left Folder:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
         ttk.Button(folder_frame, text="Browse", command=self.browse_left_folder).grid(row=0, column=1, padx=(0, 5))
@@ -2295,7 +2499,6 @@ class FolderCompareSync_class:
 
         # Let column 2 (the entry) grow
         folder_frame.columnconfigure(2, weight=1)
-
        
         # Comparison options frame with instructional text
         options_frame = ttk.LabelFrame(main_frame, text="Comparison Options", padding=10)
@@ -2334,10 +2537,6 @@ class FolderCompareSync_class:
         dry_run_cb.pack(side=tk.LEFT, padx=(0, 10))
         
         ttk.Checkbutton(top_controls, text="Overwrite Mode", variable=self.overwrite_mode).pack(side=tk.LEFT, padx=(0, 20))
-
-             
-                                                                                                                 
-             
         ttk.Button(top_controls, text="Compare", command=self.start_comparison, style="LimeGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 20))
 
         # selection controls with auto-clear and complete reset functionality
@@ -2411,14 +2610,14 @@ class FolderCompareSync_class:
         # Copy buttons frame
         copy_frame = ttk.Frame(main_frame)
         copy_frame.pack(fill=tk.X, pady=(0, 5))
-        
-             
-                                                                                                                            
-                                                                                                                            
-                                                                                        
-             
         ttk.Button(copy_frame, text="Copy LEFT to Right", command=self.copy_left_to_right, style="RedBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left, style="GreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
+        delete_frame = ttk.Frame(main_frame)
+        delete_frame.pack(fill=tk.X, pady=(0, 5))
+        ttk.Button(delete_frame, text="Delete LEFT-only Orphaned Files", 
+                      command=self.delete_left_orphans, style="PurpleBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(delete_frame, text="Delete RIGHT-only Orphaned Files", 
+                      command=self.delete_right_orphans, style="MediumPurpleBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(copy_frame, text="Quit", command=self.root.quit, style="BlueBold.TButton").pack(side=tk.RIGHT)
 
         # status log frame at bottom with export functionality
@@ -4112,8 +4311,8 @@ class FolderCompareSync_class:
                 differences.add('date_created')
                 # v001.0010 added [debug date created comparison with full microsecond precision]
                 if __debug__:
-                    left_display = self.copy_manager.timestamp_manager.format_timestamp(left_item.date_created, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
-                    right_display = self.copy_manager.timestamp_manager.format_timestamp(right_item.date_created, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
+                    left_display = format_timestamp(left_item.date_created, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
+                    right_display = format_timestamp(right_item.date_created, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
                     left_raw = left_item.date_created.timestamp() if left_item.date_created else 0 # v001.0010 added [debug date created comparison with full microsecond precision]
                     right_raw = right_item.date_created.timestamp() if right_item.date_created else 0 # v001.0010 added [debug date created comparison with full microsecond precision]
                     diff_microseconds = abs(left_raw - right_raw) * 1_000_000 # v001.0010 added [debug date created comparison with full microsecond precision]
@@ -4128,8 +4327,8 @@ class FolderCompareSync_class:
                 differences.add('date_modified')
                 # v001.0010 added [debug date modified comparison with full microsecond precision]
                 if __debug__:
-                    left_display = self.copy_manager.timestamp_manager.format_timestamp(left_item.date_modified, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
-                    right_display = self.copy_manager.timestamp_manager.format_timestamp(right_item.date_modified, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
+                    left_display = format_timestamp(left_item.date_modified, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
+                    right_display = format_timestamp(right_item.date_modified, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
                     left_raw = left_item.date_modified.timestamp() if left_item.date_modified else 0 # v001.0010 added [debug date modified comparison with full microsecond precision]
                     right_raw = right_item.date_modified.timestamp() if right_item.date_modified else 0 # v001.0010 added [debug date modified comparison with full microsecond precision]
                     diff_microseconds = abs(left_raw - right_raw) * 1_000_000 # v001.0010 added [debug date modified comparison with full microsecond precision]
@@ -4238,8 +4437,8 @@ class FolderCompareSync_class:
                 # v000.0006 added - Handle folder vs file display with timestamps
                 if result.left_item.is_folder:
                     # This is a folder - show timestamps and smart status
-                    date_created_str = self.copy_manager.timestamp_manager.format_timestamp(result.left_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                    date_modified_str = self.copy_manager.timestamp_manager.format_timestamp(result.left_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_created_str = format_timestamp(result.left_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = format_timestamp(result.left_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = ""  # Folders never have SHA512
                     
                     # Determine smart status for folders
@@ -4256,8 +4455,8 @@ class FolderCompareSync_class:
                 else:
                     # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display
                     # This is a file - show all metadata as before
-                    date_created_str = self.copy_manager.timestamp_manager.format_timestamp(result.left_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                    date_modified_str = self.copy_manager.timestamp_manager.format_timestamp(result.left_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_created_str = format_timestamp(result.left_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = format_timestamp(result.left_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = result.left_item.sha512[:16] + "..." if result.left_item.sha512 else ""
                     status = "Different" if result.is_different else "Same"
                     item_text = f"☐ {rel_path}"
@@ -4273,8 +4472,8 @@ class FolderCompareSync_class:
                 # v000.0006 added - Handle folder vs file display with timestamps
                 if result.right_item.is_folder:
                     # This is a folder - show timestamps and smart status
-                    date_created_str = self.copy_manager.timestamp_manager.format_timestamp(result.right_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                    date_modified_str = self.copy_manager.timestamp_manager.format_timestamp(result.right_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_created_str = format_timestamp(result.right_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = format_timestamp(result.right_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = ""  # Folders never have SHA512
                     
                     # Determine smart status for folders
@@ -4291,8 +4490,8 @@ class FolderCompareSync_class:
                 else:
                     # This is a file - show all metadata as before
                     # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display
-                    date_created_str = self.copy_manager.timestamp_manager.format_timestamp(result.right_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                    date_modified_str = self.copy_manager.timestamp_manager.format_timestamp(result.right_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_created_str = format_timestamp(result.right_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = format_timestamp(result.right_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = result.right_item.sha512[:16] + "..." if result.right_item.sha512 else ""
                     status = "Different" if result.is_different else "Same"
                     item_text = f"☐ {rel_path}"
@@ -4549,8 +4748,8 @@ class FolderCompareSync_class:
                         
                         # v000.0006 added - Format folder timestamps if available
                         if folder_metadata and folder_metadata.is_folder:
-                            date_created_str = self.copy_manager.timestamp_manager.format_timestamp(folder_metadata.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                            date_modified_str = self.copy_manager.timestamp_manager.format_timestamp(folder_metadata.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                            date_created_str = format_timestamp(folder_metadata.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                            date_modified_str = format_timestamp(folder_metadata.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                         
                         # v000.0006 added - Determine smart status for folders
                         if result.is_different and result.differences:
@@ -4583,8 +4782,8 @@ class FolderCompareSync_class:
                 else:
                     # Existing file - has checkbox and shows ALL metadata
                     size_str = self.format_size(content.size) if content.size else ""
-                    date_created_str = self.copy_manager.timestamp_manager.format_timestamp(content.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                    date_modified_str = self.copy_manager.timestamp_manager.format_timestamp(content.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_created_str = format_timestamp(content.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = format_timestamp(content.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = content.sha512[:16] + "..." if content.sha512 else ""
                     
                     # Determine status using proper path lookup
@@ -5235,6 +5434,1784 @@ class FolderCompareSync_class:
             raise
         finally:
             logger.info("Application shutdown")
+
+# ============================================================================
+# COMPREHENSIVE DELETE ORPHANS MANAGER CLASS
+# ============================================================================
+
+class DeleteOrphansManager_class:
+    """
+    Comprehensive manager for delete orphans functionality.
+    
+    Contains both utility functions (as static methods) and dialog interface (as instance methods).
+    This keeps all delete orphans functionality organized in one place.
+    
+    Static Methods (Utilities):
+    - File operations: delete_file_to_recycle_bin, delete_file_permanently
+    - Permission checking: check_file_permissions, validate_orphan_file_access  
+    - Orphan detection: detect_orphaned_files, create_orphan_metadata_dict
+    - Data management: refresh_orphan_metadata_status, build_orphan_tree_structure, calculate_orphan_statistics
+    
+    Instance Methods (Dialog):
+    - Dialog management: __init__, setup_dialog, close_dialog
+    - UI setup: setup_ui, setup_header_section, etc.
+    - Tree management: build_orphan_tree, handle_tree_click, etc.
+    - Operations: apply_filter, delete_selected_files, perform_deletion, etc.
+    """
+    
+    # ========================================================================
+    # STATIC UTILITY METHODS - FILE OPERATIONS
+    # ========================================================================
+    
+    @staticmethod
+    def delete_file_to_recycle_bin(file_path: str, show_progress: bool = True) -> tuple[bool, str]:
+        """
+        Move a file to Windows Recycle Bin using SHFileOperation.
+        
+        Purpose:
+        --------
+        Safely moves files to Recycle Bin where they can be recovered.
+        Uses Windows Shell API for proper integration with Windows Explorer.
+        
+        Args:
+        -----
+        file_path: Full path to file to move to Recycle Bin
+        show_progress: Whether to show Windows progress dialog
+        
+        Returns:
+        --------
+        tuple[bool, str]: (success, error_message)
+        """
+        try:
+            if not os.path.exists(file_path):
+                return False, f"File not found: {file_path}"
+            
+            # Prepare file path with double null termination required by SHFileOperation
+            file_path_bytes = file_path.encode('utf-8') + b'\0\0'
+            
+            # Configure operation flags
+            flags = FOF_ALLOWUNDO  # Enable Recycle Bin
+            if not show_progress:
+                flags |= FOF_SILENT | FOF_NOCONFIRMATION
+            
+            # Create operation structure
+            file_op = SHFILEOPSTRUCT()
+            file_op.hwnd = None                    # No parent window
+            file_op.wFunc = FO_DELETE             # Delete operation
+            file_op.pFrom = c_char_p(file_path_bytes)  # Source file
+            file_op.pTo = None                    # No destination (delete)
+            file_op.fFlags = flags                # Operation flags
+            file_op.fAnyOperationsAborted = False
+            file_op.hNameMappings = None
+            file_op.lpszProgressTitle = c_char_p(b"Moving to Recycle Bin...")
+            
+            # Call Windows Shell API
+            result = ctypes.windll.shell32.SHFileOperationA(byref(file_op))
+            
+            if result == 0 and not file_op.fAnyOperationsAborted:
+                return True, ""
+            elif file_op.fAnyOperationsAborted:
+                return False, "Operation cancelled by user"
+            else:
+                # Map common error codes to user-friendly messages
+                error_messages = {
+                    0x71: "File is being used by another process",
+                    0x72: "Access denied - insufficient permissions",
+                    0x73: "File is read-only or system file",
+                    0x74: "Path not found",
+                    0x75: "Path too long",
+                    0x76: "File name too long",
+                    0x78: "Destination path invalid",
+                    0x79: "Security error",
+                    0x7A: "Source and destination are the same",
+                    0x7C: "Path is invalid",
+                    0x80: "File already exists",
+                    0x81: "Folder is not empty",
+                    0x82: "Operation not supported",
+                    0x83: "Network path not found",
+                    0x84: "Disk full"
+                }
+                error_msg = error_messages.get(result, f"Shell operation failed with error code: 0x{result:X}")
+                return False, error_msg
+                
+        except Exception as e:
+            return False, f"Exception during Recycle Bin operation: {str(e)}"
+
+    @staticmethod
+    def delete_file_permanently(file_path: str) -> tuple[bool, str]:
+        """
+        Permanently delete a file bypassing the Recycle Bin.
+        
+        Purpose:
+        --------
+        Immediately removes files from the file system without recovery option.
+        Use with caution - files cannot be easily recovered after this operation.
+        
+        Args:
+        -----
+        file_path: Full path to file to permanently delete
+        
+        Returns:
+        --------
+        tuple[bool, str]: (success, error_message)
+        """
+        try:
+            if not os.path.exists(file_path):
+                return False, f"File not found: {file_path}"
+                
+            # Use Python's built-in os.remove for permanent deletion
+            os.remove(file_path)
+            return True, ""
+            
+        except PermissionError:
+            return False, "Access denied - file may be read-only or in use by another process"
+        except FileNotFoundError:
+            return False, "File not found - may have been deleted by another process"
+        except OSError as e:
+            return False, f"System error during deletion: {str(e)}"
+        except Exception as e:
+            return False, f"Unexpected error during permanent deletion: {str(e)}"
+
+    @staticmethod
+    def check_file_permissions(file_path: str) -> tuple[bool, str]:
+        """
+        Check if a file can be deleted by testing permissions and access.
+        
+        Purpose:
+        --------
+        Pre-validates file deletion capability to provide user feedback
+        before attempting actual deletion operations.
+        
+        Args:
+        -----
+        file_path: Full path to file to check
+        
+        Returns:
+        --------
+        tuple[bool, str]: (can_delete, status_message)
+        """
+        try:
+            if not os.path.exists(file_path):
+                return False, "Missing"
+                
+            # Check if file is accessible
+            if not os.access(file_path, os.R_OK):
+                return False, "No Read Access"
+                
+            # Check if file can be deleted
+            if not os.access(file_path, os.W_OK):
+                return False, "Read-Only"
+                
+            # Check if parent directory allows deletion
+            parent_dir = os.path.dirname(file_path)
+            if not os.access(parent_dir, os.W_OK):
+                return False, "Directory Read-Only"
+                
+            # Additional Windows-specific checks using file attributes
+            try:
+                import stat
+                file_stats = os.stat(file_path)
+                
+                # Check for system or hidden files that might be protected
+                if hasattr(stat, 'FILE_ATTRIBUTE_SYSTEM'):
+                    # Windows-specific attribute checking would go here
+                    # For now, use basic permission checks
+                    pass
+                    
+            except Exception:
+                # If detailed checking fails, assume basic permissions are sufficient
+                pass
+                
+            return True, "OK"
+            
+        except Exception as e:
+            return False, f"Error: {str(e)}"
+
+    @staticmethod
+    def validate_orphan_file_access(file_path: str) -> tuple[bool, str, dict]:
+        """
+        Comprehensive validation of orphan file for deletion readiness.
+        
+        Purpose:
+        --------
+        Performs detailed validation including existence, permissions, and metadata
+        to provide complete status information for orphan file deletion.
+        
+        Args:
+        -----
+        file_path: Full path to orphan file to validate
+        
+        Returns:
+        --------
+        tuple[bool, str, dict]: (accessible, status_message, metadata_dict)
+        """
+        try:
+            if not os.path.exists(file_path):
+                return False, "File Missing", {}
+                
+            # Get file metadata
+            stat_info = os.stat(file_path)
+            metadata = {
+                'size': stat_info.st_size,
+                'modified': stat_info.st_mtime,
+                'is_directory': os.path.isdir(file_path)
+            }
+            
+            # Check permissions
+            can_delete, permission_status = DeleteOrphansManager_class.check_file_permissions(file_path)
+            
+            if not can_delete:
+                return False, permission_status, metadata
+                
+            # Check if file is currently in use (Windows-specific)
+            try:
+                # Try to open file in exclusive mode to check if it's in use
+                if os.path.isfile(file_path):
+                    with open(file_path, 'r+b'):
+                        pass  # File is accessible
+            except PermissionError:
+                return False, "File In Use", metadata
+            except Exception:
+                # Other errors are not necessarily blocking
+                pass
+                
+            return True, "OK", metadata
+            
+        except Exception as e:
+            return False, f"Validation Error: {str(e)}", {}
+    
+    # ========================================================================
+    # STATIC UTILITY METHODS - ORPHAN DETECTION AND DATA MANAGEMENT
+    # ========================================================================
+    
+    @staticmethod
+    def detect_orphaned_files(comparison_results: Dict, side: str, 
+                             active_filter: Optional[str] = None) -> List[str]:
+        """
+        Detect orphaned files from comparison results - files that exist on one side but are missing on the other.
+        
+        Purpose:
+        --------
+        Analyzes comparison results to identify files that exist only on the specified side,
+        with optional filter support for consistent behavior with main application.
+        
+        Args:
+        -----
+        comparison_results: Dictionary of comparison results from main application
+        side: 'left' or 'right' - which side to find orphans for
+        active_filter: Optional wildcard filter to respect from main application
+        
+        Returns:
+        --------
+        List[str]: List of relative paths of orphaned files on the specified side
+        """
+        orphaned_paths = []
+        
+        if not comparison_results:
+            logger.debug(f"No comparison results available for orphan detection on {side} side")
+            return orphaned_paths
+            
+        logger.debug(f"Detecting orphaned files on {side} side from {len(comparison_results)} comparison results")
+        
+        for rel_path, result in comparison_results.items():
+            if not rel_path:  # Skip empty paths
+                continue
+                
+            # Determine if this item is orphaned on the specified side
+            is_orphaned = False
+            
+            if side == 'left':
+                # Left orphan: exists in left but missing in right
+                is_orphaned = (result.left_item is not None and 
+                              result.left_item.exists and
+                              (result.right_item is None or not result.right_item.exists))
+            elif side == 'right':
+                # Right orphan: exists in right but missing in left  
+                is_orphaned = (result.right_item is not None and
+                              result.right_item.exists and
+                              (result.left_item is None or not result.left_item.exists))
+            
+            if is_orphaned:
+                # Apply filter if active (consistent with main application filtering)
+                if active_filter:
+                    filename = rel_path.split('/')[-1]  # Get just the filename
+                    if not fnmatch.fnmatch(filename.lower(), active_filter.lower()):
+                        continue  # Skip files that don't match the filter
+                        
+                orphaned_paths.append(rel_path)
+                
+        logger.info(f"Found {len(orphaned_paths)} orphaned files on {side} side")
+        if active_filter:
+            logger.info(f"Orphan detection used active filter: {active_filter}")
+            
+        return sorted(orphaned_paths)  # Return in stable alphabetical order
+
+    @staticmethod
+    def create_orphan_metadata_dict(comparison_results: Dict, orphaned_paths: List[str], 
+                                   side: str, source_folder: str) -> Dict[str, Dict, Any]:
+        """
+        Create metadata dictionary for orphaned files with validation status.
+        
+        Purpose:
+        --------
+        Builds comprehensive metadata for orphaned files including file information,
+        validation status, and accessibility for the delete orphans dialog.
+        
+        Args:
+        -----
+        comparison_results: Dictionary of comparison results from main application
+        orphaned_paths: List of relative paths of orphaned files
+        side: 'left' or 'right' - which side the orphans are on
+        source_folder: Full path to the source folder
+        
+        Returns:
+        --------
+        Dict[str, Dict]: Dictionary mapping rel_path -> metadata dict with validation
+        """
+        orphan_metadata = {}
+        
+        for rel_path in orphaned_paths:
+            result = comparison_results.get(rel_path)
+            if not result:
+                continue
+                
+            # Get the metadata for the correct side
+            if side == 'left' and result.left_item:
+                file_metadata = result.left_item
+            elif side == 'right' and result.right_item:
+                file_metadata = result.right_item
+            else:
+                continue  # No metadata available
+                
+            # Get full file path
+            full_path = str(Path(source_folder) / rel_path)
+            
+            # Validate file accessibility
+            accessible, status_msg, validation_metadata = DeleteOrphansManager_class.validate_orphan_file_access(full_path)
+            
+            # Create comprehensive metadata entry
+            metadata_entry = {
+                'rel_path': rel_path,
+                'full_path': full_path,
+                'name': file_metadata.name,
+                'is_folder': file_metadata.is_folder,
+                'size': file_metadata.size,
+                'date_created': file_metadata.date_created,
+                'date_modified': file_metadata.date_modified,
+                'sha512': file_metadata.sha512,
+                'accessible': accessible,
+                'status': status_msg,
+                'validation_metadata': validation_metadata,
+                'selected': True,  # Default to selected
+            }
+            
+            orphan_metadata[rel_path] = metadata_entry
+            
+        logger.debug(f"Created metadata for {len(orphan_metadata)} orphaned files")
+        return orphan_metadata
+
+    @staticmethod
+    def refresh_orphan_metadata_status(orphan_metadata: Dict[str, Dict, Any]) -> Tuple[int, int]:
+        """
+        Refresh the validation status of orphaned files to detect external changes.
+        
+        Purpose:
+        --------
+        Re-validates accessibility and status of orphaned files to handle cases
+        where files were deleted, moved, or permissions changed externally.
+        
+        Args:
+        -----
+        orphan_metadata: Dictionary of orphan metadata to refresh
+        
+        Returns:
+        --------
+        Tuple[int, int]: (still_accessible_count, changed_count)
+        """
+        still_accessible = 0
+        changed_count = 0
+        
+        for rel_path, metadata in orphan_metadata.items():
+            old_accessible = metadata['accessible']
+            old_status = metadata['status']
+            
+            # Re-validate the file
+            accessible, status_msg, validation_metadata = DeleteOrphansManager_class.validate_orphan_file_access(metadata['full_path'])
+            
+            # Update metadata with current status
+            metadata['accessible'] = accessible
+            metadata['status'] = status_msg
+            metadata['validation_metadata'] = validation_metadata
+            
+            # Count changes
+            if accessible:
+                still_accessible += 1
+                
+            if old_accessible != accessible or old_status != status_msg:
+                changed_count += 1
+                logger.debug(f"Status changed for {rel_path}: {old_status} -> {status_msg}")
+                
+        logger.info(f"Refresh complete: {still_accessible} accessible, {changed_count} status changes detected")
+        return still_accessible, changed_count
+
+    @staticmethod
+    def build_orphan_tree_structure(orphan_metadata: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Build hierarchical tree structure from orphaned file metadata.
+        
+        Purpose:
+        --------
+        Creates a nested dictionary structure representing the folder hierarchy
+        of orphaned files for display in the delete orphans dialog tree.
+        
+        Args:
+        -----
+        orphan_metadata: Dictionary of orphan file metadata
+        
+        Returns:
+        --------
+        Dict: Nested dictionary representing folder structure
+        """
+        tree_structure = {}
+        
+        for rel_path, metadata in orphan_metadata.items():
+            if not rel_path:
+                continue
+                
+            path_parts = rel_path.split('/')
+            current_level = tree_structure
+            
+            # Build nested structure
+            for i, part in enumerate(path_parts):
+                if part not in current_level:
+                    # Determine if this is a file or folder
+                    is_final_part = (i == len(path_parts) - 1)
+                    
+                    if is_final_part:
+                        # This is the final part - store the metadata
+                        current_level[part] = metadata
+                    else:
+                        # This is a folder - create nested dict
+                        current_level[part] = {}
+                        
+                # Move to next level (only if it's a dict, not metadata)
+                if isinstance(current_level[part], dict):
+                    current_level = current_level[part]
+                    
+        logger.debug(f"Built tree structure with {len(orphan_metadata)} orphaned items")
+        return tree_structure
+
+    @staticmethod
+    def calculate_orphan_statistics(orphan_metadata: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Calculate statistics for orphaned files including totals, sizes, and selection counts.
+        
+        Purpose:
+        --------
+        Provides comprehensive statistics for the delete orphans dialog header
+        and status updates including size calculations and selection tracking.
+        
+        Args:
+        -----
+        orphan_metadata: Dictionary of orphan file metadata
+        
+        Returns:
+        --------
+        Dict: Statistics including total files, selected files, total size, selected size, etc.
+        """
+        stats = {
+            'total_files': 0,
+            'total_folders': 0,
+            'selected_files': 0,
+            'selected_folders': 0,
+            'total_size': 0,
+            'selected_size': 0,
+            'accessible_files': 0,
+            'inaccessible_files': 0,
+            'size_warning_threshold': 1024 * 1024 * 1024,  # 1GB warning threshold
+            'large_selection_warning': False
+        }
+        
+        for metadata in orphan_metadata.values():
+            # Count totals
+            if metadata['is_folder']:
+                stats['total_folders'] += 1
+                if metadata['selected']:
+                    stats['selected_folders'] += 1
+            else:
+                stats['total_files'] += 1
+                if metadata['selected']:
+                    stats['selected_files'] += 1
+                    
+            # Calculate sizes (only for files)
+            if not metadata['is_folder'] and metadata['size']:
+                stats['total_size'] += metadata['size']
+                if metadata['selected']:
+                    stats['selected_size'] += metadata['size']
+                    
+            # Count accessibility
+            if metadata['accessible']:
+                stats['accessible_files'] += 1
+            else:
+                stats['inaccessible_files'] += 1
+                
+        # Set warning flags
+        if stats['selected_size'] > stats['size_warning_threshold']:
+            stats['large_selection_warning'] = True
+            
+        return stats
+    
+    # ========================================================================
+    # INSTANCE METHODS - DIALOG INITIALIZATION AND MANAGEMENT
+    # ========================================================================
+    
+    def __init__(self, parent, orphaned_files, side, source_folder, dry_run_mode, 
+                 comparison_results, active_filter=None):
+        """
+        Initialize the Delete Orphans Manager/Dialog.
+        
+        Args:
+        -----
+        parent: Parent window for modal dialog
+        orphaned_files: List of relative paths of orphaned files
+        side: 'left' or 'right' - which side orphans are on
+        source_folder: Full path to source folder
+        dry_run_mode: Whether main app is in dry run mode
+        comparison_results: Main app comparison results for metadata
+        active_filter: Current filter from main app (if any)
+        """
+        self.parent = parent
+        self.orphaned_files = orphaned_files.copy()  # Create local copy
+        self.side = side
+        self.source_folder = source_folder
+        self.dry_run_mode = dry_run_mode
+        self.comparison_results = comparison_results
+        self.active_filter = active_filter
+        
+        # Dialog state variables
+        self.deletion_method = tk.StringVar(value="recycle_bin")  # Default to safer option
+        self.dialog_filter = tk.StringVar()  # Dialog-specific filter
+        self.result = None  # Result of dialog operation
+        
+        # Large data structures for memory management
+        self.orphan_metadata = {}
+        self.orphan_tree_data = {}
+        self.selected_items = set()
+        self.path_to_item_map = {}
+        
+        # UI References
+        self.dialog = None
+        self.tree = None
+        self.statistics_var = tk.StringVar()
+        self.status_log_text = None
+        self.status_log_lines = []
+        
+        # Memory management thresholds (local constants)
+        self.LARGE_FILE_LIST_THRESHOLD = DELETE_LARGE_FILE_LIST_THRESHOLD
+        self.LARGE_TREE_DATA_THRESHOLD = DELETE_LARGE_TREE_DATA_THRESHOLD
+        self.LARGE_SELECTION_THRESHOLD = DELETE_LARGE_SELECTION_THRESHOLD
+        
+        # Initialize dialog
+        self.setup_dialog()
+        
+    def setup_dialog(self):
+        """Create and configure the modal dialog window."""
+        # Create modal dialog
+        self.dialog = tk.Toplevel(self.parent)
+        self.dialog.title(f"Delete Orphaned Files - {self.side.upper()} Side")
+        
+        # Calculate dialog size based on parent
+        parent_width = self.parent.winfo_width()
+        parent_height = self.parent.winfo_height()
+        
+        dialog_width = int(parent_width * DELETE_ORPHANS_DIALOG_WIDTH_PERCENT)
+        dialog_height = int(parent_height * DELETE_ORPHANS_DIALOG_HEIGHT_PERCENT)
+        
+        # Position at top of screen like main window
+        x = self.parent.winfo_x() + (parent_width - dialog_width) // 2
+        y = 0  # Top of screen
+        
+        self.dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        self.dialog.resizable(True, True)
+        self.dialog.transient(self.parent)
+        self.dialog.grab_set()  # Modal dialog
+        
+        # Handle dialog close
+        self.dialog.protocol("WM_DELETE_WINDOW", self.close_dialog)
+        
+        # Setup UI components
+        self.setup_ui()
+        
+        # Initialize with orphan data
+        self.initialize_orphan_data()
+        
+    def add_status_message(self, message):
+        """Add timestamped message to dialog status log."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        status_line = f"{timestamp} - {message}"
+        
+        self.status_log_lines.append(status_line)
+        
+        # Trim to maximum lines
+        if len(self.status_log_lines) > DELETE_ORPHANS_STATUS_MAX_HISTORY:
+            self.status_log_lines = self.status_log_lines[-DELETE_ORPHANS_STATUS_MAX_HISTORY:]
+            
+        # Update text widget
+        if self.status_log_text:
+            self.status_log_text.config(state=tk.NORMAL)
+            self.status_log_text.delete('1.0', tk.END)
+            self.status_log_text.insert('1.0', '\n'.join(self.status_log_lines))
+            self.status_log_text.config(state=tk.DISABLED)
+            self.status_log_text.see(tk.END)
+            
+        logger.debug(f"Delete Orphans Manager STATUS: {message}")
+        
+    def initialize_orphan_data(self):
+        """Initialize orphan metadata and build tree structure."""
+        if not self.orphaned_files:
+            self.add_status_message("No orphaned files found")
+            return
+            
+        self.add_status_message(f"Initializing {len(self.orphaned_files)} orphaned files...")
+        
+        # Show progress for large datasets
+        if len(self.orphaned_files) > 1000:
+            progress = ProgressDialog(
+                self.dialog, 
+                "Loading Orphan Files", 
+                "Building orphan file tree...",
+                max_value=100
+            )
+            threading.Thread(
+                target=self._initialize_data_with_progress, 
+                args=(progress,), 
+                daemon=True
+            ).start()
+        else:
+            # Small dataset - initialize directly
+            self._initialize_data_direct()
+            
+    def _initialize_data_direct(self):
+        """Initialize orphan data directly for small datasets."""
+        # Create metadata with validation
+        self.orphan_metadata = self.create_orphan_metadata_dict(
+            self.comparison_results, 
+            self.orphaned_files, 
+            self.side, 
+            self.source_folder
+        )
+        
+        # Build tree structure
+        self.orphan_tree_data = self.build_orphan_tree_structure(self.orphan_metadata)
+        
+        # Select all items by default
+        self.selected_items = set(self.orphaned_files)
+        
+        # Update UI
+        self.build_orphan_tree()
+        self.update_statistics()
+        
+        # Log initialization results
+        accessible_count = sum(1 for m in self.orphan_metadata.values() if m['accessible'])
+        self.add_status_message(f"Initialization complete: {accessible_count} accessible files")
+        
+    def _initialize_data_with_progress(self, progress):
+        """Initialize orphan data with progress feedback for large datasets."""
+        try:
+            progress.update_progress(10, "Creating file metadata...")
+            
+            # Create metadata with validation
+            self.orphan_metadata = self.create_orphan_metadata_dict(
+                self.comparison_results, 
+                self.orphaned_files, 
+                self.side, 
+                self.source_folder
+            )
+            
+            progress.update_progress(50, "Building tree structure...")
+            
+            # Build tree structure
+            self.orphan_tree_data = self.build_orphan_tree_structure(self.orphan_metadata)
+            
+            progress.update_progress(80, "Setting up selections...")
+            
+            # Select all items by default
+            self.selected_items = set(self.orphaned_files)
+            
+            progress.update_progress(90, "Updating display...")
+            
+            # Update UI in main thread
+            self.dialog.after(0, self._finalize_initialization)
+            
+            progress.update_progress(100, "Complete")
+            
+        except Exception as e:
+            logger.error(f"Error during orphan data initialization: {e}")
+            self.dialog.after(0, lambda: self.add_status_message(f"Initialization error: {str(e)}"))
+        finally:
+            progress.close()
+            
+    def _finalize_initialization(self):
+        """Finalize initialization in main thread."""
+        self.build_orphan_tree()
+        self.update_statistics()
+        
+        # Log results
+        accessible_count = sum(1 for m in self.orphan_metadata.values() if m['accessible'])
+        self.add_status_message(f"Initialization complete: {accessible_count} accessible files")
+        
+    def _cleanup_large_data(self):
+        """Clean up large data structures based on thresholds."""
+        cleaned_items = []
+        
+        if len(self.orphaned_files) > self.LARGE_FILE_LIST_THRESHOLD:
+            self.orphaned_files.clear()
+            cleaned_items.append("file list")
+            
+        if len(self.orphan_tree_data) > self.LARGE_TREE_DATA_THRESHOLD:
+            self.orphan_tree_data.clear()
+            cleaned_items.append("tree data")
+            
+        if len(self.selected_items) > self.LARGE_SELECTION_THRESHOLD:
+            self.selected_items.clear()
+            cleaned_items.append("selections")
+            
+        if len(self.orphan_metadata) > self.LARGE_FILE_LIST_THRESHOLD:
+            self.orphan_metadata.clear()
+            cleaned_items.append("metadata")
+            
+        if len(self.path_to_item_map) > self.LARGE_TREE_DATA_THRESHOLD:
+            self.path_to_item_map.clear()
+            cleaned_items.append("path mappings")
+            
+        if cleaned_items:
+            logger.debug(f"Cleaned up large data structures: {', '.join(cleaned_items)}")
+            
+    def close_dialog(self):
+        """Close dialog with proper cleanup."""
+        try:
+            # Clean up large data structures
+            self._cleanup_large_data()
+            
+            # Close dialog
+            if self.dialog:
+                self.dialog.grab_release()
+                self.dialog.destroy()
+                
+        except Exception as e:
+            logger.error(f"Error during dialog cleanup: {e}")
+        finally:
+            # Ensure dialog is closed even if cleanup fails
+            try:
+                if self.dialog:
+                    self.dialog.destroy()
+            except:
+                pass
+
+    # ========================================================================
+    # INSTANCE METHODS - UI SETUP AND CONFIGURATION
+    # ========================================================================
+    
+    def setup_ui(self):
+        """Setup all UI components for the delete orphans dialog."""
+        # Main container
+        main_frame = ttk.Frame(self.dialog)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Header section with explanation and statistics
+        self.setup_header_section(main_frame)
+        
+        # Deletion method selection
+        self.setup_deletion_method_section(main_frame)
+        
+        # Filter controls
+        self.setup_filter_section(main_frame)
+        
+        # Main tree area
+        self.setup_tree_section(main_frame)
+        
+        # Status log area
+        self.setup_status_section(main_frame)
+        
+        # Bottom buttons
+        self.setup_button_section(main_frame)
+        
+    def setup_header_section(self, parent):
+        """Setup header section with explanation and statistics."""
+        header_frame = ttk.Frame(parent)
+        header_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Explanatory text
+        side_text = self.side.upper()
+        opposite_side = "RIGHT" if self.side == "left" else "LEFT"
+        
+        explanation = (
+            f"The following orphaned files exist in {side_text} but are missing in {opposite_side}.\n"
+            f"Select which files to delete, then click 'DELETE SELECTED ORPHANED FILES' to remove them permanently."
+        )
+        
+        explanation_label = ttk.Label(
+            header_frame, 
+            text=explanation, 
+            justify=tk.CENTER,
+            font=("TkDefaultFont", 10)
+        )
+        explanation_label.pack(pady=(0, 10))
+        
+        # Statistics display
+        self.statistics_var.set("Loading orphaned files...")
+        statistics_label = ttk.Label(
+            header_frame,
+            textvariable=self.statistics_var,
+            font=("TkDefaultFont", 10, "bold"),
+            foreground="blue"
+        )
+        statistics_label.pack(pady=(0, 5))
+        
+        # Dry run notice if applicable
+        if self.dry_run_mode:
+            dry_run_label = ttk.Label(
+                header_frame,
+                text="*** DRY RUN MODE - Simulate deletion only ***",
+                font=("TkDefaultFont", 10, "bold"),
+                foreground="red"
+            )
+            dry_run_label.pack(pady=(0, 10))
+            
+    def setup_deletion_method_section(self, parent):
+        """Setup deletion method selection with radio buttons."""
+        method_frame = ttk.LabelFrame(parent, text="Deletion Method", padding=10)
+        method_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Radio button frame
+        radio_frame = ttk.Frame(method_frame)
+        radio_frame.pack()
+        
+        # Recycle Bin option (default, safer)
+        recycle_rb = ttk.Radiobutton(
+            radio_frame,
+            text="Move to Recycle Bin (recommended)",
+            variable=self.deletion_method,
+            value="recycle_bin"
+        )
+        recycle_rb.pack(side=tk.LEFT, padx=(0, 20))
+        
+        # Permanent deletion option
+        permanent_rb = ttk.Radiobutton(
+            radio_frame,
+            text="Permanent Deletion (cannot be undone)",
+            variable=self.deletion_method,
+            value="permanent"
+        )
+        permanent_rb.pack(side=tk.LEFT)
+        
+        # Add warning text
+        warning_label = ttk.Label(
+            method_frame,
+            text="⚠ Permanent deletion cannot be undone - files will be lost forever",
+            foreground="red",
+            font=("TkDefaultFont", 8)
+        )
+        warning_label.pack(pady=(5, 0))
+        
+    def setup_filter_section(self, parent):
+        """Setup dialog-specific filter controls."""
+        filter_frame = ttk.Frame(parent)
+        filter_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Filter label and entry
+        ttk.Label(filter_frame, text="Filter Files:").pack(side=tk.LEFT, padx=(0, 5))
+        
+        filter_entry = ttk.Entry(filter_frame, textvariable=self.dialog_filter, width=20)
+        filter_entry.pack(side=tk.LEFT, padx=(0, 5))
+        filter_entry.bind('<Return>', lambda e: self.apply_filter())
+        
+        # Filter buttons
+        ttk.Button(filter_frame, text="Apply Filter", command=self.apply_filter).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(filter_frame, text="Clear Filter", command=self.clear_filter).pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Filter status
+        self.filter_status_var = tk.StringVar()
+        if self.active_filter:
+            self.filter_status_var.set(f"(Main app filter active: {self.active_filter})")
+        else:
+            self.filter_status_var.set("")
+            
+        filter_status_label = ttk.Label(filter_frame, textvariable=self.filter_status_var, 
+                                       foreground="gray", font=("TkDefaultFont", 8))
+        filter_status_label.pack(side=tk.LEFT)
+        
+    def setup_tree_section(self, parent):
+        """Setup main tree display area."""
+        tree_frame = ttk.LabelFrame(parent, text="Orphaned Files", padding=5)
+        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Create tree with scrollbar
+        tree_container = ttk.Frame(tree_frame)
+        tree_container.pack(fill=tk.BOTH, expand=True)
+        
+        self.tree = ttk.Treeview(tree_container, show='tree headings', selectmode='none')
+        self.tree.heading('#0', text='File/Folder Structure', anchor=tk.W)
+        self.tree.column('#0', width=DELETE_ORPHANS_TREE_STRUCTURE_WIDTH, minwidth=200)
+        
+        # Setup tree columns
+        self.setup_tree_columns()
+        
+        # Scrollbar
+        tree_scroll = ttk.Scrollbar(tree_container, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=tree_scroll.set)
+        
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Bind tree events
+        self.tree.bind('<Button-1>', self.handle_tree_click)
+        
+    def setup_tree_columns(self):
+        """Setup tree columns for metadata display."""
+        self.tree['columns'] = ('size', 'date_created', 'date_modified', 'status')
+        
+        # Column headers
+        self.tree.heading('size', text='Size', anchor=tk.E)
+        self.tree.heading('date_created', text='Date Created', anchor=tk.CENTER)
+        self.tree.heading('date_modified', text='Date Modified', anchor=tk.CENTER)
+        self.tree.heading('status', text='Status', anchor=tk.W)
+        
+        # Column widths
+        self.tree.column('size', width=DELETE_ORPHANS_TREE_SIZE_WIDTH, minwidth=60, anchor=tk.E)
+        self.tree.column('date_created', width=150, minwidth=120, anchor=tk.CENTER)
+        self.tree.column('date_modified', width=150, minwidth=120, anchor=tk.CENTER)
+        self.tree.column('status', width=DELETE_ORPHANS_TREE_STATUS_WIDTH, minwidth=80, anchor=tk.W)
+        
+    def setup_status_section(self, parent):
+        """Setup status log area."""
+        status_frame = ttk.LabelFrame(parent, text="Status Log", padding=5)
+        status_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Status header with export button
+        status_header = ttk.Frame(status_frame)
+        status_header.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(status_header, text=f"Operation History ({DELETE_ORPHANS_STATUS_MAX_HISTORY:,} lines max):", 
+                 font=("TkDefaultFont", 9)).pack(side=tk.LEFT)
+        ttk.Button(status_header, text="Export Log", command=self.export_status_log).pack(side=tk.RIGHT)
+        
+        # Status log text area
+        status_container = ttk.Frame(status_frame)
+        status_container.pack(fill=tk.X)
+        
+        self.status_log_text = tk.Text(
+            status_container,
+            height=DELETE_ORPHANS_STATUS_LINES,
+            wrap=tk.WORD,
+            state=tk.DISABLED,
+            font=("Courier", 9),
+            bg="#f8f8f8",
+            fg="#333333"
+        )
+        
+        status_scroll = ttk.Scrollbar(status_container, orient=tk.VERTICAL, command=self.status_log_text.yview)
+        self.status_log_text.configure(yscrollcommand=status_scroll.set)
+        
+        self.status_log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        status_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+    def setup_button_section(self, parent):
+        """Setup bottom button section."""
+        button_frame = ttk.Frame(parent)
+        button_frame.pack(fill=tk.X)
+        
+        # Left side utility buttons
+        left_buttons = ttk.Frame(button_frame)
+        left_buttons.pack(side=tk.LEFT)
+        
+        ttk.Button(left_buttons, text="Select All", command=self.select_all_items).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(left_buttons, text="Clear All", command=self.clear_all_items).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(left_buttons, text="Refresh Orphans Tree", command=self.refresh_orphans_tree).pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Right side action buttons
+        right_buttons = ttk.Frame(button_frame)
+        right_buttons.pack(side=tk.RIGHT)
+        
+        ttk.Button(right_buttons, text="Cancel", command=self.close_dialog).pack(side=tk.RIGHT, padx=(5, 0))
+        
+        # Delete button with conditional text
+        delete_text = "SIMULATE DELETION" if self.dry_run_mode else "DELETE SELECTED ORPHANED FILES"
+        delete_button = ttk.Button(
+            right_buttons, 
+            text=delete_text, 
+            command=self.delete_selected_files
+        )
+        delete_button.pack(side=tk.RIGHT, padx=(5, 0))
+        
+        # Style the delete button
+        if self.dry_run_mode:
+            # Use existing blue style for simulation
+            delete_button.configure(style="BlueBold.TButton")
+        else:
+            # Use red style for actual deletion
+            delete_button.configure(style="RedBold.TButton")
+            
+    def export_status_log(self):
+        """Export status log to clipboard and optionally to file."""
+        if not self.status_log_lines:
+            messagebox.showinfo("Export Status Log", "No status log data to export.")
+            return
+        
+        try:
+            # Copy to clipboard
+            export_text = "\n".join(self.status_log_lines)
+            self.dialog.clipboard_clear()
+            self.dialog.clipboard_append(export_text)
+            self.dialog.update()
+            
+            # Ask about saving to file
+            response = messagebox.askyesnocancel(
+                "Export Status Log",
+                f"Status log ({len(self.status_log_lines):,} lines) copied to clipboard!\n\n"
+                "Would you also like to save to a file?"
+            )
+            
+            if response is True:  # Yes - save to file
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                default_filename = f"foldercomparesync_delete_{self.side}_{timestamp}.log"
+                
+                file_path = filedialog.asksaveasfilename(
+                    title="Save Delete Orphans Log",
+                    defaultextension=".log",
+                    initialname=default_filename,
+                    filetypes=[
+                        ("Log files", "*.log"),
+                        ("Text files", "*.txt"),
+                        ("All files", "*.*")
+                    ]
+                )
+                
+                if file_path:
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(export_text)
+                    self.add_status_message(f"Status log exported to: {file_path}")
+                    messagebox.showinfo("Export Complete", f"Status log saved to:\n{file_path}")
+                    
+        except Exception as e:
+            error_msg = f"Failed to export status log: {str(e)}"
+            self.add_status_message(f"ERROR: {error_msg}")
+            messagebox.showerror("Export Error", error_msg)
+
+    # ========================================================================
+    # INSTANCE METHODS - TREE BUILDING AND INTERACTION
+    # ========================================================================
+    
+    def build_orphan_tree(self):
+        """Build the orphan file tree display."""
+        if not self.tree:
+            return
+            
+        # Clear existing tree
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        self.path_to_item_map.clear()
+        
+        if not self.orphan_tree_data:
+            self.add_status_message("No orphan tree data to display")
+            return
+            
+        # Build tree from structure
+        self.add_status_message("Building orphan file tree...")
+        
+        # Use alphabetical ordering for stability
+        self.populate_orphan_tree(self.tree, self.orphan_tree_data, '', '')
+        
+        # Expand all items by default
+        self.expand_all_tree_items()
+        
+        # Update display with selections
+        self.update_tree_display()
+        
+        self.add_status_message(f"Tree built with {len(self.orphan_metadata)} items")
+        
+    def populate_orphan_tree(self, tree, structure, parent_id, current_path):
+        """Recursively populate tree with orphan file structure."""
+        if not structure:
+            return
+            
+        # Process items in alphabetical order for stability
+        for name in sorted(structure.keys()):
+            content = structure[name]
+            
+            # Build the relative path for this item
+            item_rel_path = current_path + ('/' if current_path else '') + name
+            
+            if isinstance(content, dict) and 'rel_path' in content:
+                # This is a file metadata entry
+                metadata = content
+                
+                # Format file display
+                size_str = self.format_size(metadata['size']) if metadata['size'] else ""
+                date_created_str = self.format_timestamp(metadata['date_created'])
+                date_modified_str = self.format_timestamp(metadata['date_modified'])
+                status_str = metadata['status']
+                
+                # Create item text with checkbox
+                if metadata['accessible']:
+                    checkbox = "☑" if metadata['rel_path'] in self.selected_items else "☐"
+                    item_text = f"{checkbox} {name}"
+                    tags = ()
+                else:
+                    # Inaccessible files - no checkbox, grayed out
+                    item_text = f"{name} (inaccessible)"
+                    tags = ('inaccessible',)
+                
+                # Insert file item
+                item_id = tree.insert(
+                    parent_id, 
+                    tk.END, 
+                    text=item_text,
+                    values=(size_str, date_created_str, date_modified_str, status_str),
+                    tags=tags
+                )
+                
+                # Store path mapping
+                self.path_to_item_map[metadata['rel_path']] = item_id
+                
+            else:
+                # This is a folder - create folder entry and recurse
+                folder_checkbox = "☑" if self.is_folder_selected(item_rel_path) else "☐"
+                folder_text = f"{folder_checkbox} {name}/"
+                
+                folder_id = tree.insert(
+                    parent_id,
+                    tk.END,
+                    text=folder_text,
+                    values=("", "", "", "Folder"),
+                    open=True  # Expand by default
+                )
+                
+                # Recursively populate children
+                if isinstance(content, dict):
+                    self.populate_orphan_tree(tree, content, folder_id, item_rel_path)
+                    
+    def is_folder_selected(self, folder_path):
+        """Check if a folder should be considered selected based on its children."""
+        # A folder is selected if any of its children are selected
+        for rel_path in self.selected_items:
+            if rel_path.startswith(folder_path + '/') or rel_path == folder_path:
+                return True
+        return False
+        
+    def expand_all_tree_items(self):
+        """Expand all tree items by default."""
+        def expand_recursive(item=''):
+            children = self.tree.get_children(item)
+            for child in children:
+                self.tree.item(child, open=True)
+                expand_recursive(child)
+        
+        expand_recursive()
+        
+    def handle_tree_click(self, event):
+        """Handle clicks on tree items for selection toggle."""
+        # Ignore clicks on column headers or separators
+        element = self.tree.identify('element', event.x, event.y)
+        region = self.tree.identify('region', event.x, event.y)
+        
+        if element == 'Treeitem.indicator' or region in ('heading', 'separator'):
+            return
+            
+        item_id = self.tree.identify('item', event.x, event.y)
+        if item_id:
+            # Check if item is accessible (has checkbox)
+            item_text = self.tree.item(item_id, 'text')
+            if '(inaccessible)' in item_text:
+                self.add_status_message("Cannot select inaccessible file")
+                return
+                
+            # Find the relative path for this item
+            rel_path = self.find_rel_path_for_item(item_id)
+            
+            if rel_path:
+                self.toggle_item_selection(rel_path)
+            else:
+                # This might be a folder - handle folder selection
+                self.handle_folder_selection(item_id)
+                
+    def find_rel_path_for_item(self, item_id):
+        """Find relative path for a tree item."""
+        for rel_path, mapped_item_id in self.path_to_item_map.items():
+            if mapped_item_id == item_id:
+                return rel_path
+        return None
+        
+    def handle_folder_selection(self, folder_item_id):
+        """Handle selection/deselection of folder items."""
+        # Get all children of this folder
+        folder_children = self.get_folder_children_paths(folder_item_id)
+        
+        if not folder_children:
+            return
+            
+        # Check current selection state of children
+        children_selected = [path for path in folder_children if path in self.selected_items]
+        
+        if len(children_selected) == len(folder_children):
+            # All children selected - deselect all
+            for path in folder_children:
+                self.selected_items.discard(path)
+            self.add_status_message(f"Deselected folder contents: {len(folder_children)} items")
+        else:
+            # Not all children selected - select all accessible ones
+            accessible_children = [
+                path for path in folder_children 
+                if self.orphan_metadata.get(path, {}).get('accessible', False)
+            ]
+            self.selected_items.update(accessible_children)
+            self.add_status_message(f"Selected folder contents: {len(accessible_children)} accessible items")
+            
+        # Update display and statistics
+        self.update_tree_display()
+        self.update_statistics()
+        
+    def get_folder_children_paths(self, folder_item_id):
+        """Get all file paths that are children of a folder item."""
+        children_paths = []
+        
+        def collect_children(item_id):
+            for child_id in self.tree.get_children(item_id):
+                # Check if this child is a file (has a path mapping)
+                child_path = self.find_rel_path_for_item(child_id)
+                if child_path:
+                    children_paths.append(child_path)
+                else:
+                    # This is a subfolder - recurse
+                    collect_children(child_id)
+                    
+        collect_children(folder_item_id)
+        return children_paths
+        
+    def toggle_item_selection(self, rel_path):
+        """Toggle selection state of a single item."""
+        if not rel_path or rel_path not in self.orphan_metadata:
+            return
+            
+        metadata = self.orphan_metadata[rel_path]
+        if not metadata['accessible']:
+            self.add_status_message(f"Cannot select inaccessible file: {rel_path}")
+            return
+            
+        # Toggle selection
+        if rel_path in self.selected_items:
+            self.selected_items.discard(rel_path)
+            action = "Deselected"
+        else:
+            self.selected_items.add(rel_path)
+            action = "Selected"
+            
+        self.add_status_message(f"{action}: {rel_path}")
+        
+        # Update display and statistics
+        self.update_tree_display()
+        self.update_statistics()
+        
+    def update_tree_display(self):
+        """Update tree display to show current selection state."""
+        for rel_path, item_id in self.path_to_item_map.items():
+            metadata = self.orphan_metadata.get(rel_path)
+            if not metadata:
+                continue
+                
+            current_text = self.tree.item(item_id, 'text')
+            
+            if metadata['accessible']:
+                # Remove existing checkbox
+                if current_text.startswith('☑ ') or current_text.startswith('☐ '):
+                    name = current_text[2:]
+                else:
+                    name = current_text
+                    
+                # Add appropriate checkbox
+                if rel_path in self.selected_items:
+                    new_text = f"☑ {name}"
+                else:
+                    new_text = f"☐ {name}"
+                    
+                self.tree.item(item_id, text=new_text)
+                
+        # Update folder checkboxes
+        self.update_folder_checkboxes()
+        
+    def update_folder_checkboxes(self):
+        """Update folder checkbox states based on children."""
+        def update_folder_recursive(item_id):
+            children = self.tree.get_children(item_id)
+            for child_id in children:
+                child_text = self.tree.item(child_id, 'text')
+                
+                # If this is a folder (ends with /), update its checkbox
+                if child_text.endswith('/') or '/' in child_text:
+                    child_paths = self.get_folder_children_paths(child_id)
+                    
+                    if child_paths:
+                        selected_children = [p for p in child_paths if p in self.selected_items]
+                        
+                        # Extract folder name
+                        if child_text.startswith('☑ ') or child_text.startswith('☐ '):
+                            folder_name = child_text[2:]
+                        else:
+                            folder_name = child_text
+                            
+                        # Update checkbox based on children selection
+                        if len(selected_children) == len(child_paths) and len(child_paths) > 0:
+                            new_text = f"☑ {folder_name}"
+                        else:
+                            new_text = f"☐ {folder_name}"
+                            
+                        self.tree.item(child_id, text=new_text)
+                        
+                # Recurse for subfolders
+                update_folder_recursive(child_id)
+                
+        # Start from root
+        update_folder_recursive('')
+        
+    def format_size(self, size_bytes):
+        """Format file size in human readable format."""
+        if size_bytes is None:
+            return ""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.1f}{unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.1f}TB"
+        
+    def update_statistics(self):
+        """Update statistics display based on current selections."""
+        if not self.orphan_metadata:
+            self.statistics_var.set("No orphaned files")
+            return
+            
+        stats = self.calculate_orphan_statistics(self.orphan_metadata)
+        
+        # Update selection flags in metadata
+        for rel_path, metadata in self.orphan_metadata.items():
+            metadata['selected'] = rel_path in self.selected_items
+            
+        # Recalculate with updated selections
+        stats = self.calculate_orphan_statistics(self.orphan_metadata)
+        
+        # Format statistics message
+        total_items = stats['total_files'] + stats['total_folders']
+        selected_items = stats['selected_files'] + stats['selected_folders']
+        
+        stats_text = f"{selected_items} of {total_items} orphaned items selected"
+        
+        if stats['selected_size'] > 0:
+            size_text = self.format_size(stats['selected_size'])
+            stats_text += f" ({size_text})"
+            
+        if stats['large_selection_warning']:
+            stats_text += " - WARNING: Large files selected"
+            
+        if stats['inaccessible_files'] > 0:
+            stats_text += f" - {stats['inaccessible_files']} inaccessible"
+            
+        self.statistics_var.set(stats_text)
+
+    # ========================================================================
+    # INSTANCE METHODS - FILTER, SELECTION, AND DELETION OPERATIONS
+    # ========================================================================
+    
+    def apply_filter(self):
+        """Apply dialog-specific filter to orphan tree display."""
+        filter_pattern = self.dialog_filter.get().strip()
+        
+        if not filter_pattern:
+            self.add_status_message("No filter pattern specified")
+            return
+            
+        if not self.orphan_metadata:
+            self.add_status_message("No orphan data to filter")
+            return
+            
+        self.add_status_message(f"Applying filter: {filter_pattern}")
+        
+        # Filter the metadata
+        filtered_metadata = {}
+        
+        for rel_path, metadata in self.orphan_metadata.items():
+            filename = rel_path.split('/')[-1]
+            
+            # Apply filter to files only, not folders
+            if not metadata['is_folder']:
+                if fnmatch.fnmatch(filename.lower(), filter_pattern.lower()):
+                    filtered_metadata[rel_path] = metadata
+            else:
+                # Always include folders that contain matching files
+                folder_has_matches = False
+                for other_path in self.orphan_metadata:
+                    if other_path.startswith(rel_path + '/'):
+                        other_filename = other_path.split('/')[-1]
+                        if fnmatch.fnmatch(other_filename.lower(), filter_pattern.lower()):
+                            folder_has_matches = True
+                            break
+                            
+                if folder_has_matches:
+                    filtered_metadata[rel_path] = metadata
+                    
+        # Rebuild tree with filtered data
+        original_count = len(self.orphan_metadata)
+        self.orphan_metadata = filtered_metadata
+        self.orphan_tree_data = self.build_orphan_tree_structure(self.orphan_metadata)
+        
+        # Update selected items to only include filtered items
+        self.selected_items = self.selected_items.intersection(set(filtered_metadata.keys()))
+        
+        # Rebuild tree display
+        self.build_orphan_tree()
+        self.update_statistics()
+        
+        filtered_count = len(filtered_metadata)
+        self.add_status_message(f"Filter applied: {filtered_count} of {original_count} items match '{filter_pattern}'")
+        
+    def clear_filter(self):
+        """Clear dialog-specific filter and restore full orphan list."""
+        self.dialog_filter.set("")
+        
+        if not self.orphaned_files:
+            self.add_status_message("No original orphan data to restore")
+            return
+            
+        self.add_status_message("Clearing filter - restoring full orphan list...")
+        
+        # Rebuild full metadata
+        self.orphan_metadata = self.create_orphan_metadata_dict(
+            self.comparison_results,
+            self.orphaned_files,
+            self.side,
+            self.source_folder
+        )
+        
+        # Rebuild tree structure
+        self.orphan_tree_data = self.build_orphan_tree_structure(self.orphan_metadata)
+        
+        # Rebuild tree display
+        self.build_orphan_tree()
+        self.update_statistics()
+        
+        self.add_status_message(f"Filter cleared - showing all {len(self.orphan_metadata)} orphaned items")
+        
+    def select_all_items(self):
+        """Select all accessible orphaned items."""
+        if not self.orphan_metadata:
+            self.add_status_message("No items to select")
+            return
+            
+        # Select all accessible items
+        accessible_items = [
+            rel_path for rel_path, metadata in self.orphan_metadata.items()
+            if metadata['accessible']
+        ]
+        
+        self.selected_items = set(accessible_items)
+        
+        # Update display
+        self.update_tree_display()
+        self.update_statistics()
+        
+        self.add_status_message(f"Selected all accessible items: {len(accessible_items)} files")
+        
+    def clear_all_items(self):
+        """Clear all selections."""
+        selected_count = len(self.selected_items)
+        self.selected_items.clear()
+        
+        # Update display
+        self.update_tree_display()
+        self.update_statistics()
+        
+        self.add_status_message(f"Cleared all selections: {selected_count} items deselected")
+        
+    def refresh_orphans_tree(self):
+        """Refresh orphan tree to detect external changes."""
+        if not self.orphaned_files:
+            self.add_status_message("No orphan data to refresh")
+            return
+            
+        self.add_status_message("Refreshing orphan file status...")
+        
+        # Re-validate all orphan metadata
+        accessible_count, changed_count = self.refresh_orphan_metadata_status(self.orphan_metadata)
+        
+        # Update tree display with new status
+        self.build_orphan_tree()
+        self.update_statistics()
+        
+        # Report results
+        total_count = len(self.orphan_metadata)
+        inaccessible_count = total_count - accessible_count
+        
+        self.add_status_message(
+            f"Refresh complete: {accessible_count} accessible, {inaccessible_count} inaccessible, "
+            f"{changed_count} status changes detected"
+        )
+        
+    def delete_selected_files(self):
+        """Start the deletion process for selected files."""
+        if not self.selected_items:
+            self.add_status_message("No files selected for deletion")
+            messagebox.showinfo("No Selection", "Please select files to delete first.")
+            return
+            
+        # Get selected accessible files only
+        selected_accessible = []
+        for rel_path in self.selected_items:
+            metadata = self.orphan_metadata.get(rel_path)
+            if metadata and metadata['accessible']:
+                selected_accessible.append(rel_path)
+                
+        if not selected_accessible:
+            self.add_status_message("No accessible files selected for deletion")
+            messagebox.showinfo("No Accessible Files", "All selected files are inaccessible and cannot be deleted.")
+            return
+            
+        # Calculate statistics for confirmation
+        total_size = sum(
+            self.orphan_metadata[path].get('size', 0) or 0
+            for path in selected_accessible
+            if not self.orphan_metadata[path]['is_folder']
+        )
+        
+        deletion_method = self.deletion_method.get()
+        method_text = "Move to Recycle Bin" if deletion_method == "recycle_bin" else "Permanently Delete"
+        
+        # Show confirmation dialog
+        dry_run_text = " (DRY RUN SIMULATION)" if self.dry_run_mode else ""
+        
+        confirmation_message = (
+            f"Are you SURE you want to {method_text.lower()} the selected orphaned files{dry_run_text}?\n\n"
+            f"Action: {method_text} {len(selected_accessible)} files ({self.format_size(total_size)}) "
+            f"from {self.side.upper()} folder\n\n"
+        )
+        
+        if self.dry_run_mode:
+            confirmation_message += "*** DRY RUN MODE - No files will be actually deleted ***\n\n"
+        elif deletion_method == "permanent":
+            confirmation_message += "⚠ WARNING: Permanent deletion cannot be undone! ⚠\n\n"
+        else:
+            confirmation_message += "Files will be moved to Recycle Bin where they can be recovered.\n\n"
+            
+        # Show first 10 files
+        preview_files = selected_accessible[:10]
+        confirmation_message += "Files to delete:\n" + "\n".join(preview_files)
+        
+        if len(selected_accessible) > 10:
+            confirmation_message += f"\n... and {len(selected_accessible) - 10} more files"
+            
+        # Create confirmation dialog with appropriate button styling
+        if self.dry_run_mode:
+            title = "Confirm Deletion Simulation"
+            button_text = "Yes, SIMULATE DELETION"
+        else:
+            title = "Confirm Deletion"
+            button_text = "Yes, DELETE FILES"
+            
+        result = messagebox.askyesno(title, confirmation_message)
+        
+        if not result:
+            self.add_status_message("Deletion cancelled by user")
+            return
+            
+        # Start deletion process
+        self.add_status_message(f"Starting deletion process: {len(selected_accessible)} files")
+        
+        # Close dialog and start deletion in background
+        deletion_method_final = deletion_method
+        selected_files_final = selected_accessible.copy()
+        
+        # Start deletion process in background thread
+        threading.Thread(
+            target=self.perform_deletion,
+            args=(selected_files_final, deletion_method_final),
+            daemon=True
+        ).start()
+        
+        # Set result and close dialog
+        self.result = "deleted"
+        self.close_dialog()
+        
+    def perform_deletion(self, selected_paths, deletion_method):
+        """Perform the actual deletion operation with progress tracking."""
+        operation_start_time = time.time()
+        operation_id = uuid.uuid4().hex[:8]
+        
+        # Create dedicated logger for this operation
+        deletion_logger = self.create_deletion_logger(operation_id)
+        
+        # Log operation start
+        dry_run_text = " (DRY RUN)" if self.dry_run_mode else ""
+        method_text = "Recycle Bin" if deletion_method == "recycle_bin" else "Permanent"
+        
+        deletion_logger.info("=" * 80)
+        deletion_logger.info(f"DELETE ORPHANS OPERATION STARTED{dry_run_text}")
+        deletion_logger.info(f"Operation ID: {operation_id}")
+        deletion_logger.info(f"Side: {self.side.upper()}")
+        deletion_logger.info(f"Source Folder: {self.source_folder}")
+        deletion_logger.info(f"Deletion Method: {method_text}")
+        deletion_logger.info(f"Files to delete: {len(selected_paths)}")
+        deletion_logger.info(f"Dry Run Mode: {self.dry_run_mode}")
+        deletion_logger.info("=" * 80)
+        
+        # Create progress dialog
+        progress_title = f"{'Simulating' if self.dry_run_mode else 'Deleting'} Orphaned Files"
+        progress = ProgressDialog(
+            self.parent,
+            progress_title,
+            f"{'Simulating' if self.dry_run_mode else 'Processing'} orphaned files...",
+            max_value=len(selected_paths)
+        )
+        
+        success_count = 0
+        error_count = 0
+        skipped_count = 0
+        total_bytes_processed = 0
+        
+        try:
+            for i, rel_path in enumerate(selected_paths):
+                try:
+                    # Update progress
+                    file_name = rel_path.split('/')[-1]
+                    progress_text = f"{'Simulating' if self.dry_run_mode else 'Processing'} {i+1} of {len(selected_paths)}: {file_name}"
+                    progress.update_progress(i+1, progress_text)
+                    
+                    # Get full path
+                    full_path = str(Path(self.source_folder) / rel_path)
+                    
+                    # Skip if file doesn't exist
+                    if not os.path.exists(full_path):
+                        skipped_count += 1
+                        deletion_logger.warning(f"File not found, skipping: {full_path}")
+                        continue
+                        
+                    # Get file size for statistics
+                    try:
+                        if os.path.isfile(full_path):
+                            file_size = os.path.getsize(full_path)
+                            total_bytes_processed += file_size
+                    except:
+                        file_size = 0
+                        
+                    # Perform deletion
+                    if self.dry_run_mode:
+                        # Simulate deletion
+                        deletion_logger.info(f"DRY RUN: Would {method_text.lower()} delete: {full_path}")
+                        success_count += 1
+                    else:
+                        # Actual deletion
+                        if deletion_method == "recycle_bin":
+                            success, error_msg = self.delete_file_to_recycle_bin(full_path, show_progress=False)
+                        else:
+                            success, error_msg = self.delete_file_permanently(full_path)
+                            
+                        if success:
+                            success_count += 1
+                            deletion_logger.info(f"Successfully {method_text.lower()} deleted: {full_path}")
+                        else:
+                            error_count += 1
+                            deletion_logger.error(f"Failed to delete {full_path}: {error_msg}")
+                            
+                except Exception as e:
+                    error_count += 1
+                    deletion_logger.error(f"Exception deleting {rel_path}: {str(e)}")
+                    continue
+                    
+        except Exception as e:
+            deletion_logger.error(f"Critical error during deletion operation: {str(e)}")
+            
+        finally:
+            progress.close()
+            
+            # Log operation completion
+            elapsed_time = time.time() - operation_start_time
+            deletion_logger.info("=" * 80)
+            deletion_logger.info(f"DELETE ORPHANS OPERATION COMPLETED{dry_run_text}")
+            deletion_logger.info(f"Operation ID: {operation_id}")
+            deletion_logger.info(f"Files processed successfully: {success_count}")
+            deletion_logger.info(f"Files failed: {error_count}")
+            deletion_logger.info(f"Files skipped: {skipped_count}")
+            deletion_logger.info(f"Total bytes processed: {total_bytes_processed:,}")
+            deletion_logger.info(f"Duration: {elapsed_time:.2f} seconds")
+            if self.dry_run_mode:
+                deletion_logger.info("NOTE: This was a DRY RUN simulation - no actual files were modified")
+            deletion_logger.info("=" * 80)
+            
+            # Show completion dialog
+            completion_message = self.format_completion_message(
+                success_count, error_count, skipped_count, total_bytes_processed, 
+                elapsed_time, method_text, operation_id
+            )
+            
+            self.parent.after(0, lambda: messagebox.showinfo(
+                f"{'Simulation' if self.dry_run_mode else 'Deletion'} Complete",
+                completion_message
+            ))
+            
+            # Close logger
+            for handler in deletion_logger.handlers[:]:
+                handler.close()
+                deletion_logger.removeHandler(handler)
+                
+    def create_deletion_logger(self, operation_id):
+        """Create dedicated logger for deletion operation."""
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        log_filename = f"foldercomparesync_delete_{self.side}_{timestamp}_{operation_id}.log"
+        log_filepath = os.path.join(os.path.dirname(__file__), log_filename)
+        
+        operation_logger = logging.getLogger(f"delete_orphans_{operation_id}")
+        operation_logger.setLevel(logging.DEBUG)
+        
+        file_handler = logging.FileHandler(log_filepath, mode='w', encoding='utf-8')
+        file_handler.setLevel(logging.DEBUG)
+        
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler.setFormatter(formatter)
+        
+        operation_logger.addHandler(file_handler)
+        operation_logger.propagate = False
+        
+        return operation_logger
+        
+    def format_completion_message(self, success_count, error_count, skipped_count, 
+                                total_bytes, elapsed_time, method_text, operation_id):
+        """Format completion message for deletion operation."""
+        dry_run_text = " simulation" if self.dry_run_mode else ""
+        action_text = "simulated" if self.dry_run_mode else method_text.lower() + " deleted"
+        
+        message = f"Deletion{dry_run_text} completed!\n\n"
+        message += f"Successfully {action_text}: {success_count} files\n"
+        
+        if error_count > 0:
+            message += f"Failed: {error_count} files\n"
+        if skipped_count > 0:
+            message += f"Skipped: {skipped_count} files (not found)\n"
+            
+        message += f"Total size processed: {self.format_size(total_bytes)}\n"
+        message += f"Time elapsed: {elapsed_time:.1f} seconds\n"
+        message += f"Operation ID: {operation_id}\n\n"
+        
+        # Log file reference
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        log_filename = f"foldercomparesync_delete_{self.side}_{timestamp}_{operation_id}.log"
+        message += f"Detailed log saved to:\n{log_filename}\n\n"
+        
+        if self.dry_run_mode:
+            message += "*** DRY RUN SIMULATION ***\n"
+            message += "No actual files were modified.\n\n"
+        else:
+            message += "The main window will now refresh to show the updated folder state.\n"
+            
+        return message
 
 def main():
     """
