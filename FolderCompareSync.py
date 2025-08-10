@@ -2337,7 +2337,7 @@ class FolderCompareSync_class:
             mode = "DEBUG" if enabled else "NORMAL"
             self.status_var.set(f"{current_status} ({mode})")
 
-def delete_left_orphans(self): # v001.0012 added [delete left orphans button command]
+    def delete_left_orphans(self): # v001.0012 added [delete left orphans button command]
         """Handle Delete LEFT-only Orphaned Files button.""" # v001.0012 added [delete left orphans button command]
         if self.limit_exceeded: # v001.0012 added [delete left orphans button command]
             messagebox.showwarning("Operation Disabled", "Delete operations are disabled when file limits are exceeded.") # v001.0012 added [delete left orphans button command]
