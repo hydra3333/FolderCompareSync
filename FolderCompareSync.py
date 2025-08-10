@@ -148,7 +148,7 @@ MAX_FILTER_RESULTS = 200000       # Maximum items to show when filtering (perfor
 # DELETE ORPHANS CONFIGURATION CONSTANTS
 # ============================================================================
 # Delete Orphans Dialog Configuration
-DELETE_ORPHANS_DIALOG_WIDTH_PERCENT = 0.85    # 85% of main window width  # v001.0012 added [delete orphans dialog sizing]
+DELETE_ORPHANS_DIALOG_WIDTH_PERCENT = 0.60    # 60% of main window width  # v001.0013 changed [reduced delete orphans dialog width from 85% to 60%]
 DELETE_ORPHANS_DIALOG_HEIGHT_PERCENT = 1.0    # Full height               # v001.0012 added [delete orphans dialog sizing]
 DELETE_ORPHANS_STATUS_LINES = 10               # Visible lines in status log  # v001.0012 added [delete orphans status area]
 DELETE_ORPHANS_STATUS_MAX_HISTORY = 5000       # Maximum lines to keep     # v001.0012 added [delete orphans status area]
