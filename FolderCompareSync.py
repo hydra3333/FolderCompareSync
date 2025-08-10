@@ -344,6 +344,31 @@ def format_timestamp(timestamp: Union[datetime, float, int, None],
         logger.debug(f"Invalid timestamp formatting: {timestamp} - {e}")
         return f"Invalid timestamp: {timestamp}"
 
+def format_size(size_bytes):
+    """
+    Format file size in human readable format.
+    
+    Purpose:
+    --------
+    Converts byte values to human-readable format with appropriate
+    units (B, KB, MB, GB, TB) for display in the UI.
+    
+    Args:
+    -----
+    size_bytes: Size in bytes
+    
+    Returns:
+    --------
+    str: Formatted size string
+    """
+    if size_bytes is None:
+        return ""
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size_bytes < 1024.0:
+            return f"{size_bytes:.1f}{unit}"
+        size_bytes /= 1024.0
+    return f"{size_bytes:.1f}TB"
+
 
 # ---------- Start of Common FileTimestampManager Code ----------
 """
@@ -4462,7 +4487,7 @@ class FolderCompareSync_class:
                     item_text = f"☐ {rel_path}"
                 
                 # v000.0004 changed - Use folder-aware display values
-                size_str = self.format_size(result.left_item.size) if result.left_item.size else ""
+                size_str = format_size(result.left_item.size) if result.left_item.size else ""
                 item_id = self.left_tree.insert(self.root_item_left, tk.END, text=item_text,
                                               values=(size_str, date_created_str, date_modified_str, sha512_str, status))
                 self.path_to_item_left[rel_path] = item_id
@@ -4497,7 +4522,7 @@ class FolderCompareSync_class:
                     item_text = f"☐ {rel_path}"
                 
                 # v000.0006 changed - Use folder-aware display values
-                size_str = self.format_size(result.right_item.size) if result.right_item.size else ""
+                size_str = format_size(result.right_item.size) if result.right_item.size else ""
                 item_id = self.right_tree.insert(self.root_item_right, tk.END, text=item_text,
                                                values=(size_str, date_created_str, date_modified_str, sha512_str, status))
                 self.path_to_item_right[rel_path] = item_id
@@ -4781,7 +4806,7 @@ class FolderCompareSync_class:
                                         values=("", "", "", "", "Missing"), tags=('missing',))
                 else:
                     # Existing file - has checkbox and shows ALL metadata
-                    size_str = self.format_size(content.size) if content.size else ""
+                    size_str = format_size(content.size) if content.size else ""
                     date_created_str = format_timestamp(content.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     date_modified_str = format_timestamp(content.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = content.sha512[:16] + "..." if content.sha512 else ""
@@ -4843,31 +4868,6 @@ class FolderCompareSync_class:
             path_parts.append(text)
             current = tree.parent(current)
         return '/'.join(reversed(path_parts))
-        
-    def format_size(self, size_bytes):
-        """
-        Format file size in human readable format.
-        
-        Purpose:
-        --------
-        Converts byte values to human-readable format with appropriate
-        units (B, KB, MB, GB, TB) for display in the UI.
-        
-        Args:
-        -----
-        size_bytes: Size in bytes
-        
-        Returns:
-        --------
-        str: Formatted size string
-        """
-        if size_bytes is None:
-            return ""
-        for unit in ['B', 'KB', 'MB', 'GB']:
-            if size_bytes < 1024.0:
-                return f"{size_bytes:.1f}{unit}"
-            size_bytes /= 1024.0
-        return f"{size_bytes:.1f}TB"
         
     def find_tree_item_by_path(self, rel_path, side):
         """
@@ -5163,7 +5163,7 @@ class FolderCompareSync_class:
                         file_size = Path(source_path).stat().st_size
                         strategy = determine_copy_strategy(source_path, str(Path(dest_folder) / rel_path), file_size)
                         if strategy == CopyStrategy.STAGED and file_size >= COPY_STRATEGY_THRESHOLD:
-                            size_str = self.format_size(file_size)
+                            size_str = format_size(file_size)
                             progress_text = f"{base_progress_text}\n({size_str} file copy in progress ...not frozen, just busy)"
                         else:
                             progress_text = base_progress_text
@@ -6547,9 +6547,9 @@ class DeleteOrphansManager_class:
                 metadata = content
                 
                 # Format file display
-                size_str = self.format_size(metadata['size']) if metadata['size'] else ""
-                date_created_str = self.format_timestamp(metadata['date_created'])
-                date_modified_str = self.format_timestamp(metadata['date_modified'])
+                size_str = format_size(metadata['size']) if metadata['size'] else ""
+                date_created_str = format_timestamp(metadata['date_created'])
+                date_modified_str = format_timestamp(metadata['date_modified'])
                 status_str = metadata['status']
                 
                 # Create item text with checkbox
@@ -6773,16 +6773,6 @@ class DeleteOrphansManager_class:
         # Start from root
         update_folder_recursive('')
         
-    def format_size(self, size_bytes):
-        """Format file size in human readable format."""
-        if size_bytes is None:
-            return ""
-        for unit in ['B', 'KB', 'MB', 'GB']:
-            if size_bytes < 1024.0:
-                return f"{size_bytes:.1f}{unit}"
-            size_bytes /= 1024.0
-        return f"{size_bytes:.1f}TB"
-        
     def update_statistics(self):
         """Update statistics display based on current selections."""
         if not self.orphan_metadata:
@@ -6805,7 +6795,7 @@ class DeleteOrphansManager_class:
         stats_text = f"{selected_items} of {total_items} orphaned items selected"
         
         if stats['selected_size'] > 0:
-            size_text = self.format_size(stats['selected_size'])
+            size_text = format_size(stats['selected_size'])
             stats_text += f" ({size_text})"
             
         if stats['large_selection_warning']:
@@ -6988,7 +6978,7 @@ class DeleteOrphansManager_class:
         
         confirmation_message = (
             f"Are you SURE you want to {method_text.lower()} the selected orphaned files{dry_run_text}?\n\n"
-            f"Action: {method_text} {len(selected_accessible)} files ({self.format_size(total_size)}) "
+            f"Action: {method_text} {len(selected_accessible)} files ({format_size(total_size)}) "
             f"from {self.side.upper()} folder\n\n"
         )
         
@@ -7196,7 +7186,7 @@ class DeleteOrphansManager_class:
         if skipped_count > 0:
             message += f"Skipped: {skipped_count} files (not found)\n"
             
-        message += f"Total size processed: {self.format_size(total_bytes)}\n"
+        message += f"Total size processed: {format_size(total_bytes)}\n"
         message += f"Time elapsed: {elapsed_time:.1f} seconds\n"
         message += f"Operation ID: {operation_id}\n\n"
         
