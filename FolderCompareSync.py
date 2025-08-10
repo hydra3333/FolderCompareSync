@@ -2408,7 +2408,7 @@ class FolderCompareSync_class:
         active_filter = self.filter_wildcard.get() if self.is_filtered else None # v001.0012 added [delete right orphans button command]
         
         # Detect orphaned files on right side # v001.0012 added [delete right orphans button command]
-        orphaned_files = DeleteOrphansManager.detect_orphaned_files(self.comparison_results, 'right', active_filter) # v001.0012 changed [use DeleteOrphansManager class method]
+        orphaned_files = DeleteOrphansManager_class.detect_orphaned_files(self.comparison_results, 'right', active_filter) # v001.0012 changed [use DeleteOrphansManager_class class method]
         
         if not orphaned_files: # v001.0012 added [delete right orphans button command]
             filter_text = f" (with active filter: {active_filter})" if active_filter else "" # v001.0012 added [delete right orphans button command]
@@ -2420,7 +2420,7 @@ class FolderCompareSync_class:
         
         try: # v001.0012 added [delete right orphans button command]
             # Create and show delete orphans manager/dialog # v001.0012 added [delete right orphans button command]
-            manager = DeleteOrphansManager( # v001.0012 changed [use DeleteOrphansManager instead of DeleteOrphansDialog]
+            manager = DeleteOrphansManager_class( # v001.0012 changed [use DeleteOrphansManager_class instead of DeleteOrphansDialog]
                 parent=self.root, # v001.0012 added [delete right orphans button command]
                 orphaned_files=orphaned_files, # v001.0012 added [delete right orphans button command]
                 side='right', # v001.0012 added [delete right orphans button command]
