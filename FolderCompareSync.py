@@ -2,7 +2,7 @@
 """
 FolderCompareSync - A Folder Comparison & Synchronization Tool
 
-Version  v001.0013 - add local dry run mode control to delete orphans dialog
+Version  Version  v001.0013 - add local dry run mode control and detailed inaccessible file logging to delete orphans dialog
 
 Author: hydra3333
 License: AGPL-3.0
@@ -6108,6 +6108,9 @@ class DeleteOrphansManager_class:
         # Select all items by default
         self.selected_items = set(self.orphaned_files)
         
+        # Log details about inaccessible files # v001.0013 added [detailed logging for inaccessible files]
+        self.log_inaccessible_files() # v001.0013 added [detailed logging for inaccessible files]
+        
         # Update UI
         self.build_orphan_tree()
         self.update_statistics()
@@ -6154,6 +6157,9 @@ class DeleteOrphansManager_class:
             
     def _finalize_initialization(self):
         """Finalize initialization in main thread."""
+        # Log details about inaccessible files # v001.0013 added [detailed logging for inaccessible files in large datasets]
+        self.log_inaccessible_files() # v001.0013 added [detailed logging for inaccessible files in large datasets]
+        
         self.build_orphan_tree()
         self.update_statistics()
         
@@ -6833,6 +6839,17 @@ class DeleteOrphansManager_class:
         if stats['inaccessible_files'] > 0:
             stats_text += f" - {stats['inaccessible_files']} inaccessible"
             
+            # Add quick tip for users about inaccessible files # v001.0013 added [quick status message for inaccessible files]
+            if hasattr(self, '_last_inaccessible_count'): # v001.0013 added [quick status message for inaccessible files]
+                # Only show message if count changed or first time # v001.0013 added [quick status message for inaccessible files]
+                if self._last_inaccessible_count != stats['inaccessible_files']: # v001.0013 added [quick status message for inaccessible files]
+                    self.add_status_message(f"NOTE: {stats['inaccessible_files']} files are inaccessible and cannot be deleted (see detailed log above)") # v001.0013 added [quick status message for inaccessible files]
+            else: # v001.0013 added [quick status message for inaccessible files]
+                # First time showing inaccessible files # v001.0013 added [quick status message for inaccessible files]
+                self.add_status_message(f"NOTE: {stats['inaccessible_files']} files are inaccessible and cannot be deleted (see detailed log above)") # v001.0013 added [quick status message for inaccessible files]
+            
+            self._last_inaccessible_count = stats['inaccessible_files'] # v001.0013 added [quick status message for inaccessible files]
+            
         self.statistics_var.set(stats_text)
 
     # ========================================================================
@@ -6959,6 +6976,10 @@ class DeleteOrphansManager_class:
         
         # Re-validate all orphan metadata
         accessible_count, changed_count = self.refresh_orphan_metadata_status(self.orphan_metadata)
+        
+        # Log details about currently inaccessible files after refresh # v001.0013 added [detailed logging for inaccessible files after refresh]
+        self.add_status_message("Post-refresh inaccessible file analysis:") # v001.0013 added [detailed logging for inaccessible files after refresh]
+        self.log_inaccessible_files() # v001.0013 added [detailed logging for inaccessible files after refresh]
         
         # Update tree display with new status
         self.build_orphan_tree()
@@ -7270,6 +7291,68 @@ class DeleteOrphansManager_class:
         
         # Update button text and styling to reflect current mode # v001.0013 added [local dry run mode change handler for delete orphans dialog]
         self.update_delete_button_appearance() # v001.0013 added [local dry run mode change handler for delete orphans dialog]
+
+    def log_inaccessible_files(self): # v001.0013 added [detailed logging for inaccessible files]
+        """Log detailed information about inaccessible files with full paths and reasons.""" # v001.0013 added [detailed logging for inaccessible files]
+        if not self.orphan_metadata: # v001.0013 added [detailed logging for inaccessible files]
+            return # v001.0013 added [detailed logging for inaccessible files]
+        
+        # Find all inaccessible files # v001.0013 added [detailed logging for inaccessible files]
+        inaccessible_files = [] # v001.0013 added [detailed logging for inaccessible files]
+        
+        for rel_path, metadata in self.orphan_metadata.items(): # v001.0013 added [detailed logging for inaccessible files]
+            if not metadata['accessible']: # v001.0013 added [detailed logging for inaccessible files]
+                inaccessible_files.append({ # v001.0013 added [detailed logging for inaccessible files]
+                    'rel_path': rel_path, # v001.0013 added [detailed logging for inaccessible files]
+                    'full_path': metadata['full_path'], # v001.0013 added [detailed logging for inaccessible files]
+                    'reason': metadata['status'], # v001.0013 added [detailed logging for inaccessible files]
+                    'is_folder': metadata['is_folder'] # v001.0013 added [detailed logging for inaccessible files]
+                }) # v001.0013 added [detailed logging for inaccessible files]
+        
+        if not inaccessible_files: # v001.0013 added [detailed logging for inaccessible files]
+            self.add_status_message("All orphaned files are accessible for deletion") # v001.0013 added [detailed logging for inaccessible files]
+            logger.info(f"All {len(self.orphan_metadata)} orphaned files on {self.side} side are accessible") # v001.0013 added [detailed logging for inaccessible files]
+            return # v001.0013 added [detailed logging for inaccessible files]
+        
+        # Log summary # v001.0013 added [detailed logging for inaccessible files]
+        total_count = len(self.orphan_metadata) # v001.0013 added [detailed logging for inaccessible files]
+        inaccessible_count = len(inaccessible_files) # v001.0013 added [detailed logging for inaccessible files]
+        accessible_count = total_count - inaccessible_count # v001.0013 added [detailed logging for inaccessible files]
+        
+        self.add_status_message(f"INACCESSIBLE FILES: {inaccessible_count} of {total_count} files cannot be deleted") # v001.0013 added [detailed logging for inaccessible files]
+        logger.warning(f"Found {inaccessible_count} inaccessible orphaned files on {self.side} side out of {total_count} total") # v001.0013 added [detailed logging for inaccessible files]
+        
+        # Group by reason for better reporting # v001.0013 added [detailed logging for inaccessible files]
+        reasons = {} # v001.0013 added [detailed logging for inaccessible files]
+        for file_info in inaccessible_files: # v001.0013 added [detailed logging for inaccessible files]
+            reason = file_info['reason'] # v001.0013 added [detailed logging for inaccessible files]
+            if reason not in reasons: # v001.0013 added [detailed logging for inaccessible files]
+                reasons[reason] = [] # v001.0013 added [detailed logging for inaccessible files]
+            reasons[reason].append(file_info) # v001.0013 added [detailed logging for inaccessible files]
+        
+        # Log details grouped by reason # v001.0013 added [detailed logging for inaccessible files]
+        for reason, files_with_reason in reasons.items(): # v001.0013 added [detailed logging for inaccessible files]
+            count = len(files_with_reason) # v001.0013 added [detailed logging for inaccessible files]
+            self.add_status_message(f"  {reason}: {count} files") # v001.0013 added [detailed logging for inaccessible files]
+            logger.warning(f"Inaccessible files due to '{reason}': {count} files") # v001.0013 added [detailed logging for inaccessible files]
+            
+            # Log first few file paths for each reason (avoid spam) # v001.0013 added [detailed logging for inaccessible files]
+            max_examples = 5  # Show max 5 examples per reason # v001.0013 added [detailed logging for inaccessible files]
+            for i, file_info in enumerate(files_with_reason[:max_examples]): # v001.0013 added [detailed logging for inaccessible files]
+                file_type = "folder" if file_info['is_folder'] else "file" # v001.0013 added [detailed logging for inaccessible files]
+                self.add_status_message(f"    {file_type}: {file_info['full_path']}") # v001.0013 added [detailed logging for inaccessible files]
+                logger.warning(f"  Inaccessible {file_type}: {file_info['full_path']} (reason: {reason})") # v001.0013 added [detailed logging for inaccessible files]
+            
+            # If there are more files, show count # v001.0013 added [detailed logging for inaccessible files]
+            if len(files_with_reason) > max_examples: # v001.0013 added [detailed logging for inaccessible files]
+                remaining = len(files_with_reason) - max_examples # v001.0013 added [detailed logging for inaccessible files]
+                self.add_status_message(f"    ... and {remaining} more files with same reason") # v001.0013 added [detailed logging for inaccessible files]
+                logger.warning(f"  ... and {remaining} more inaccessible files with reason '{reason}'") # v001.0013 added [detailed logging for inaccessible files]
+        
+        # Add helpful message about what to do # v001.0013 added [detailed logging for inaccessible files]
+        self.add_status_message("TIP: Inaccessible files will be skipped during deletion") # v001.0013 added [detailed logging for inaccessible files]
+        if any(reason in ["Read-Only", "No Read Access", "Directory Read-Only"] for reason in reasons.keys()): # v001.0013 added [detailed logging for inaccessible files]
+            self.add_status_message("TIP: Try running as Administrator for permission-related issues") # v001.0013 added [detailed logging for inaccessible files]
 
 def main():
     """
