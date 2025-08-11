@@ -6502,7 +6502,6 @@ class DeleteOrphansManager_class:
             variable=self.deletion_method,
             value="recycle_bin",
             style="DeleteOrphansCheckbutton.TCheckbutton"  # ✅ Reuse checkbox style for radio buttons        
-            recycle_rb.pack(side=tk.LEFT, padx=(0, 20))
         )
         recycle_rb.pack(side=tk.LEFT, padx=(0, 20))
 
