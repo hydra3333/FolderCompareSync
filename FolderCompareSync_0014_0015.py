@@ -6351,22 +6351,21 @@ class DeleteOrphansManager_class:
         self.scaled_button_font_bold.configure(weight="bold")
         
         # Configure tree row height for this dialog's treeviews # v001.0015 added [tree row height control for compact display]
-        log_and_flush(logging.DEBUG, "About to dialog_style = ttk.Style(self.dialog)")
         dialog_style = ttk.Style(self.dialog) # v001.0015 added [tree row height control for compact display]
-        log_and_flush(logging.DEBUG, "About to dialog_style.configure('Treeview', rowheight=TREE_ROW_HEIGHT)")
         dialog_style.configure("Treeview", rowheight=TREE_ROW_HEIGHT) # v001.0015 added [tree row height control for compact display]
         
         # v001.0016 added [create button styles for delete orphans dialog]
         # Create button styles for this dialog
-        log_and_flush(logging.DEBUG, "BEFORE THE 3 OF dialog_style.configure{...}")
-        log_and_flush(logging.DEBUG, "About to dialog_style.configure['DeleteOrphansDefaultNormal.TButton',")
         dialog_style.configure("DeleteOrphansDefaultNormal.TButton", font=self.scaled_button_font) # v001.0016 added [create button styles for delete orphans dialog]
-        log_and_flush(logging.DEBUG, "About to dialog_style.configure['DeleteOrphansRedBold.TButton',")
         dialog_style.configure("DeleteOrphansRedBold.TButton", foreground="red", font=self.scaled_button_font_bold) # v001.0014 added [create button style for delete orphans dialog with scaled font]
-        log_and_flush(logging.DEBUG, "About to dialog_style.configure['DeleteOrphansBlueBold.TButton',")
         dialog_style.configure("DeleteOrphansBlueBold.TButton", foreground="blue", font=self.scaled_button_font_bold) # v001.0014 added [create button style for delete orphans dialog with scaled font]
-        log_and_flush(logging.DEBUG, "AFTER THE 3 OF dialog_style.configure{...}")
-        
+
+        dialog_style.configure("DeleteOrphansCheckbutton.TCheckbutton", font=self.scaled_checkbox_font)
+        dialog_style.configure("DeleteOrphansLabel.TLabel", font=self.scaled_label_font)
+        dialog_style.configure("DeleteOrphansSmallLabel.TLabel", font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")) - 1))
+        dialog_style.configure("DeleteOrphansLabelBold.TLabel", font=self.scaled_label_font_bold)
+        dialog_style.configure("DeleteOrphansEntry.TEntry", font=self.scaled_entry_font)
+
         # Main container
         log_and_flush(logging.DEBUG, "BEFORE THE CREATE AND PACK main_frame")
         main_frame = ttk.Frame(self.dialog)
@@ -6428,7 +6427,7 @@ class DeleteOrphansManager_class:
             header_frame, 
             text=explanation, 
             justify=tk.CENTER,
-            font=self.scaled_label_font # v001.0014 changed [use scaled label font instead of hardcoded font]
+            style="DeleteOrphansLabel.TLabel"  # ✅ Use style instead of font parameter
         )
         explanation_label.pack(pady=(0, 8)) # v001.0014 changed [tightened padding from pady=(0, 10) to pady=(0, 8)]
         
@@ -6437,11 +6436,10 @@ class DeleteOrphansManager_class:
         statistics_label = ttk.Label(
             header_frame,
             textvariable=self.statistics_var,
-            font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")), "bold"), # v001.0014 changed [use scaled label font with bold weight instead of hardcoded font]
-            foreground="blue"
+            foreground="blue",
+            style="DeleteOrphansLabelBold.TLabel"  # ✅ Use bold style
         )
         statistics_label.pack(pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
-        # Note: Removed original dry run notice here since we now have a dedicated section for local dry run control # v001.0013 changed [removed main app dry run notice from header]
 
     def setup_local_dry_run_section(self, parent): # v001.0013 added [local dry run mode section for delete orphans dialog]
         """Setup local dry run mode section with checkbox.""" # v001.0013 added [local dry run mode section for delete orphans dialog]
@@ -6459,7 +6457,7 @@ class DeleteOrphansManager_class:
             text="DRY RUN Only (simulate deletion without actually removing files)", # v001.0013 added [local dry run mode section for delete orphans dialog]
             variable=self.local_dry_run_mode, # v001.0013 added [local dry run mode section for delete orphans dialog]
             command=self.on_local_dry_run_changed, # v001.0013 added [local dry run mode section for delete orphans dialog]
-            font=self.scaled_checkbox_font # v001.0014 changed [use scaled checkbox font instead of default]
+            style="DeleteOrphansCheckbutton.TCheckbutton" # v001.0014 changed [use scaled checkbox font instead of default]
         ) # v001.0013 added [local dry run mode section for delete orphans dialog]
         dry_run_cb.pack(side=tk.LEFT, padx=(0, 10)) # v001.0013 added [local dry run mode section for delete orphans dialog]
         log_and_flush(logging.DEBUG, "5. AFTER create and pack dry_run_cb checkbutton create")
@@ -6471,7 +6469,7 @@ class DeleteOrphansManager_class:
             dry_run_frame, # v001.0013 added [local dry run mode section for delete orphans dialog]
             text=main_app_text, # v001.0013 added [local dry run mode section for delete orphans dialog]
             foreground="gray", # v001.0013 added [local dry run mode section for delete orphans dialog]
-            font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")) - 1) # v001.0014 changed [use scaled label font -1 size instead of hardcoded size 8]
+            style="DeleteOrphansSmallLabel.TLabel"
         ) # v001.0013 added [local dry run mode section for delete orphans dialog]
         main_app_label.pack(side=tk.LEFT) # v001.0013 added [local dry run mode section for delete orphans dialog]
         log_and_flush(logging.DEBUG, "7. AFTER create and pack main_app_text create")
@@ -6482,7 +6480,7 @@ class DeleteOrphansManager_class:
             dry_run_frame, # v001.0013 added [local dry run mode section for delete orphans dialog]
             text="This setting is local to this dialog and overrides the main app setting", # v001.0013 added [local dry run mode section for delete orphans dialog]
             foreground="blue", # v001.0013 added [local dry run mode section for delete orphans dialog]
-            font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")) - 1, "italic") # v001.0014 changed [use scaled label font -1 size with italic instead of hardcoded size 8]
+            style="DeleteOrphansSmallLabel.TLabel"
         ) # v001.0013 added [local dry run mode section for delete orphans dialog]
         explanation_label.pack(pady=(3, 0)) # v001.0014 changed [tightened padding from pady=(5, 0) to pady=(3, 0)]
         log_and_flush(logging.DEBUG, "9. AFTER create and pack explanation_label create")
@@ -6503,17 +6501,17 @@ class DeleteOrphansManager_class:
             text="Move to Recycle Bin (recommended)",
             variable=self.deletion_method,
             value="recycle_bin",
-            font=self.scaled_checkbox_font # v001.0014 changed [use scaled checkbox font instead of default]
-        )
+            style="DeleteOrphansCheckbutton.TCheckbutton"  # ✅ Reuse checkbox style for radio buttons        
+            recycle_rb.pack(side=tk.LEFT, padx=(0, 20))
         recycle_rb.pack(side=tk.LEFT, padx=(0, 20))
-        
+
         # Permanent deletion option
         permanent_rb = ttk.Radiobutton(
             radio_frame,
             text="Permanent Deletion (cannot be undone)",
             variable=self.deletion_method,
             value="permanent",
-            font=self.scaled_checkbox_font # v001.0014 changed [use scaled checkbox font instead of default]
+            style="DeleteOrphansCheckbutton.TCheckbutton"  # ✅ Reuse checkbox style for radio buttons
         )
         permanent_rb.pack(side=tk.LEFT)
         
@@ -6522,7 +6520,7 @@ class DeleteOrphansManager_class:
             method_frame,
             text="⚠ Permanent deletion cannot be undone - files will be lost forever",
             foreground="red",
-            font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")) - 1) # v001.0014 changed [use scaled label font -1 size instead of hardcoded size 8]
+            style="DeleteOrphansSmallLabel.TLabel"  # ✅ Use style instead of font tuple
         )
         warning_label.pack(pady=(3, 0)) # v001.0014 changed [tightened padding from pady=(5, 0) to pady=(3, 0)]
         
@@ -6532,9 +6530,8 @@ class DeleteOrphansManager_class:
         filter_frame.pack(fill=tk.X, pady=(0, 8)) # v001.0014 changed [tightened padding from pady=(0, 10) to pady=(0, 8)]
         
         # Filter label and entry
-        ttk.Label(filter_frame, text="Filter Files:", font=self.scaled_label_font).pack(side=tk.LEFT, padx=(0, 5)) # v001.0014 changed [use scaled label font instead of default]
-        
-        filter_entry = ttk.Entry(filter_frame, textvariable=self.dialog_filter, width=20, font=self.scaled_entry_font) # v001.0014 changed [use scaled entry font instead of default]
+        ttk.Label(filter_frame, text="Filter Files:", style="DeleteOrphansLabel.TLabel").pack(side=tk.LEFT, padx=(0, 5))
+        filter_entry = ttk.Entry(filter_frame, textvariable=self.dialog_filter, width=20, style="DeleteOrphansEntry.TEntry")
         filter_entry.pack(side=tk.LEFT, padx=(0, 5))
         filter_entry.bind('<Return>', lambda e: self.apply_filter())
         
@@ -6549,8 +6546,8 @@ class DeleteOrphansManager_class:
         else:
             self.filter_status_var.set("")
             
-        filter_status_label = ttk.Label(filter_frame, textvariable=self.filter_status_var, 
-                                       foreground="gray", font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")) - 1)) # v001.0014 changed [use scaled label font -1 size instead of hardcoded size 8]
+        filter_status_label = ttk.Label(filter_frame, textvariable=self.filter_status_var,
+                                       foreground="gray", style="DeleteOrphansSmallLabel.TLabel")
         filter_status_label.pack(side=tk.LEFT)
         
     def setup_tree_section(self, parent):
@@ -6605,8 +6602,8 @@ class DeleteOrphansManager_class:
         status_header.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         
         ttk.Label(status_header, text=f"Operation History ({DELETE_ORPHANS_STATUS_MAX_HISTORY:,} lines max):", 
-                 font=self.scaled_label_font).pack(side=tk.LEFT) # v001.0014 changed [use scaled label font instead of hardcoded font]
-        ttk.Button(status_header, text="Export Log", command=self.export_status_log, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.RIGHT) # v001.0016 changed [use delete orphans button style]
+                 style="DeleteOrphansLabel.TLabel").pack(side=tk.LEFT)
+        ttk.Button(status_header, text="Export Log", command=self.export_status_log, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.RIGHT)
         
         # Status log text area
         status_container = ttk.Frame(status_frame)
@@ -6617,7 +6614,7 @@ class DeleteOrphansManager_class:
             height=DELETE_ORPHANS_STATUS_LINES,
             wrap=tk.WORD,
             state=tk.DISABLED,
-            font=("Courier", SCALED_STATUS_MESSAGE_FONT_SIZE), # v001.0016 changed [use SCALED_STATUS_MESSAGE_FONT_SIZE instead of hardcoded 9]
+            font=("Courier", SCALED_STATUS_MESSAGE_FONT_SIZE),  # tk.Text supports font parameter
             bg="#f8f8f8",
             fg="#333333"
         )
@@ -7275,15 +7272,15 @@ class DeleteOrphansManager_class:
         dry_run_text = " (DRY RUN)" if is_local_dry_run else "" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         method_text = "Recycle Bin" if deletion_method == "recycle_bin" else "Permanent"
         
-        deletion_log_and_flush(logging.INFO, "=" * 80)
-        deletion_log_and_flush(logging.INFO, f"DELETE ORPHANS OPERATION STARTED{dry_run_text}")
-        deletion_log_and_flush(logging.INFO, f"Operation ID: {operation_id}")
-        deletion_log_and_flush(logging.INFO, f"Side: {self.side.upper()}")
-        deletion_log_and_flush(logging.INFO, f"Source Folder: {self.source_folder}")
-        deletion_log_and_flush(logging.INFO, f"Deletion Method: {method_text}")
-        deletion_log_and_flush(logging.INFO, f"Files to delete: {len(selected_paths)}")
-        deletion_log_and_flush(logging.INFO, f"Local Dry Run Mode: {is_local_dry_run}") # v001.0013 changed [log local dry run mode instead of main app dry run mode]
-        deletion_log_and_flush(logging.INFO, "=" * 80)
+        log_and_flush(logging.INFO, "=" * 80)
+        log_and_flush(logging.INFO, f"DELETE ORPHANS OPERATION STARTED{dry_run_text}")
+        log_and_flush(logging.INFO, f"Operation ID: {operation_id}")
+        log_and_flush(logging.INFO, f"Side: {self.side.upper()}")
+        log_and_flush(logging.INFO, f"Source Folder: {self.source_folder}")
+        log_and_flush(logging.INFO, f"Deletion Method: {method_text}")
+        log_and_flush(logging.INFO, f"Files to delete: {len(selected_paths)}")
+        log_and_flush(logging.INFO, f"Local Dry Run Mode: {is_local_dry_run}") # v001.0013 changed [log local dry run mode instead of main app dry run mode]
+        log_and_flush(logging.INFO, "=" * 80)
         
         # Create progress dialog
         progress_title = f"{'Simulating' if is_local_dry_run else 'Deleting'} Orphaned Files" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
@@ -7313,7 +7310,7 @@ class DeleteOrphansManager_class:
                     # Skip if file doesn't exist
                     if not os.path.exists(full_path):
                         skipped_count += 1
-                        deletion_log_and_flush(logging.WARNING, f"File not found, skipping: {full_path}")
+                        log_and_flush(logging.WARNING, f"File not found, skipping: {full_path}")
                         continue
                         
                     # Get file size for statistics
@@ -7327,7 +7324,7 @@ class DeleteOrphansManager_class:
                     # Perform deletion
                     if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
                         # Simulate deletion
-                        deletion_log_and_flush(logging.INFO, f"DRY RUN: Would {method_text.lower()} delete: {full_path}")
+                        log_and_flush(logging.INFO, f"DRY RUN: Would {method_text.lower()} delete: {full_path}")
                         success_count += 1
                     else:
                         # Actual deletion
@@ -7338,35 +7335,35 @@ class DeleteOrphansManager_class:
                             
                         if success:
                             success_count += 1
-                            deletion_log_and_flush(logging.INFO, f"Successfully {method_text.lower()} deleted: {full_path}")
+                            log_and_flush(logging.INFO, f"Successfully {method_text.lower()} deleted: {full_path}")
                         else:
                             error_count += 1
-                            deletion_log_and_flush(logging.ERROR, f"Failed to delete {full_path}: {error_msg}")
+                            log_and_flush(logging.ERROR, f"Failed to delete {full_path}: {error_msg}")
                             
                 except Exception as e:
                     error_count += 1
-                    deletion_log_and_flush(logging.ERROR, f"Exception deleting {rel_path}: {str(e)}")
+                    log_and_flush(logging.ERROR, f"Exception deleting {rel_path}: {str(e)}")
                     continue
                     
         except Exception as e:
-            deletion_log_and_flush(logging.ERROR, f"Critical error during deletion operation: {str(e)}")
+            log_and_flush(logging.ERROR, f"Critical error during deletion operation: {str(e)}")
             
         finally:
             progress.close()
             
             # Log operation completion
             elapsed_time = time.time() - operation_start_time
-            deletion_log_and_flush(logging.INFO, "=" * 80)
-            deletion_log_and_flush(logging.INFO, f"DELETE ORPHANS OPERATION COMPLETED{dry_run_text}")
-            deletion_log_and_flush(logging.INFO, f"Operation ID: {operation_id}")
-            deletion_log_and_flush(logging.INFO, f"Files processed successfully: {success_count}")
-            deletion_log_and_flush(logging.INFO, f"Files failed: {error_count}")
-            deletion_log_and_flush(logging.INFO, f"Files skipped: {skipped_count}")
-            deletion_log_and_flush(logging.INFO, f"Total bytes processed: {total_bytes_processed:,}")
-            deletion_log_and_flush(logging.INFO, f"Duration: {elapsed_time:.2f} seconds")
+            log_and_flush(logging.INFO, "=" * 80)
+            log_and_flush(logging.INFO, f"DELETE ORPHANS OPERATION COMPLETED{dry_run_text}")
+            log_and_flush(logging.INFO, f"Operation ID: {operation_id}")
+            log_and_flush(logging.INFO, f"Files processed successfully: {success_count}")
+            log_and_flush(logging.INFO, f"Files failed: {error_count}")
+            log_and_flush(logging.INFO, f"Files skipped: {skipped_count}")
+            log_and_flush(logging.INFO, f"Total bytes processed: {total_bytes_processed:,}")
+            log_and_flush(logging.INFO, f"Duration: {elapsed_time:.2f} seconds")
             if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
-                deletion_log_and_flush(logging.INFO, "NOTE: This was a DRY RUN simulation - no actual files were modified")
-            deletion_log_and_flush(logging.INFO, "=" * 80)
+                log_and_flush(logging.INFO, "NOTE: This was a DRY RUN simulation - no actual files were modified")
+            log_and_flush(logging.INFO, "=" * 80)
             
             # Show completion dialog
             completion_message = self.format_completion_message(
