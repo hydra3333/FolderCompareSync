@@ -90,12 +90,6 @@ MIN_WINDOW_WIDTH = 800             # Minimum window width in pixels
 MIN_WINDOW_HEIGHT = 600            # Minimum window height in pixels
 WINDOW_TOP_OFFSET = 0              # Pixels from top of screen
 
-# Status log configuration
-STATUS_LOG_VISIBLE_LINES = 5       # Visible lines in status log window
-STATUS_LOG_FONT = ("Courier", 9)   # Monospace font for better alignment
-STATUS_LOG_BG_COLOR = "#f8f8f8"    # Light background color
-STATUS_LOG_FG_COLOR = "#333333"    # Dark text color
-
 # Progress dialog appearance and behavior
 PROGRESS_DIALOG_WIDTH = 400        # Progress dialog width in pixels
 PROGRESS_DIALOG_HEIGHT = 150       # Progress dialog height in pixels
@@ -154,25 +148,32 @@ UI_FONT_SCALE = 1                  # v001.0014 added [font scaling system for UI
                                    # (1 = no scaling, 1.2 = 20% larger, etc.)
                                    # Font scaling infrastructure preserved for future use if needed
 
-# Specific font sizes (start at "next size up" from tkinter defaults) # v001.0014 added [font scaling system for UI text size control]
-#BUTTON_FONT_SIZE = 10              # Button text size (default ~9, so +1) # v001.0014 added [font scaling system for UI text size control]
-#LABEL_FONT_SIZE = 9                # Label text size (default ~8, so +1) # v001.0014 added [font scaling system for UI text size control]
-#ENTRY_FONT_SIZE = 9                # Entry field text size (default ~8, so +1) # v001.0014 added [font scaling system for UI text size control]
-#CHECKBOX_FONT_SIZE = 9             # Checkbox text size (default ~8, so +1) # v001.0014 added [font scaling system for UI text size control]
-#DIALOG_FONT_SIZE = 10              # Dialog text size # v001.0014 added [font scaling system for UI text size control]
-#STATUS_MESSAGE_FONT_SIZE = 9       # Status message text size # v001.0014 added [font scaling system for UI text size control]
-#
-BUTTON_FONT_SIZE = 14               # Button text size (default ~9, so +2) # v001.0014 added [font scaling system for UI text size control]
+# Specific font sizes # v001.0014 added [font scaling system for UI text size control]
+BUTTON_FONT_SIZE = 11               # Button text size (default ~9, so +2) # v001.0014 added [font scaling system for UI text size control]
 LABEL_FONT_SIZE = 11                # Label text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
-ENTRY_FONT_SIZE = 10                # Entry field text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
-CHECKBOX_FONT_SIZE = 10             # Checkbox text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
+ENTRY_FONT_SIZE = 11                # Entry field text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
+CHECKBOX_FONT_SIZE = 11             # Checkbox text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
 DIALOG_FONT_SIZE = 11               # Dialog text size # v001.0014 added [font scaling system for UI text size control]
 STATUS_MESSAGE_FONT_SIZE = 11       # Status message text size # v001.0014 added [font scaling system for UI text size control]
+INSTRUCTION_FONT_SIZE = 11          # formerly INSTRUCTION_TEXT_SIZE Font size for instructional text
+# pre-calculate scaled font sizes
+SCALED_BUTTON_FONT_SIZE = ( BUTTON_FONT_SIZE * UI_FONT_SCALE )                 # Button text size (default ~9, so +2) # v001.0014 added [font scaling system for UI text size control]
+SCALED_LABEL_FONT_SIZE = ( LABEL_FONT_SIZE * UI_FONT_SCALE )                   # Label text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
+SCALED_ENTRY_FONT_SIZE = ( ENTRY_FONT_SIZE * UI_FONT_SCALE )                   # Entry field text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
+SCALED_CHECKBOX_FONT_SIZE = ( CHECKBOX_FONT_SIZE * UI_FONT_SCALE )             # Checkbox text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
+SCALED_DIALOG_FONT_SIZE = ( DIALOG_FONT_SIZE * UI_FONT_SCALE )                 # Dialog text size # v001.0014 added [font scaling system for UI text size control]
+SCALED_STATUS_MESSAGE_FONT_SIZE = ( STATUS_MESSAGE_FONT_SIZE * UI_FONT_SCALE ) # Status message text size # v001.0014 added [font scaling system for UI text size control]
+SCALED_INSTRUCTION_FONT_SIZE = ( INSTRUCTION_FONT_SIZE * UI_FONT_SCALE )       # Font size for instructional text
+
+# Status log configuration
+STATUS_LOG_VISIBLE_LINES = 5       # Visible lines in status log window
+STATUS_LOG_FONT = ("Courier", SCALED_STATUS_MESSAGE_FONT_SIZE)   # v001.0016
+STATUS_LOG_BG_COLOR = "#f8f8f8"    # Light background color
+STATUS_LOG_FG_COLOR = "#333333"    # Dark text color
 
 # Display colors and styling
 MISSING_ITEM_COLOR = "gray"           # Color for missing items in tree
 INSTRUCTION_TEXT_COLOR = "royalblue"  # Color for instructional text
-INSTRUCTION_TEXT_SIZE = 11             # Font size for instructional text
 FILTER_HIGHLIGHT_COLOR = "#ffffcc"    # Background color for filtered items
 
 # Filtering and sorting configuration
@@ -1124,10 +1125,16 @@ class ErrorDetailsDialog:
         default_font = tkfont.nametofont("TkDefaultFont") # v001.0014 added [create scaled fonts for error dialog]
         
         self.scaled_label_font = default_font.copy() # v001.0014 added [create scaled fonts for error dialog]
-        self.scaled_label_font.configure(size=int(LABEL_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for error dialog]
+        self.scaled_label_font.configure(size=SCALED_LABEL_FONT_SIZE) # v001.0014 added [create scaled fonts for error dialog]
+        # Create a bold version
+        self.scaled_label_font_bold = self.scaled_label_font.copy()
+        self.scaled_label_font_bold.configure(weight="bold")
         
         self.scaled_button_font = default_font.copy() # v001.0014 added [create scaled fonts for error dialog]
-        self.scaled_button_font.configure(size=int(BUTTON_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for error dialog]
+        self.scaled_button_font.configure(size=SCALED_BUTTON_FONT_SIZE) # v001.0014 added [create scaled fonts for error dialog]
+        # Create a bold version
+        self.scaled_button_font_bold = self.scaled_button_font.copy()
+        self.scaled_button_font_bold.configure(weight="bold")
         
         # Main frame
         main_frame = ttk.Frame(self.dialog, padding=12) # v001.0014 changed [tightened padding from padding=15 to padding=12]
@@ -2165,39 +2172,47 @@ class FolderCompareSync_class:
         # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
         # Create scaled fonts based on configuration
         self.scaled_button_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_button_font.configure( # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-            size=int(BUTTON_FONT_SIZE * UI_FONT_SCALE), # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-            weight="bold" # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        ) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_button_font.configure(size=SCALED_BUTTON_FONT_SIZE)
+        # Create a bold version
+        self.scaled_button_font_bold = self.scaled_button_font.copy()
+        self.scaled_button_font_bold.configure(weight="bold")
         
         self.scaled_label_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_label_font.configure(size=int(LABEL_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_label_font.configure(size=SCALED_LABEL_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
         
         self.scaled_entry_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_entry_font.configure(size=int(ENTRY_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_entry_font.configure(size=SCALED_ENTRY_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
         
         self.scaled_checkbox_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_checkbox_font.configure(size=int(CHECKBOX_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_checkbox_font.configure(size=SCALED_CHECKBOX_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
         
         self.scaled_dialog_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_dialog_font.configure(size=int(DIALOG_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_dialog_font.configure(size=SCALED_DIALOG_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        
+        self.scaled_status_font = self.default_font.copy() # v001.0016 added [scaled font for status messages using global STATUS_MESSAGE_FONT_SIZE]
+        self.scaled_status_font.configure(size=SCALED_STATUS_MESSAGE_FONT_SIZE) # v001.0016 added [scaled font for status messages using global STATUS_MESSAGE_FONT_SIZE]
         
         self.style = ttk.Style(self.root)
         # 2) Create styles for the "Compare" "Copy" "Quit" buttons using that bold_font
-        self.style.configure("LimeGreenBold.TButton", foreground="limegreen",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("GreenBold.TButton", foreground="green",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("RedBold.TButton", foreground="red",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("PurpleBold.TButton", foreground="purple",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("MediumPurpleBold.TButton", foreground="mediumpurple",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("IndigoBold.TButton", foreground="indigo",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("BlueBold.TButton", foreground="blue",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("GoldBold.TButton", foreground="gold",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("YellowBold.TButton", foreground="yellow",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
+        self.style.configure("LimeGreenBold.TButton", foreground="limegreen",font=self.scaled_button_font_bold, weight="bold")
+        self.style.configure("GreenBold.TButton", foreground="green",font=self.scaled_button_font_bold, weight="bold")
+        self.style.configure("RedBold.TButton", foreground="red",font=self.scaled_button_font_bold, weight="bold")
+        self.style.configure("PurpleBold.TButton", foreground="purple",font=self.scaled_button_font_bold, weight="bold")
+        self.style.configure("MediumPurpleBold.TButton", foreground="mediumpurple",font=self.scaled_button_font_bold, weight="bold")
+        self.style.configure("IndigoBold.TButton", foreground="indigo",font=self.scaled_button_font_bold, weight="bold")
+        self.style.configure("BlueBold.TButton", foreground="blue",font=self.scaled_button_font_bold, weight="bold")
+        self.style.configure("GoldBold.TButton", foreground="gold",font=self.scaled_button_font_bold, weight="bold")
+        self.style.configure("YellowBold.TButton", foreground="yellow",font=self.scaled_button_font_bold, weight="bold")
+
+        # v001.0016 added [default button style for buttons without specific colors]
+        self.style.configure("DefaultNormal.TButton", font=self.scaled_button_font, weight="normal") # v001.0016 added [default button style for buttons without specific colors]
+        self.style.configure("DefaultBold.TButton.TButton", font=self.scaled_button_font_bold, weight="bold")     # v001.0016 added [default bold button style for buttons without specific colors]
 
         # v001.0014 added [create custom ttk styles for scaled fonts]
         # Create custom styles for ttk widgets that need scaled fonts
         self.style.configure("Scaled.TCheckbutton", font=self.scaled_checkbox_font)
         self.style.configure("Scaled.TLabel", font=self.scaled_label_font)
+        self.style.configure("StatusMessage.TLabel", font=self.scaled_status_font) # v001.0016 added [status message label style using STATUS_MESSAGE_FONT_SIZE]
         self.style.configure("Scaled.TEntry", font=self.scaled_entry_font)
     
         # Configure tree row height for all treeviews globally # v001.0015 added [tree row height control for compact display]
@@ -2585,13 +2600,13 @@ class FolderCompareSync_class:
     
         # Left folder selection
         ttk.Label(folder_frame, text="Left Folder:", style="Scaled.TLabel").grid(row=0, column=0, sticky=tk.W, padx=(0, 5)) # v001.0014 changed [use scaled label style]
-        ttk.Button(folder_frame, text="Browse", command=self.browse_left_folder).grid(row=0, column=1, padx=(0, 5))
+        ttk.Button(folder_frame, text="Browse", command=self.browse_left_folder, style="DefaultNormal.TButton").grid(row=0, column=1, padx=(0, 5)) # v001.0016 changed [use default button style]
         left_entry = ttk.Entry(folder_frame, textvariable=self.left_folder, width=60, style="Scaled.TEntry") # v001.0014 changed [use scaled entry style]
         left_entry.grid(row=0, column=2, sticky=tk.EW)
         
         # Right folder selection
         ttk.Label(folder_frame, text="Right Folder:", style="Scaled.TLabel").grid(row=1, column=0, sticky=tk.W, padx=(0, 5), pady=(3, 0)) # v001.0014 changed [use scaled label style and tightened padding from pady=(5, 0) to pady=(3, 0)]
-        ttk.Button(folder_frame, text="Browse", command=self.browse_right_folder).grid(row=1, column=1, padx=(0, 5), pady=(3, 0)) # v001.0014 changed [tightened padding from pady=(5, 0) to pady=(3, 0)]
+        ttk.Button(folder_frame, text="Browse", command=self.browse_right_folder, style="DefaultNormal.TButton").grid(row=1, column=1, padx=(0, 5), pady=(3, 0)) # v001.0016 changed [use default button style and tightened padding from pady=(5, 0) to pady=(3, 0)]
         right_entry = ttk.Entry(folder_frame, textvariable=self.right_folder, width=60, style="Scaled.TEntry") # v001.0014 changed [use scaled entry style]
         right_entry.grid(row=1, column=2, sticky=tk.EW, pady=(3, 0)) # v001.0014 changed [tightened padding from pady=(5, 0) to pady=(3, 0)]
     
@@ -2620,7 +2635,7 @@ class FolderCompareSync_class:
         # Add instructional text for workflow guidance using configurable colors and font size
         ttk.Label(instruction_frame, text="<- select options then click Compare", 
                  foreground=INSTRUCTION_TEXT_COLOR, 
-                 font=("TkDefaultFont", INSTRUCTION_TEXT_SIZE, "italic")).pack(side=tk.LEFT, padx=(20, 0))
+                 font=("TkDefaultFont", SCALED_INSTRUCTION_FONT_SIZE, "italic")).pack(side=tk.LEFT, padx=(20, 0))
         
         # Control frame - reorganized for better layout
         control_frame = ttk.Frame(options_frame)
@@ -2640,15 +2655,15 @@ class FolderCompareSync_class:
         # selection controls with auto-clear and complete reset functionality
         # Left pane selection controls
         ttk.Button(top_controls, text="Select All Differences - Left", 
-                  command=self.select_all_differences_left).pack(side=tk.LEFT, padx=(0, 5))
+                  command=self.select_all_differences_left, style="DefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use default button style]
         ttk.Button(top_controls, text="Clear All - Left", 
-                  command=self.clear_all_left).pack(side=tk.LEFT, padx=(0, 15))
+                  command=self.clear_all_left, style="DefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 15)) # v001.0016 changed [use default button style]
         
         # Right pane selection controls  
         ttk.Button(top_controls, text="Select All Differences - Right", 
-                  command=self.select_all_differences_right).pack(side=tk.LEFT, padx=(0, 5))
+                  command=self.select_all_differences_right, style="DefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use default button style]
         ttk.Button(top_controls, text="Clear All - Right", 
-                  command=self.clear_all_right).pack(side=tk.LEFT)
+                  command=self.clear_all_right, style="DefaultNormal.TButton").pack(side=tk.LEFT) # v001.0016 changed [use default button style]
     
         # Filter and tree control frame
         filter_tree_frame = ttk.Frame(control_frame)
@@ -2660,12 +2675,12 @@ class FolderCompareSync_class:
         filter_entry.pack(side=tk.LEFT, padx=(0, 5))
         filter_entry.bind('<Return>', lambda e: self.apply_filter())
         
-        ttk.Button(filter_tree_frame, text="Apply Filter", command=self.apply_filter).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(filter_tree_frame, text="Clear Filter", command=self.clear_filter).pack(side=tk.LEFT, padx=(0, 20))
+        ttk.Button(filter_tree_frame, text="Apply Filter", command=self.apply_filter, style="DefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use default button style]
+        ttk.Button(filter_tree_frame, text="Clear Filter", command=self.clear_filter, style="DefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 20)) # v001.0016 changed [use default button style]
         
         # Tree expansion controls
-        ttk.Button(filter_tree_frame, text="Expand All", command=self.expand_all_trees).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(filter_tree_frame, text="Collapse All", command=self.collapse_all_trees).pack(side=tk.LEFT)
+        ttk.Button(filter_tree_frame, text="Expand All", command=self.expand_all_trees, style="DefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use default button style]
+        ttk.Button(filter_tree_frame, text="Collapse All", command=self.collapse_all_trees, style="DefaultNormal.TButton").pack(side=tk.LEFT) # v001.0016 changed [use default button style]
         
         # Tree comparison frame (adjusted height to make room for status log)
         tree_frame = ttk.Frame(main_frame)
@@ -2728,7 +2743,7 @@ class FolderCompareSync_class:
         
         ttk.Label(status_header, text=f"Operation History ({STATUS_LOG_MAX_HISTORY:,} lines max):", 
                  style="Scaled.TLabel").pack(side=tk.LEFT) # v001.0014 changed [use scaled label style]
-        ttk.Button(status_header, text="Export Log", command=self.export_status_log).pack(side=tk.RIGHT)
+        ttk.Button(status_header, text="Export Log", command=self.export_status_log, style="DefaultNormal.TButton").pack(side=tk.RIGHT) # v001.0016 changed [use default button style]
         
         # Create text widget with scrollbar for status log using configurable parameters
         status_log_container = ttk.Frame(status_log_frame)
@@ -2739,7 +2754,7 @@ class FolderCompareSync_class:
             height=STATUS_LOG_VISIBLE_LINES,  # Use configurable visible lines
             wrap=tk.WORD,
             state=tk.DISABLED,  # Read-only
-            font=STATUS_LOG_FONT,  # Use configurable font (keep monospace, unchanged)
+            font=STATUS_LOG_FONT,  # v001.0016 changed [now uses STATUS_MESSAGE_FONT_SIZE]
             bg=STATUS_LOG_BG_COLOR,  # Use configurable background color
             fg=STATUS_LOG_FG_COLOR   # Use configurable text color
         )
@@ -2754,16 +2769,16 @@ class FolderCompareSync_class:
         status_frame = ttk.Frame(main_frame)
         status_frame.pack(fill=tk.X)
         
-        ttk.Label(status_frame, textvariable=self.summary_var, style="Scaled.TLabel").pack(side=tk.LEFT) # v001.0014 changed [use scaled label style]
+        ttk.Label(status_frame, textvariable=self.summary_var, style="StatusMessage.TLabel").pack(side=tk.LEFT) # v001.0016 changed [use status message style for summary]
         ttk.Separator(status_frame, orient=tk.VERTICAL).pack(side=tk.RIGHT, fill=tk.Y, padx=10)
-        ttk.Label(status_frame, text="Status:", style="Scaled.TLabel").pack(side=tk.RIGHT, padx=(0, 5)) # v001.0014 changed [use scaled label style]
-        ttk.Label(status_frame, textvariable=self.status_var, style="Scaled.TLabel").pack(side=tk.RIGHT) # v001.0014 changed [use scaled label style]
+        ttk.Label(status_frame, text="Status:", style="StatusMessage.TLabel").pack(side=tk.RIGHT, padx=(0, 5)) # v001.0016 changed [use status message style for status label]
+        ttk.Label(status_frame, textvariable=self.status_var, style="StatusMessage.TLabel").pack(side=tk.RIGHT) # v001.0016 changed [use status message style for status]
         
         # Configure tree event bindings for interaction
         self.setup_tree_events()
         
         logger.debug("FolderCompareSync_class User interface setup complete with features")
-        
+
     def setup_tree_columns(self, tree): # v000.0002 changed - column sorting disabled
         """
         Setup columns for metadata display in tree (sorting disabled).
@@ -6299,23 +6314,28 @@ class DeleteOrphansManager_class:
         default_font = tkfont.nametofont("TkDefaultFont") # v001.0014 added [create scaled fonts for delete orphans dialog]
         
         self.scaled_label_font = default_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
-        self.scaled_label_font.configure(size=int(LABEL_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for delete orphans dialog]
+        self.scaled_label_font.configure(size=SCALED_LABEL_FONT_SIZE) # v001.0014 added [create scaled fonts for delete orphans dialog]
         
         self.scaled_entry_font = default_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
-        self.scaled_entry_font.configure(size=int(ENTRY_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for delete orphans dialog]
+        self.scaled_entry_font.configure(size=SCALED_ENTRY_FONT_SIZE) # v001.0014 added [create scaled fonts for delete orphans dialog]
         
         self.scaled_checkbox_font = default_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
-        self.scaled_checkbox_font.configure(size=int(CHECKBOX_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for delete orphans dialog]
+        self.scaled_checkbox_font.configure(size=SCALED_CHECKBOX_FONT_SIZE) # v001.0014 added [create scaled fonts for delete orphans dialog]
         
         self.scaled_button_font = default_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
         self.scaled_button_font.configure( # v001.0014 added [create scaled fonts for delete orphans dialog]
-            size=int(BUTTON_FONT_SIZE * UI_FONT_SCALE), # v001.0014 added [create scaled fonts for delete orphans dialog]
-            weight="bold" # v001.0014 added [create scaled fonts for delete orphans dialog]
+            size=SCALED_BUTTON_FONT_SIZE, # v001.0014 added [create scaled fonts for delete orphans dialog]
         ) # v001.0014 added [create scaled fonts for delete orphans dialog]
         
         # Configure tree row height for this dialog's treeviews # v001.0015 added [tree row height control for compact display]
         dialog_style = ttk.Style(self.dialog) # v001.0015 added [tree row height control for compact display]
         dialog_style.configure("Treeview", rowheight=TREE_ROW_HEIGHT) # v001.0015 added [tree row height control for compact display]
+        
+        # v001.0016 added [create button styles for delete orphans dialog]
+        # Create button styles for this dialog
+        dialog_style.configure("DeleteOrphansDefaultNormal.TButton", font=self.scaled_button_font, weight="normal") # v001.0016 added [create button styles for delete orphans dialog]
+        dialog_style.configure("DeleteOrphansRedBold.TButton", foreground="red", font=self.scaled_button_font, weight="bold") # v001.0014 added [create button style for delete orphans dialog with scaled font]
+        dialog_style.configure("DeleteOrphansBlueBold.TButton", foreground="blue", font=self.scaled_button_font, weight="bold") # v001.0014 added [create button style for delete orphans dialog with scaled font]
         
         # Main container
         main_frame = ttk.Frame(self.dialog)
@@ -6460,8 +6480,8 @@ class DeleteOrphansManager_class:
         filter_entry.bind('<Return>', lambda e: self.apply_filter())
         
         # Filter buttons
-        ttk.Button(filter_frame, text="Apply Filter", command=self.apply_filter).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(filter_frame, text="Clear Filter", command=self.clear_filter).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(filter_frame, text="Apply Filter", command=self.apply_filter, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use delete orphans button style]
+        ttk.Button(filter_frame, text="Clear Filter", command=self.clear_filter, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0016 changed [use delete orphans button style]
         
         # Filter status
         self.filter_status_var = tk.StringVar()
@@ -6527,7 +6547,7 @@ class DeleteOrphansManager_class:
         
         ttk.Label(status_header, text=f"Operation History ({DELETE_ORPHANS_STATUS_MAX_HISTORY:,} lines max):", 
                  font=self.scaled_label_font).pack(side=tk.LEFT) # v001.0014 changed [use scaled label font instead of hardcoded font]
-        ttk.Button(status_header, text="Export Log", command=self.export_status_log).pack(side=tk.RIGHT)
+        ttk.Button(status_header, text="Export Log", command=self.export_status_log, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.RIGHT) # v001.0016 changed [use delete orphans button style]
         
         # Status log text area
         status_container = ttk.Frame(status_frame)
@@ -6538,7 +6558,7 @@ class DeleteOrphansManager_class:
             height=DELETE_ORPHANS_STATUS_LINES,
             wrap=tk.WORD,
             state=tk.DISABLED,
-            font=("Courier", 9), # Keep monospace font unchanged for status log
+            font=("Courier", SCALED_STATUS_MESSAGE_FONT_SIZE), # v001.0016 changed [use STATUS_MESSAGE_FONT_SIZE instead of hardcoded 9]
             bg="#f8f8f8",
             fg="#333333"
         )
@@ -6548,7 +6568,7 @@ class DeleteOrphansManager_class:
         
         self.status_log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         status_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        
+
     def setup_button_section(self, parent):
         """Setup bottom button section."""
         button_frame = ttk.Frame(parent)
@@ -6558,25 +6578,19 @@ class DeleteOrphansManager_class:
         left_buttons = ttk.Frame(button_frame)
         left_buttons.pack(side=tk.LEFT)
         
-        ttk.Button(left_buttons, text="Select All", command=self.select_all_items).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(left_buttons, text="Clear All", command=self.clear_all_items).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(left_buttons, text="Refresh Orphans Tree", command=self.refresh_orphans_tree).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(left_buttons, text="Select All", command=self.select_all_items, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use delete orphans button style]
+        ttk.Button(left_buttons, text="Clear All", command=self.clear_all_items, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use delete orphans button style]
+        ttk.Button(left_buttons, text="Refresh Orphans Tree", command=self.refresh_orphans_tree, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use delete orphans button style]
         
         # Right side action buttons
         right_buttons = ttk.Frame(button_frame)
         right_buttons.pack(side=tk.RIGHT)
         
-        ttk.Button(right_buttons, text="Cancel", command=self.close_dialog).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(right_buttons, text="Cancel", command=self.close_dialog, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.RIGHT, padx=(5, 0)) # v001.0016 changed [use delete orphans button style]
         
         # Delete button with conditional text based on local dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         is_local_dry_run = self.local_dry_run_mode.get() # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         delete_text = "SIMULATE DELETION" if is_local_dry_run else "DELETE SELECTED ORPHANED FILES" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
-        
-        # v001.0014 added [create button style for delete orphans dialog with scaled font]
-        # Create a local style for this dialog's buttons with scaled font
-        button_style = ttk.Style(self.dialog) # v001.0014 added [create button style for delete orphans dialog with scaled font]
-        button_style.configure("DeleteOrphansRedBold.TButton", foreground="red", font=self.scaled_button_font) # v001.0014 added [create button style for delete orphans dialog with scaled font]
-        button_style.configure("DeleteOrphansBlueBold.TButton", foreground="blue", font=self.scaled_button_font) # v001.0014 added [create button style for delete orphans dialog with scaled font]
         
         self.delete_button = ttk.Button( # v001.0013 changed [store button reference for dynamic updates]
             right_buttons, 
@@ -6592,7 +6606,7 @@ class DeleteOrphansManager_class:
         else:
             # Use red style for actual deletion
             self.delete_button.configure(style="DeleteOrphansRedBold.TButton") # v001.0014 changed [use local scaled button style instead of main app style]
-            
+                                                                                                          
     def export_status_log(self):
         """Export status log to clipboard and optionally to file."""
         if not self.status_log_lines:
