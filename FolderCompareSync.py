@@ -2,7 +2,8 @@
 """
 FolderCompareSync - A Folder Comparison & Synchronization Tool
 
-Version  Version  v001.0013 - add local dry run mode control and detailed inaccessible file logging to delete orphans dialog
+Version  v001.0015 - add configurable tree row height control for compact folder display
+         v001.0014 - add configurable font scaling system for improved UI text readability
 
 Author: hydra3333
 License: AGPL-3.0
@@ -134,6 +135,31 @@ TREE_SHA512_WIDTH = 100            # SHA512 column width (first 16 chars)
 TREE_SHA512_MIN_WIDTH = 80         # Minimum SHA512 column width
 TREE_STATUS_WIDTH = 100            # Status column width
 TREE_STATUS_MIN_WIDTH = 80         # Minimum status column width
+
+# Tree row height configuration # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT_VERY_COMPACT = 18  # Very tight spacing # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT_COMPACT = 20       # Tight spacing # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT_NORMAL = 22        # Comfortable spacing # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT_DEFAULT = 24       # Tkinter default spacing # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT_LOOSE = 26         # Relaxed spacing # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT_VERY_LOOSE = 28    # Very relaxed spacing # v001.0015 added [tree row height control for compact display]
+
+# Active tree row height setting - change this to switch spacing globally # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT = TREE_ROW_HEIGHT_NORMAL  # Start with 22px for good balance # v001.0015 added [tree row height control for compact display]
+
+# Font scaling configuration # v001.0014 added [font scaling system for UI text size control]
+UI_FONT_SCALE = 1                  # v001.0014 added [font scaling system for UI text size control]
+                                   # Global font multiplier (can be Real number)- KEEP AT 1 for direct as-is font sizes
+                                   # (1 = no scaling, 1.2 = 20% larger, etc.)
+                                   # Font scaling infrastructure preserved for future use if needed
+
+# Specific font sizes (start at "next size up" from tkinter defaults) # v001.0014 added [font scaling system for UI text size control]
+BUTTON_FONT_SIZE = 10              # Button text size (default ~9, so +1) # v001.0014 added [font scaling system for UI text size control]
+LABEL_FONT_SIZE = 9                # Label text size (default ~8, so +1) # v001.0014 added [font scaling system for UI text size control]
+ENTRY_FONT_SIZE = 9                # Entry field text size (default ~8, so +1) # v001.0014 added [font scaling system for UI text size control]
+CHECKBOX_FONT_SIZE = 9             # Checkbox text size (default ~8, so +1) # v001.0014 added [font scaling system for UI text size control]
+DIALOG_FONT_SIZE = 10              # Dialog text size # v001.0014 added [font scaling system for UI text size control]
+STATUS_MESSAGE_FONT_SIZE = 9       # Status message text size # v001.0014 added [font scaling system for UI text size control]
 
 # Display colors and styling
 MISSING_ITEM_COLOR = "gray"       # Color for missing items in tree
@@ -1085,23 +1111,33 @@ class ErrorDetailsDialog:
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
+        # v001.0014 added [create scaled fonts for error dialog]
+        # Create scaled fonts for this dialog
+        default_font = tkfont.nametofont("TkDefaultFont") # v001.0014 added [create scaled fonts for error dialog]
+        
+        self.scaled_label_font = default_font.copy() # v001.0014 added [create scaled fonts for error dialog]
+        self.scaled_label_font.configure(size=int(LABEL_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for error dialog]
+        
+        self.scaled_button_font = default_font.copy() # v001.0014 added [create scaled fonts for error dialog]
+        self.scaled_button_font.configure(size=int(BUTTON_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for error dialog]
+        
         # Main frame
-        main_frame = ttk.Frame(self.dialog, padding=15)
+        main_frame = ttk.Frame(self.dialog, padding=12) # v001.0014 changed [tightened padding from padding=15 to padding=12]
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Error icon and summary
         summary_frame = ttk.Frame(main_frame)
-        summary_frame.pack(fill=tk.X, pady=(0, 10))
+        summary_frame.pack(fill=tk.X, pady=(0, 8)) # v001.0014 changed [tightened padding from pady=(0, 10) to pady=(0, 8)]
         
         ttk.Label(summary_frame, text="❌", font=("TkDefaultFont", 16)).pack(side=tk.LEFT, padx=(0, 10))
         
         # Truncate summary if too long
         display_summary = summary[:200] + "..." if len(summary) > 200 else summary
-        ttk.Label(summary_frame, text=display_summary, wraplength=400).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(summary_frame, text=display_summary, wraplength=400, font=self.scaled_label_font).pack(side=tk.LEFT, fill=tk.X, expand=True) # v001.0014 changed [use scaled label font instead of default]
         
         # Buttons frame
         button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X, pady=(0, 10))
+        button_frame.pack(fill=tk.X, pady=(0, 8)) # v001.0014 changed [tightened padding from pady=(0, 10) to pady=(0, 8)]
         
         self.details_shown = False
         self.details_button = ttk.Button(button_frame, text="Show Details ▼", command=self.toggle_details)
@@ -1131,7 +1167,7 @@ class ErrorDetailsDialog:
         x = parent.winfo_x() + (parent.winfo_width() // 2) - (self.dialog.winfo_width() // 2)
         y = parent.winfo_y() + (parent.winfo_height() // 2) - (self.dialog.winfo_height() // 2)
         self.dialog.geometry(f"+{x}+{y}")
-        
+
     def toggle_details(self):
         if self.details_shown:
             self.details_frame.pack_forget()
@@ -2117,103 +2153,45 @@ class FolderCompareSync_class:
         self.default_font = tkfont.nametofont("TkDefaultFont")
         self.bold_font = self.default_font.copy()
         self.bold_font.configure(weight="bold")
+        
+        # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        # Create scaled fonts based on configuration
+        self.scaled_button_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_button_font.configure( # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+            size=int(BUTTON_FONT_SIZE * UI_FONT_SCALE), # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+            weight="bold" # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        ) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        
+        self.scaled_label_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_label_font.configure(size=int(LABEL_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        
+        self.scaled_entry_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_entry_font.configure(size=int(ENTRY_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        
+        self.scaled_checkbox_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_checkbox_font.configure(size=int(CHECKBOX_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        
+        self.scaled_dialog_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_dialog_font.configure(size=int(DIALOG_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        
         self.style = ttk.Style(self.root)
         # 2) Create styles for the "Compare" "Copy" "Quit" buttons using that bold_font
-        self.style.configure("LimeGreenBold.TButton", foreground="limegreen",font=self.bold_font,)
-        self.style.configure("GreenBold.TButton", foreground="green",font=self.bold_font,)
-        self.style.configure("RedBold.TButton", foreground="red",font=self.bold_font,)
-        self.style.configure("PurpleBold.TButton", foreground="purple",font=self.bold_font,)
-        self.style.configure("MediumPurpleBold.TButton", foreground="mediumpurple",font=self.bold_font,)
-        self.style.configure("IndigoBold.TButton", foreground="indigo",font=self.bold_font,)
-        self.style.configure("BlueBold.TButton", foreground="blue",font=self.bold_font,)
-        self.style.configure("GoldBold.TButton", foreground="gold",font=self.bold_font,)
-        self.style.configure("YellowBold.TButton", foreground="yellow",font=self.bold_font,)
+        self.style.configure("LimeGreenBold.TButton", foreground="limegreen",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
+        self.style.configure("GreenBold.TButton", foreground="green",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
+        self.style.configure("RedBold.TButton", foreground="red",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
+        self.style.configure("PurpleBold.TButton", foreground="purple",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
+        self.style.configure("MediumPurpleBold.TButton", foreground="mediumpurple",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
+        self.style.configure("IndigoBold.TButton", foreground="indigo",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
+        self.style.configure("BlueBold.TButton", foreground="blue",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
+        self.style.configure("GoldBold.TButton", foreground="gold",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
+        self.style.configure("YellowBold.TButton", foreground="yellow",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
+
+        # Configure tree row height for all treeviews globally # v001.0015 added [tree row height control for compact display]
+        self.style.configure("Treeview", rowheight=TREE_ROW_HEIGHT) # v001.0015 added [tree row height control for compact display]
 
         # Get screen dimensions for smart window sizing
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
-        
-        # Use configurable window sizing percentages
-        window_width = int(screen_width * WINDOW_WIDTH_PERCENT)
-        window_height = int(screen_height * WINDOW_HEIGHT_PERCENT)
-        
-        # Center horizontally, use configurable top offset for optimal taskbar clearance
-        x = (screen_width - window_width) // 2
-        y = WINDOW_TOP_OFFSET
-        
-        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
-        self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)  # Use configurable minimum size
-        
-        # Application state variables
-        self.left_folder = tk.StringVar()
-        self.right_folder = tk.StringVar()
-        self.compare_existence = tk.BooleanVar(value=True)
-        self.compare_size = tk.BooleanVar(value=True)
-        self.compare_date_created = tk.BooleanVar(value=True)
-        self.compare_date_modified = tk.BooleanVar(value=True)
-        self.compare_sha512 = tk.BooleanVar(value=False)
-        self.overwrite_mode = tk.BooleanVar(value=True)
-        self.dry_run_mode = tk.BooleanVar(value=False)
-        
-        # Filtering state # v000.0002 changed - removed sorting
-        self.filter_wildcard = tk.StringVar()
-                                       
-                                                          
-        self.filtered_results = {}  # Store filtered comparison results
-        self.is_filtered = False
-        
-        # Data storage for comparison results and selection state
-        self.comparison_results: Dict[str, ComparisonResult_class] = {}
-        self.selected_left: Set[str] = set()
-        self.selected_right: Set[str] = set()
-        self.tree_structure: Dict[str, List[str]] = {'left': [], 'right': []}
-        
-        # Path mapping for proper status determination and tree navigation
-        # Maps relative_path -> tree_item_id for efficient lookups
-        self.path_to_item_left: Dict[str, str] = {}  # rel_path -> tree_item_id
-        self.path_to_item_right: Dict[str, str] = {}  # rel_path -> tree_item_id
-        
-        # Store root item IDs for special handling in selection logic
-        self.root_item_left: Optional[str] = None
-        self.root_item_right: Optional[str] = None
-        
-        # Flag to prevent recursive display updates during tree operations
-        self._updating_display = False
-        
-        # Status log management using configurable constants
-        self.status_log_lines = []  # Store status messages
-        self.max_status_lines = STATUS_LOG_MAX_HISTORY  # Use configurable maximum (5000)
-        
-        # File count tracking for limits
-        self.file_count_left = 0
-        self.file_count_right = 0
-        self.total_file_count = 0
-        self.limit_exceeded = False
-        
-        # UI References for widget interaction
-        self.left_tree = None
-        self.right_tree = None
-        self.status_var = tk.StringVar(value="Ready")
-        self.summary_var = tk.StringVar(value="Summary: No comparison performed")
-        self.status_log_text = None  # Will be set in setup_ui
-        
-        # copy system with staged strategy and dry run support
-        self.copy_manager = FileCopyManager(status_callback=self.add_status_message)
-        
-        if __debug__:
-            logger.debug("Application state initialized with dual copy system")
-        
-        self.setup_ui()
-        
-        # Add startup warnings about performance and limits
-        self.add_status_message("Application initialized - dual copy system ready")
-        self.add_status_message(f"WARNING: Large folder operations may be slow. Maximum {MAX_FILES_FOLDERS:,} files/folders supported.")
-        self.add_status_message("Tip: Use filtering and dry run mode for testing with large datasets.")
-        
-        # Display detected timezone information
-        timezone_str = self.copy_manager.timestamp_manager.get_timezone_string()
-        self.add_status_message(f"Timezone detected: {timezone_str} - will be used for timestamp operations")
-        logger.info("Application initialization complete ")
 
     def add_status_message(self, message):
         """
@@ -2483,15 +2461,15 @@ class FolderCompareSync_class:
         Creates and configures all GUI components including the new dry run checkbox,
         export functionality, and limit warnings for the application interface.
         """
-        logger.debug("Setting up user interface with features")
+        logger.debug("Setting up FolderCompareSync_class user interface with features")
         
         # Main container
         main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=3) # v001.0014 changed [tightened padding from pady=5 to pady=3]
         
         # Performance warning frame at top
         warning_frame = ttk.Frame(main_frame)
-        warning_frame.pack(fill=tk.X, pady=(0, 5))
+        warning_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         
         warning_label = ttk.Label(
             warning_frame, 
@@ -2501,33 +2479,33 @@ class FolderCompareSync_class:
                 f"SHA512 operations will take circa 2 seconds elapsed per GB of file read."
             ),
             foreground="royalblue",
-            font=("TkDefaultFont", 9, "bold")
+            font=self.scaled_label_font # v001.0014 changed [use scaled label font instead of default]
         )
 
         warning_label.pack(side=tk.LEFT)
         
         # Folder selection frame
-        folder_frame = ttk.LabelFrame(main_frame, text="Folder Selection", padding=10)
-        folder_frame.pack(fill=tk.X, pady=(0, 5))
+        folder_frame = ttk.LabelFrame(main_frame, text="Folder Selection", padding=8) # v001.0014 changed [tightened padding from padding=10 to padding=8]
+        folder_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
 
         # Left folder selection
-        ttk.Label(folder_frame, text="Left Folder:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
+        ttk.Label(folder_frame, text="Left Folder:", font=self.scaled_label_font).grid(row=0, column=0, sticky=tk.W, padx=(0, 5)) # v001.0014 changed [added scaled label font]
         ttk.Button(folder_frame, text="Browse", command=self.browse_left_folder).grid(row=0, column=1, padx=(0, 5))
-        left_entry = ttk.Entry(folder_frame, textvariable=self.left_folder, width=60)
+        left_entry = ttk.Entry(folder_frame, textvariable=self.left_folder, width=60, font=self.scaled_entry_font) # v001.0014 changed [added scaled entry font]
         left_entry.grid(row=0, column=2, sticky=tk.EW)
         
         # Right folder selection
-        ttk.Label(folder_frame, text="Right Folder:").grid(row=1, column=0, sticky=tk.W, padx=(0, 5), pady=(5, 0))
-        ttk.Button(folder_frame, text="Browse", command=self.browse_right_folder).grid(row=1, column=1, padx=(0, 5), pady=(5, 0))
-        right_entry = ttk.Entry(folder_frame, textvariable=self.right_folder, width=60)
-        right_entry.grid(row=1, column=2, sticky=tk.EW, pady=(5, 0))
+        ttk.Label(folder_frame, text="Right Folder:", font=self.scaled_label_font).grid(row=1, column=0, sticky=tk.W, padx=(0, 5), pady=(3, 0)) # v001.0014 changed [added scaled label font and tightened padding from pady=(5, 0) to pady=(3, 0)]
+        ttk.Button(folder_frame, text="Browse", command=self.browse_right_folder).grid(row=1, column=1, padx=(0, 5), pady=(3, 0)) # v001.0014 changed [tightened padding from pady=(5, 0) to pady=(3, 0)]
+        right_entry = ttk.Entry(folder_frame, textvariable=self.right_folder, width=60, font=self.scaled_entry_font) # v001.0014 changed [added scaled entry font]
+        right_entry.grid(row=1, column=2, sticky=tk.EW, pady=(3, 0)) # v001.0014 changed [tightened padding from pady=(5, 0) to pady=(3, 0)]
 
         # Let column 2 (the entry) grow
         folder_frame.columnconfigure(2, weight=1)
        
         # Comparison options frame with instructional text
-        options_frame = ttk.LabelFrame(main_frame, text="Comparison Options", padding=10)
-        options_frame.pack(fill=tk.X, pady=(0, 5))
+        options_frame = ttk.LabelFrame(main_frame, text="Comparison Options", padding=8) # v001.0014 changed [tightened padding from padding=10 to padding=8]
+        options_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         
         # Comparison criteria checkboxes with instructional text
         criteria_frame = ttk.Frame(options_frame)
@@ -2537,12 +2515,12 @@ class FolderCompareSync_class:
         instruction_frame = ttk.Frame(criteria_frame)
         instruction_frame.pack(fill=tk.X)
         
-        ttk.Label(instruction_frame, text="Compare Options:").pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Checkbutton(instruction_frame, text="Existence", variable=self.compare_existence).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Checkbutton(instruction_frame, text="Size", variable=self.compare_size).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Checkbutton(instruction_frame, text="Date Created", variable=self.compare_date_created).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Checkbutton(instruction_frame, text="Date Modified", variable=self.compare_date_modified).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Checkbutton(instruction_frame, text="SHA512", variable=self.compare_sha512).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Label(instruction_frame, text="Compare Options:", font=self.scaled_label_font).pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [added scaled label font]
+        ttk.Checkbutton(instruction_frame, text="Existence", variable=self.compare_existence, font=self.scaled_checkbox_font).pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [added scaled checkbox font]
+        ttk.Checkbutton(instruction_frame, text="Size", variable=self.compare_size, font=self.scaled_checkbox_font).pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [added scaled checkbox font]
+        ttk.Checkbutton(instruction_frame, text="Date Created", variable=self.compare_date_created, font=self.scaled_checkbox_font).pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [added scaled checkbox font]
+        ttk.Checkbutton(instruction_frame, text="Date Modified", variable=self.compare_date_modified, font=self.scaled_checkbox_font).pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [added scaled checkbox font]
+        ttk.Checkbutton(instruction_frame, text="SHA512", variable=self.compare_sha512, font=self.scaled_checkbox_font).pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [added scaled checkbox font]
         
         # Add instructional text for workflow guidance using configurable colors and font size
         ttk.Label(instruction_frame, text="<- select options then click Compare", 
@@ -2551,17 +2529,17 @@ class FolderCompareSync_class:
         
         # Control frame - reorganized for better layout
         control_frame = ttk.Frame(options_frame)
-        control_frame.pack(fill=tk.X, pady=(10, 0))
+        control_frame.pack(fill=tk.X, pady=(8, 0)) # v001.0014 changed [tightened padding from pady=(10, 0) to pady=(8, 0)]
         
         # Top row of controls with dry run support
         top_controls = ttk.Frame(control_frame)
-        top_controls.pack(fill=tk.X, pady=(0, 5))
+        top_controls.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         
         # Dry run checkbox next to overwrite mode
-        dry_run_cb = ttk.Checkbutton(top_controls, text="DRY RUN Only", variable=self.dry_run_mode, command=self.on_dry_run_changed)
+        dry_run_cb = ttk.Checkbutton(top_controls, text="DRY RUN Only", variable=self.dry_run_mode, command=self.on_dry_run_changed, font=self.scaled_checkbox_font) # v001.0014 changed [added scaled checkbox font]
         dry_run_cb.pack(side=tk.LEFT, padx=(0, 10))
         
-        ttk.Checkbutton(top_controls, text="Overwrite Mode", variable=self.overwrite_mode).pack(side=tk.LEFT, padx=(0, 20))
+        ttk.Checkbutton(top_controls, text="Overwrite Mode", variable=self.overwrite_mode, font=self.scaled_checkbox_font).pack(side=tk.LEFT, padx=(0, 20)) # v001.0014 changed [added scaled checkbox font]
         ttk.Button(top_controls, text="Compare", command=self.start_comparison, style="LimeGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 20))
 
         # selection controls with auto-clear and complete reset functionality
@@ -2579,11 +2557,11 @@ class FolderCompareSync_class:
 
         # Filter and tree control frame
         filter_tree_frame = ttk.Frame(control_frame)
-        filter_tree_frame.pack(fill=tk.X, pady=(5, 0))
+        filter_tree_frame.pack(fill=tk.X, pady=(3, 0)) # v001.0014 changed [tightened padding from pady=(5, 0) to pady=(3, 0)]
         
         # Wildcard filter controls
-        ttk.Label(filter_tree_frame, text="Filter Files by Wildcard:").pack(side=tk.LEFT, padx=(0, 5))
-        filter_entry = ttk.Entry(filter_tree_frame, textvariable=self.filter_wildcard, width=20)
+        ttk.Label(filter_tree_frame, text="Filter Files by Wildcard:", font=self.scaled_label_font).pack(side=tk.LEFT, padx=(0, 5)) # v001.0014 changed [added scaled label font]
+        filter_entry = ttk.Entry(filter_tree_frame, textvariable=self.filter_wildcard, width=20, font=self.scaled_entry_font) # v001.0014 changed [added scaled entry font]
         filter_entry.pack(side=tk.LEFT, padx=(0, 5))
         filter_entry.bind('<Return>', lambda e: self.apply_filter())
         
@@ -2596,7 +2574,7 @@ class FolderCompareSync_class:
         
         # Tree comparison frame (adjusted height to make room for status log)
         tree_frame = ttk.Frame(main_frame)
-        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
+        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         
         # Left tree with columns
         left_frame = ttk.LabelFrame(tree_frame, text="LEFT", padding=5)
@@ -2634,11 +2612,11 @@ class FolderCompareSync_class:
         
         # Copy buttons frame
         copy_frame = ttk.Frame(main_frame)
-        copy_frame.pack(fill=tk.X, pady=(0, 5))
+        copy_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         ttk.Button(copy_frame, text="Copy LEFT to Right", command=self.copy_left_to_right, style="RedBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left, style="GreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
         delete_frame = ttk.Frame(main_frame)
-        delete_frame.pack(fill=tk.X, pady=(0, 5))
+        delete_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         ttk.Button(delete_frame, text="Delete LEFT-only Orphaned Files", 
                       command=self.delete_left_orphans, style="PurpleBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(delete_frame, text="Delete RIGHT-only Orphaned Files", 
@@ -2647,14 +2625,14 @@ class FolderCompareSync_class:
 
         # status log frame at bottom with export functionality
         status_log_frame = ttk.LabelFrame(main_frame, text="Status Log", padding=5)
-        status_log_frame.pack(fill=tk.X, pady=(0, 5))
+        status_log_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         
         # Status log header with export button
         status_header = ttk.Frame(status_log_frame)
-        status_header.pack(fill=tk.X, pady=(0, 5))
+        status_header.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         
         ttk.Label(status_header, text=f"Operation History ({STATUS_LOG_MAX_HISTORY:,} lines max):", 
-                 font=("TkDefaultFont", 9)).pack(side=tk.LEFT)
+                 font=self.scaled_label_font).pack(side=tk.LEFT) # v001.0014 changed [added scaled label font]
         ttk.Button(status_header, text="Export Log", command=self.export_status_log).pack(side=tk.RIGHT)
         
         # Create text widget with scrollbar for status log using configurable parameters
@@ -2666,7 +2644,7 @@ class FolderCompareSync_class:
             height=STATUS_LOG_VISIBLE_LINES,  # Use configurable visible lines
             wrap=tk.WORD,
             state=tk.DISABLED,  # Read-only
-            font=STATUS_LOG_FONT,  # Use configurable font
+            font=STATUS_LOG_FONT,  # Use configurable font (keep monospace, unchanged)
             bg=STATUS_LOG_BG_COLOR,  # Use configurable background color
             fg=STATUS_LOG_FG_COLOR   # Use configurable text color
         )
@@ -2681,15 +2659,15 @@ class FolderCompareSync_class:
         status_frame = ttk.Frame(main_frame)
         status_frame.pack(fill=tk.X)
         
-        ttk.Label(status_frame, textvariable=self.summary_var).pack(side=tk.LEFT)
+        ttk.Label(status_frame, textvariable=self.summary_var, font=self.scaled_label_font).pack(side=tk.LEFT) # v001.0014 changed [added scaled label font]
         ttk.Separator(status_frame, orient=tk.VERTICAL).pack(side=tk.RIGHT, fill=tk.Y, padx=10)
-        ttk.Label(status_frame, text="Status:").pack(side=tk.RIGHT, padx=(0, 5))
-        ttk.Label(status_frame, textvariable=self.status_var).pack(side=tk.RIGHT)
+        ttk.Label(status_frame, text="Status:", font=self.scaled_label_font).pack(side=tk.RIGHT, padx=(0, 5)) # v001.0014 changed [added scaled label font]
+        ttk.Label(status_frame, textvariable=self.status_var, font=self.scaled_label_font).pack(side=tk.RIGHT) # v001.0014 changed [added scaled label font]
         
         # Configure tree event bindings for interaction
         self.setup_tree_events()
         
-        logger.debug("User interface setup complete with features")
+        logger.debug("FolderCompareSync_class User interface setup complete with features")
         
     def setup_tree_columns(self, tree): # v000.0002 changed - column sorting disabled
         """
@@ -6221,9 +6199,32 @@ class DeleteOrphansManager_class:
     
     def setup_ui(self):
         """Setup all UI components for the delete orphans dialog."""
+        # v001.0014 added [create scaled fonts for delete orphans dialog]
+        # Create scaled fonts for this dialog
+        default_font = tkfont.nametofont("TkDefaultFont") # v001.0014 added [create scaled fonts for delete orphans dialog]
+        
+        self.scaled_label_font = default_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
+        self.scaled_label_font.configure(size=int(LABEL_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for delete orphans dialog]
+        
+        self.scaled_entry_font = default_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
+        self.scaled_entry_font.configure(size=int(ENTRY_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for delete orphans dialog]
+        
+        self.scaled_checkbox_font = default_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
+        self.scaled_checkbox_font.configure(size=int(CHECKBOX_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for delete orphans dialog]
+        
+        self.scaled_button_font = default_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
+        self.scaled_button_font.configure( # v001.0014 added [create scaled fonts for delete orphans dialog]
+            size=int(BUTTON_FONT_SIZE * UI_FONT_SCALE), # v001.0014 added [create scaled fonts for delete orphans dialog]
+            weight="bold" # v001.0014 added [create scaled fonts for delete orphans dialog]
+        ) # v001.0014 added [create scaled fonts for delete orphans dialog]
+        
+        # Configure tree row height for this dialog's treeviews # v001.0015 added [tree row height control for compact display]
+        dialog_style = ttk.Style(self.dialog) # v001.0015 added [tree row height control for compact display]
+        dialog_style.configure("Treeview", rowheight=TREE_ROW_HEIGHT) # v001.0015 added [tree row height control for compact display]
+        
         # Main container
         main_frame = ttk.Frame(self.dialog)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8) # v001.0014 changed [tightened padding from padx=10, pady=10 to padx=8, pady=8]
         
         # Header section with explanation and statistics
         self.setup_header_section(main_frame)
@@ -6245,11 +6246,11 @@ class DeleteOrphansManager_class:
         
         # Bottom buttons
         self.setup_button_section(main_frame)
-        
+
     def setup_header_section(self, parent):
         """Setup header section with explanation and statistics."""
         header_frame = ttk.Frame(parent)
-        header_frame.pack(fill=tk.X, pady=(0, 10))
+        header_frame.pack(fill=tk.X, pady=(0, 8)) # v001.0014 changed [tightened padding from pady=(0, 10) to pady=(0, 8)]
         
         # Explanatory text
         side_text = self.side.upper()
@@ -6264,32 +6265,33 @@ class DeleteOrphansManager_class:
             header_frame, 
             text=explanation, 
             justify=tk.CENTER,
-            font=("TkDefaultFont", 10)
+            font=self.scaled_label_font # v001.0014 changed [use scaled label font instead of hardcoded font]
         )
-        explanation_label.pack(pady=(0, 10))
+        explanation_label.pack(pady=(0, 8)) # v001.0014 changed [tightened padding from pady=(0, 10) to pady=(0, 8)]
         
         # Statistics display
         self.statistics_var.set("Loading orphaned files...")
         statistics_label = ttk.Label(
             header_frame,
             textvariable=self.statistics_var,
-            font=("TkDefaultFont", 10, "bold"),
+            font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")), "bold"), # v001.0014 changed [use scaled label font with bold weight instead of hardcoded font]
             foreground="blue"
         )
-        statistics_label.pack(pady=(0, 5))
+        statistics_label.pack(pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         # Note: Removed original dry run notice here since we now have a dedicated section for local dry run control # v001.0013 changed [removed main app dry run notice from header]
 
     def setup_local_dry_run_section(self, parent): # v001.0013 added [local dry run mode section for delete orphans dialog]
         """Setup local dry run mode section with checkbox.""" # v001.0013 added [local dry run mode section for delete orphans dialog]
-        dry_run_frame = ttk.LabelFrame(parent, text="Local Operation Mode", padding=10) # v001.0013 added [local dry run mode section for delete orphans dialog]
-        dry_run_frame.pack(fill=tk.X, pady=(0, 10)) # v001.0013 added [local dry run mode section for delete orphans dialog]
+        dry_run_frame = ttk.LabelFrame(parent, text="Local Operation Mode", padding=8) # v001.0014 changed [tightened padding from padding=10 to padding=8]
+        dry_run_frame.pack(fill=tk.X, pady=(0, 8)) # v001.0014 changed [tightened padding from pady=(0, 10) to pady=(0, 8)]
         
         # Checkbox for local dry run mode # v001.0013 added [local dry run mode section for delete orphans dialog]
         dry_run_cb = ttk.Checkbutton( # v001.0013 added [local dry run mode section for delete orphans dialog]
             dry_run_frame, # v001.0013 added [local dry run mode section for delete orphans dialog]
             text="DRY RUN Only (simulate deletion without actually removing files)", # v001.0013 added [local dry run mode section for delete orphans dialog]
             variable=self.local_dry_run_mode, # v001.0013 added [local dry run mode section for delete orphans dialog]
-            command=self.on_local_dry_run_changed # v001.0013 added [local dry run mode section for delete orphans dialog]
+            command=self.on_local_dry_run_changed, # v001.0013 added [local dry run mode section for delete orphans dialog]
+            font=self.scaled_checkbox_font # v001.0014 changed [use scaled checkbox font instead of default]
         ) # v001.0013 added [local dry run mode section for delete orphans dialog]
         dry_run_cb.pack(side=tk.LEFT, padx=(0, 10)) # v001.0013 added [local dry run mode section for delete orphans dialog]
         
@@ -6299,7 +6301,7 @@ class DeleteOrphansManager_class:
             dry_run_frame, # v001.0013 added [local dry run mode section for delete orphans dialog]
             text=main_app_text, # v001.0013 added [local dry run mode section for delete orphans dialog]
             foreground="gray", # v001.0013 added [local dry run mode section for delete orphans dialog]
-            font=("TkDefaultFont", 8) # v001.0013 added [local dry run mode section for delete orphans dialog]
+            font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")) - 1) # v001.0014 changed [use scaled label font -1 size instead of hardcoded size 8]
         ) # v001.0013 added [local dry run mode section for delete orphans dialog]
         main_app_label.pack(side=tk.LEFT) # v001.0013 added [local dry run mode section for delete orphans dialog]
         
@@ -6308,14 +6310,14 @@ class DeleteOrphansManager_class:
             dry_run_frame, # v001.0013 added [local dry run mode section for delete orphans dialog]
             text="This setting is local to this dialog and overrides the main app setting", # v001.0013 added [local dry run mode section for delete orphans dialog]
             foreground="blue", # v001.0013 added [local dry run mode section for delete orphans dialog]
-            font=("TkDefaultFont", 8, "italic") # v001.0013 added [local dry run mode section for delete orphans dialog]
+            font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")) - 1, "italic") # v001.0014 changed [use scaled label font -1 size with italic instead of hardcoded size 8]
         ) # v001.0013 added [local dry run mode section for delete orphans dialog]
-        explanation_label.pack(pady=(5, 0)) # v001.0013 added [local dry run mode section for delete orphans dialog]
+        explanation_label.pack(pady=(3, 0)) # v001.0014 changed [tightened padding from pady=(5, 0) to pady=(3, 0)]
 
     def setup_deletion_method_section(self, parent):
         """Setup deletion method selection with radio buttons."""
-        method_frame = ttk.LabelFrame(parent, text="Deletion Method", padding=10)
-        method_frame.pack(fill=tk.X, pady=(0, 10))
+        method_frame = ttk.LabelFrame(parent, text="Deletion Method", padding=8) # v001.0014 changed [tightened padding from padding=10 to padding=8]
+        method_frame.pack(fill=tk.X, pady=(0, 8)) # v001.0014 changed [tightened padding from pady=(0, 10) to pady=(0, 8)]
         
         # Radio button frame
         radio_frame = ttk.Frame(method_frame)
@@ -6326,7 +6328,8 @@ class DeleteOrphansManager_class:
             radio_frame,
             text="Move to Recycle Bin (recommended)",
             variable=self.deletion_method,
-            value="recycle_bin"
+            value="recycle_bin",
+            font=self.scaled_checkbox_font # v001.0014 changed [use scaled checkbox font instead of default]
         )
         recycle_rb.pack(side=tk.LEFT, padx=(0, 20))
         
@@ -6335,7 +6338,8 @@ class DeleteOrphansManager_class:
             radio_frame,
             text="Permanent Deletion (cannot be undone)",
             variable=self.deletion_method,
-            value="permanent"
+            value="permanent",
+            font=self.scaled_checkbox_font # v001.0014 changed [use scaled checkbox font instead of default]
         )
         permanent_rb.pack(side=tk.LEFT)
         
@@ -6344,19 +6348,19 @@ class DeleteOrphansManager_class:
             method_frame,
             text="⚠ Permanent deletion cannot be undone - files will be lost forever",
             foreground="red",
-            font=("TkDefaultFont", 8)
+            font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")) - 1) # v001.0014 changed [use scaled label font -1 size instead of hardcoded size 8]
         )
-        warning_label.pack(pady=(5, 0))
+        warning_label.pack(pady=(3, 0)) # v001.0014 changed [tightened padding from pady=(5, 0) to pady=(3, 0)]
         
     def setup_filter_section(self, parent):
         """Setup dialog-specific filter controls."""
         filter_frame = ttk.Frame(parent)
-        filter_frame.pack(fill=tk.X, pady=(0, 10))
+        filter_frame.pack(fill=tk.X, pady=(0, 8)) # v001.0014 changed [tightened padding from pady=(0, 10) to pady=(0, 8)]
         
         # Filter label and entry
-        ttk.Label(filter_frame, text="Filter Files:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(filter_frame, text="Filter Files:", font=self.scaled_label_font).pack(side=tk.LEFT, padx=(0, 5)) # v001.0014 changed [use scaled label font instead of default]
         
-        filter_entry = ttk.Entry(filter_frame, textvariable=self.dialog_filter, width=20)
+        filter_entry = ttk.Entry(filter_frame, textvariable=self.dialog_filter, width=20, font=self.scaled_entry_font) # v001.0014 changed [use scaled entry font instead of default]
         filter_entry.pack(side=tk.LEFT, padx=(0, 5))
         filter_entry.bind('<Return>', lambda e: self.apply_filter())
         
@@ -6372,7 +6376,7 @@ class DeleteOrphansManager_class:
             self.filter_status_var.set("")
             
         filter_status_label = ttk.Label(filter_frame, textvariable=self.filter_status_var, 
-                                       foreground="gray", font=("TkDefaultFont", 8))
+                                       foreground="gray", font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")) - 1)) # v001.0014 changed [use scaled label font -1 size instead of hardcoded size 8]
         filter_status_label.pack(side=tk.LEFT)
         
     def setup_tree_section(self, parent):
@@ -6420,14 +6424,14 @@ class DeleteOrphansManager_class:
     def setup_status_section(self, parent):
         """Setup status log area."""
         status_frame = ttk.LabelFrame(parent, text="Status Log", padding=5)
-        status_frame.pack(fill=tk.X, pady=(0, 10))
+        status_frame.pack(fill=tk.X, pady=(0, 8)) # v001.0014 changed [tightened padding from pady=(0, 10) to pady=(0, 8)]
         
         # Status header with export button
         status_header = ttk.Frame(status_frame)
-        status_header.pack(fill=tk.X, pady=(0, 5))
+        status_header.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         
         ttk.Label(status_header, text=f"Operation History ({DELETE_ORPHANS_STATUS_MAX_HISTORY:,} lines max):", 
-                 font=("TkDefaultFont", 9)).pack(side=tk.LEFT)
+                 font=self.scaled_label_font).pack(side=tk.LEFT) # v001.0014 changed [use scaled label font instead of hardcoded font]
         ttk.Button(status_header, text="Export Log", command=self.export_status_log).pack(side=tk.RIGHT)
         
         # Status log text area
@@ -6439,7 +6443,7 @@ class DeleteOrphansManager_class:
             height=DELETE_ORPHANS_STATUS_LINES,
             wrap=tk.WORD,
             state=tk.DISABLED,
-            font=("Courier", 9),
+            font=("Courier", 9), # Keep monospace font unchanged for status log
             bg="#f8f8f8",
             fg="#333333"
         )
@@ -6472,6 +6476,13 @@ class DeleteOrphansManager_class:
         # Delete button with conditional text based on local dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         is_local_dry_run = self.local_dry_run_mode.get() # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         delete_text = "SIMULATE DELETION" if is_local_dry_run else "DELETE SELECTED ORPHANED FILES" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
+        
+        # v001.0014 added [create button style for delete orphans dialog with scaled font]
+        # Create a local style for this dialog's buttons with scaled font
+        button_style = ttk.Style(self.dialog) # v001.0014 added [create button style for delete orphans dialog with scaled font]
+        button_style.configure("DeleteOrphansRedBold.TButton", foreground="red", font=self.scaled_button_font) # v001.0014 added [create button style for delete orphans dialog with scaled font]
+        button_style.configure("DeleteOrphansBlueBold.TButton", foreground="blue", font=self.scaled_button_font) # v001.0014 added [create button style for delete orphans dialog with scaled font]
+        
         self.delete_button = ttk.Button( # v001.0013 changed [store button reference for dynamic updates]
             right_buttons, 
             text=delete_text, 
@@ -6481,11 +6492,11 @@ class DeleteOrphansManager_class:
         
         # Style the delete button based on local dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
-            # Use existing blue style for simulation
-            self.delete_button.configure(style="BlueBold.TButton") # v001.0013 changed [use stored button reference]
+            # Use blue style for simulation
+            self.delete_button.configure(style="DeleteOrphansBlueBold.TButton") # v001.0014 changed [use local scaled button style instead of main app style]
         else:
             # Use red style for actual deletion
-            self.delete_button.configure(style="RedBold.TButton") # v001.0013 changed [use stored button reference]
+            self.delete_button.configure(style="DeleteOrphansRedBold.TButton") # v001.0014 changed [use local scaled button style instead of main app style]
             
     def export_status_log(self):
         """Export status log to clipboard and optionally to file."""
@@ -7272,13 +7283,13 @@ class DeleteOrphansManager_class:
         # Update button text based on local dry run mode # v001.0013 added [update delete button appearance based on local dry run mode]
         if is_dry_run: # v001.0013 added [update delete button appearance based on local dry run mode]
             button_text = "SIMULATE DELETION" # v001.0013 added [update delete button appearance based on local dry run mode]
-            button_style = "BlueBold.TButton"  # Blue for simulation # v001.0013 added [update delete button appearance based on local dry run mode]
+            button_style = "DeleteOrphansBlueBold.TButton"  # Blue for simulation # v001.0014 changed [use local scaled button style instead of main app style]
         else: # v001.0013 added [update delete button appearance based on local dry run mode]
             button_text = "DELETE SELECTED ORPHANED FILES" # v001.0013 added [update delete button appearance based on local dry run mode]
-            button_style = "RedBold.TButton"   # Red for actual deletion # v001.0013 added [update delete button appearance based on local dry run mode]
+            button_style = "DeleteOrphansRedBold.TButton"   # Red for actual deletion # v001.0014 changed [use local scaled button style instead of main app style]
         
         # Apply changes to button # v001.0013 added [update delete button appearance based on local dry run mode]
-        self.delete_button.configure(text=button_text, style=button_style) # v001.0013 added [update delete button appearance based on local dry run mode]
+        self.delete_button.configure(text=button_text, style=button_style) # v001.0013 changed [use stored button reference]
 
     def on_local_dry_run_changed(self): # v001.0013 added [local dry run mode change handler for delete orphans dialog]
         """Handle local dry run mode checkbox changes.""" # v001.0013 added [local dry run mode change handler for delete orphans dialog]
