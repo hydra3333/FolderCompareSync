@@ -2,7 +2,8 @@
 """
 FolderCompareSync - A Folder Comparison & Synchronization Tool
 
-Version  v001.0016 - fix button and status message font scaling to use global constants consistently
+Version  v001.0017 - enhance delete orphans logic to distinguish true orphans from folders containing orphans
+         v001.0016 - fix button and status message font scaling to use global constants consistently
          v001.0015 - add configurable tree row height control for compact folder display
          v001.0014 - add configurable font scaling system for improved UI text readability
 
@@ -64,7 +65,7 @@ from ctypes import wintypes, Structure, c_char_p, c_int, c_void_p, POINTER, byre
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple, Any, Union
+from typing import Optional, Any, Union   # v001.0017 - removed  Remove Dict, List, Set, Tuple since "dict" "list" "set" "tuple" are newer in python 3.9+
 from enum import Enum
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -117,7 +118,12 @@ DEBUG_LOG_FREQUENCY = 100           # Log debug info every N items (avoid spam i
 TREE_UPDATE_BATCH_SIZE = 200000     # Process tree updates in batches of N items (used in sorting)
 MEMORY_EFFICIENT_THRESHOLD = 10000  # Switch to memory-efficient mode above N items
 
-# Tree column configuration (default widths) - for new columns
+# Tree column configuration (default widths)
+LEFT_SIDE_lowercase = 'left'.lower()
+LEFT_SIDE_uppercase = 'left'.upper()
+RIGHT_SIDE_lowercase = 'right'.lower()
+RIGHT_SIDE_uppercase = 'right'.upper()
+#
 TREE_STRUCTURE_WIDTH = 350         # Default structure column width
 TREE_STRUCTURE_MIN_WIDTH = 120     # Minimum structure column width
 TREE_SIZE_WIDTH = 50               # Size column width
@@ -478,7 +484,7 @@ import argparse
 import tempfile
 import shutil
 from pathlib import Path
-from typing import Tuple, Optional, Union
+from typing import tuple, Optional, Union
 
 # ==========================================================================================================
 # WINDOWS FILETIME STRUCTURE AND API SETUP
@@ -752,7 +758,7 @@ class FileTimestampManager:
         log_and_flush(logging.WARNING, "Could not determine local timezone, falling back to Method 3: UTC")
         return timezone.utc
     
-    def get_file_timestamps(self, file_path: Union[str, Path]) -> Tuple[datetime, datetime]:
+    def get_file_timestamps(self, file_path: Union[str, Path]) -> tuple[datetime, datetime]:
         """
         Get creation and modification timestamps from a file or directory.
         
@@ -760,7 +766,7 @@ class FileTimestampManager:
             file_path: Path to the file or directory
             
         Returns:
-            Tuple of (creation_time, modification_time) as timezone-aware datetime objects
+            tuple of (creation_time, modification_time) as timezone-aware datetime objects
             
         Raises:
             FileNotFoundError: If the file doesn't exist
@@ -1230,9 +1236,9 @@ class CopyStrategy(Enum):
     Defines the available copy strategies for file operations
     based on file size, location, and drive type characteristics.
     """
-    DIRECT = "direct"           # Strategy A: Direct copy for small files on local drives
-    STAGED = "staged"           # Strategy B: Staged copy with rename-based backup for large files
-    NETWORK = "network"         # Network-optimized copy with retry logic
+    DIRECT = "direct".lower()           # Strategy A: Direct copy for small files on local drives
+    STAGED = "staged".lower()           # Strategy B: Staged copy with rename-based backup for large files
+    NETWORK = "network".lower()         # Network-optimized copy with retry logic
 
 class DriveType(Enum):
     """
@@ -1510,7 +1516,7 @@ class ComparisonResult_class:
     """
     left_item: Optional[FileMetadata_class]
     right_item: Optional[FileMetadata_class]
-    differences: Set[str]  # Set of difference types: 'existence', 'size', 'date_created', 'date_modified', 'sha512'
+    differences: set[str]  # Set of difference types: 'existence', 'size', 'date_created', 'date_modified', 'sha512'
     is_different: bool = False
     
     def __post_init__(self):
@@ -2265,15 +2271,15 @@ class FolderCompareSync_class:
         self.is_filtered = False
         
         # Data storage for comparison results and selection state
-        self.comparison_results: Dict[str, ComparisonResult_class] = {}
-        self.selected_left: Set[str] = set()
-        self.selected_right: Set[str] = set()
-        self.tree_structure: Dict[str, List[str]] = {'left': [], 'right': []}
+        self.comparison_results: dict[str, ComparisonResult_class] = {}
+        self.selected_left: set[str] = set()
+        self.selected_right: set[str] = set()
+        self.tree_structure: dict[str, list[str]] = {LEFT_SIDE_lowercase: [], RIGHT_SIDE_lowercase: []}
         
         # Path mapping for proper status determination and tree navigation
         # Maps relative_path -> tree_item_id for efficient lookups
-        self.path_to_item_left: Dict[str, str] = {}  # rel_path -> tree_item_id
-        self.path_to_item_right: Dict[str, str] = {}  # rel_path -> tree_item_id
+        self.path_to_item_left: dict[str, str] = {}  # rel_path -> tree_item_id
+        self.path_to_item_right: dict[str, str] = {}  # rel_path -> tree_item_id
         
         # Store root item IDs for special handling in selection logic
         self.root_item_left: Optional[str] = None
@@ -2464,117 +2470,99 @@ class FolderCompareSync_class:
             mode = "DEBUG" if enabled else "NORMAL"
             self.status_var.set(f"{current_status} ({mode})")
 
-    def delete_left_orphans_onclick(self): # v001.0012 added [delete left orphans button command]
-        """Handle Delete Orphaned Files from LEFT-only button.""" # v001.0012 added [delete left orphans button command]
-        if self.limit_exceeded: # v001.0012 added [delete left orphans button command]
-            messagebox.showwarning("Operation Disabled", "Delete operations are disabled when file limits are exceeded.") # v001.0012 added [delete left orphans button command]
-            return # v001.0012 added [delete left orphans button command]
-            
-        if not self.comparison_results: # v001.0012 added [delete left orphans button command]
-            self.add_status_message("No comparison data available - please run comparison first") # v001.0012 added [delete left orphans button command]
-            messagebox.showinfo("No Data", "Please perform a folder comparison first.") # v001.0012 added [delete left orphans button command]
-            return # v001.0012 added [delete left orphans button command]
-            
-        # Get current filter if active # v001.0012 added [delete left orphans button command]
-        active_filter = self.filter_wildcard.get() if self.is_filtered else None # v001.0012 added [delete left orphans button command]
-        
-        # Detect orphaned files on left side # v001.0012 added [delete left orphans button command]
-        orphaned_files = DeleteOrphansManager_class.detect_orphaned_files(self.comparison_results, 'left', active_filter) # v001.0012 changed [use DeleteOrphansManager_class class method]
-        
-        if not orphaned_files: # v001.0012 added [delete left orphans button command]
-            filter_text = f" (with active filter: {active_filter})" if active_filter else "" # v001.0012 added [delete left orphans button command]
-            self.add_status_message(f"No orphaned files found on LEFT side{filter_text}") # v001.0012 added [delete left orphans button command]
-            messagebox.showinfo("No Orphans", f"No orphaned files found on LEFT side{filter_text}.") # v001.0012 added [delete left orphans button command]
-            return # v001.0012 added [delete left orphans button command]
-            
-        self.add_status_message(f"Opening delete orphans dialog for LEFT side: {len(orphaned_files)} files") # v001.0012 added [delete left orphans button command]
-        
-        try: # v001.0012 added [delete left orphans button command]
-            # Create and show delete orphans manager/dialog # v001.0012 added [delete left orphans button command]
-            manager = DeleteOrphansManager_class ( # v001.0012 changed [use DeleteOrphansManager_class instead of DeleteOrphansDialog]
-                parent=self.root, # v001.0012 added [delete left orphans button command]
-                orphaned_files=orphaned_files, # v001.0012 added [delete left orphans button command]
-                side='left', # v001.0012 added [delete left orphans button command]
-                source_folder=self.left_folder.get(), # v001.0012 added [delete left orphans button command]
-                dry_run_mode=self.dry_run_mode.get(), # v001.0012 added [delete left orphans button command]
-                comparison_results=self.comparison_results, # v001.0012 added [delete left orphans button command]
-                active_filter=active_filter # v001.0012 added [delete left orphans button command]
-            ) # v001.0012 added [delete left orphans button command]
-            
-            # Wait for dialog to complete # v001.0012 added [delete left orphans button command]
-            self.root.wait_window(manager.dialog) # v001.0012 changed [use manager.dialog instead of dialog.dialog]
-            
-            # Check if files were actually deleted (not dry run) # v001.0012 added [delete left orphans button command]
-            if hasattr(manager, 'result') and manager.result == 'deleted' and not self.dry_run_mode.get(): # v001.0012 changed [use manager instead of dialog]
-                self.add_status_message("Delete operation completed - refreshing folder comparison...") # v001.0012 added [delete left orphans button command]
-                # Refresh comparison to show updated state # v001.0012 added [delete left orphans button command]
-                self.refresh_after_copy_operation() # v001.0012 added [delete left orphans button command]
-            else: # v001.0012 added [delete left orphans button command]
-                self.add_status_message("Delete orphans dialog closed") # v001.0012 added [delete left orphans button command]
-                
-        except Exception as e: # v001.0012 added [delete left orphans button command]
-            error_msg = f"Error opening delete orphans dialog: {str(e)}" # v001.0012 added [delete left orphans button command]
-            self.add_status_message(f"ERROR: {error_msg}") # v001.0012 added [delete left orphans button command]
-            self.show_error(error_msg) # v001.0012 added [delete left orphans button command]
-        finally: # v001.0012 added [delete left orphans button command]
-            # Cleanup memory after dialog operations # v001.0012 added [delete left orphans button command]
-            gc.collect() # v001.0012 added [delete left orphans button command]
+    def delete_left_orphans_onclick(self): # v001.0017 changed [now calls consolidated method]
+        """Handle Delete Orphaned Files from LEFT-only button using enhanced orphan detection."""
+        self.delete_orphans(LEFT_SIDE_lowercase)
 
-    def delete_right_orphans_onclick(self): # v001.0012 added [delete right orphans button command]
-        """Handle Delete Orphaned Files from RIGHT-only button.""" # v001.0012 added [delete right orphans button command]
-        if self.limit_exceeded: # v001.0012 added [delete right orphans button command]
-            messagebox.showwarning("Operation Disabled", "Delete operations are disabled when file limits are exceeded.") # v001.0012 added [delete right orphans button command]
-            return # v001.0012 added [delete right orphans button command]
-            
-        if not self.comparison_results: # v001.0012 added [delete right orphans button command]
-            self.add_status_message("No comparison data available - please run comparison first") # v001.0012 added [delete right orphans button command]
-            messagebox.showinfo("No Data", "Please perform a folder comparison first.") # v001.0012 added [delete right orphans button command]
-            return # v001.0012 added [delete right orphans button command]
-            
-        # Get current filter if active # v001.0012 added [delete right orphans button command]
-        active_filter = self.filter_wildcard.get() if self.is_filtered else None # v001.0012 added [delete right orphans button command]
+    def delete_right_orphans_onclick(self): # v001.0017 changed [now calls consolidated method]
+        """Handle Delete Orphaned Files from RIGHT-only button using enhanced orphan detection."""
+        self.delete_orphans(RIGHT_SIDE_lowercase)
+
+    def delete_orphans(self, side: str): # v001.0017 added [consolidated delete orphans method]
+        """
+        Handle Delete Orphaned Files button for specified side with enhanced orphan detection.
         
-        # Detect orphaned files on right side # v001.0012 added [delete right orphans button command]
-        orphaned_files = DeleteOrphansManager_class.detect_orphaned_files(self.comparison_results, 'right', active_filter) # v001.0012 changed [use DeleteOrphansManager_class class method]
+        Purpose:
+        --------
+        Consolidated method that handles delete orphans functionality for both left and right sides
+        using enhanced orphan classification logic that distinguishes true orphans from folders
+        that just contain orphaned files.
         
-        if not orphaned_files: # v001.0012 added [delete right orphans button command]
-            filter_text = f" (with active filter: {active_filter})" if active_filter else "" # v001.0012 added [delete right orphans button command]
-            self.add_status_message(f"No orphaned files found on RIGHT side{filter_text}") # v001.0012 added [delete right orphans button command]
-            messagebox.showinfo("No Orphans", f"No orphaned files found on RIGHT side{filter_text}.") # v001.0012 added [delete right orphans button command]
-            return # v001.0012 added [delete right orphans button command]
+        Args:
+        -----
+        side: LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase - which side to process orphaned files for
+        """
+        if self.limit_exceeded:
+            messagebox.showwarning("Operation Disabled", "Delete operations are disabled when file limits are exceeded.")
+            return
             
-        self.add_status_message(f"Opening delete orphans dialog for RIGHT side: {len(orphaned_files)} files") # v001.0012 added [delete right orphans button command]
+        if not self.comparison_results:
+            self.add_status_message("No comparison data available - please run comparison first")
+            messagebox.showinfo("No Data", "Please perform a folder comparison first.")
+            return
+            
+        # Get current filter if active
+        active_filter = self.filter_wildcard.get() if self.is_filtered else None
         
-        try: # v001.0012 added [delete right orphans button command]
-            # Create and show delete orphans manager/dialog # v001.0012 added [delete right orphans button command]
-            manager = DeleteOrphansManager_class( # v001.0012 changed [use DeleteOrphansManager_class instead of DeleteOrphansDialog]
-                parent=self.root, # v001.0012 added [delete right orphans button command]
-                orphaned_files=orphaned_files, # v001.0012 added [delete right orphans button command]
-                side='right', # v001.0012 added [delete right orphans button command]
-                source_folder=self.right_folder.get(), # v001.0012 added [delete right orphans button command]
-                dry_run_mode=self.dry_run_mode.get(), # v001.0012 added [delete right orphans button command]
-                comparison_results=self.comparison_results, # v001.0012 added [delete right orphans button command]
-                active_filter=active_filter # v001.0012 added [delete right orphans button command]
-            ) # v001.0012 added [delete right orphans button command]
+        # v001.0017 changed [use enhanced detect_orphaned_files method]
+        # Get enhanced orphan detection results
+        orphaned_files, orphan_detection_metadata = DeleteOrphansManager_class.detect_orphaned_files(
+            self.comparison_results, side, active_filter
+        )
+        
+        side_upper = side.upper()  # v001.0017 added [preserve original case for display while using case insensitive logic]
+        if not orphaned_files:
+            filter_text = f" (with active filter: {active_filter})" if active_filter else ""
+            self.add_status_message(f"No orphaned files found on {side_upper} side{filter_text}")
+            messagebox.showinfo("No Orphans", f"No orphaned files found on {side_upper} side{filter_text}.")
+            return
             
-            # Wait for dialog to complete # v001.0012 added [delete right orphans button command]
-            self.root.wait_window(manager.dialog) # v001.0012 changed [use manager.dialog instead of dialog.dialog]
+        # v001.0017 added [log enhanced orphan classification results]
+        true_orphans = sum(1 for meta in orphan_detection_metadata.values() if meta.get('is_true_orphan', False))
+        contains_orphans = sum(1 for meta in orphan_detection_metadata.values() if not meta.get('is_true_orphan', True))
+        
+        self.add_status_message(f"Enhanced orphan detection on {side_upper}: {true_orphans} true orphans, {contains_orphans} folders containing orphans")
+        self.add_status_message(f"Opening enhanced delete orphans dialog for {side_upper} side: {len(orphaned_files)} total items")
+        
+        try:
+            # v001.0017 changed [pass enhanced detection metadata to DeleteOrphansManager]
+            # Get the appropriate source folder with case insensitive comparison
+            source_folder = self.left_folder.get() if side.lower() == LEFT_SIDE_lowercase else self.right_folder.get()  # v001.0017 changed [case insensitive comparison]
             
-            # Check if files were actually deleted (not dry run) # v001.0012 added [delete right orphans button command]
-            if hasattr(manager, 'result') and manager.result == 'deleted' and not self.dry_run_mode.get(): # v001.0012 changed [use manager instead of dialog]
-                self.add_status_message("Delete operation completed - refreshing folder comparison...") # v001.0012 added [delete right orphans button command]
-                # Refresh comparison to show updated state # v001.0012 added [delete right orphans button command]
-                self.refresh_after_copy_operation() # v001.0012 added [delete right orphans button command]
-            else: # v001.0012 added [delete right orphans button command]
-                self.add_status_message("Delete orphans dialog closed") # v001.0012 added [delete right orphans button command]
+            # Create and show enhanced delete orphans manager/dialog
+            manager = DeleteOrphansManager_class(
+                parent=self.root,
+                orphaned_files=orphaned_files,
+                side=side,
+                source_folder=source_folder,
+                dry_run_mode=self.dry_run_mode.get(),
+                comparison_results=self.comparison_results,
+                active_filter=active_filter
+            )
+            
+            # v001.0017 added [pass enhanced detection metadata to manager for smart initialization]
+            # Note: This requires enhancement to DeleteOrphansManager_class.__init__ to accept this parameter
+            if hasattr(manager, 'set_enhanced_detection_metadata'):  # v001.0017 added [backward compatibility check]
+                manager.set_enhanced_detection_metadata(orphan_detection_metadata)  # v001.0017 added [pass enhanced metadata]
+            
+            # Wait for dialog to complete
+            self.root.wait_window(manager.dialog)
+            
+            # Check if files were actually deleted (not dry run)
+            if hasattr(manager, 'result') and manager.result.lower() == 'deleted'.lower() and not self.dry_run_mode.get():
+                self.add_status_message("Enhanced delete operation completed - refreshing folder comparison...")
+                # Refresh comparison to show updated state
+                self.refresh_after_copy_operation()
+            else:
+                self.add_status_message("Enhanced delete orphans dialog closed")
                 
-        except Exception as e: # v001.0012 added [delete right orphans button command]
-            error_msg = f"Error opening delete orphans dialog: {str(e)}" # v001.0012 added [delete right orphans button command]
-            self.add_status_message(f"ERROR: {error_msg}") # v001.0012 added [delete right orphans button command]
-            self.show_error(error_msg) # v001.0012 added [delete right orphans button command]
-        finally: # v001.0012 added [delete right orphans button command]
-            # Cleanup memory after dialog operations # v001.0012 added [delete right orphans button command]
-            gc.collect() # v001.0012 added [delete right orphans button command]
+        except Exception as e:
+            error_msg = f"Error opening enhanced delete orphans dialog: {str(e)}"
+            self.add_status_message(f"ERROR: {error_msg}")
+            self.show_error(error_msg)
+        finally:
+            # Cleanup memory after dialog operations
+            gc.collect()
 
     def setup_ui(self):
         """
@@ -2701,7 +2689,7 @@ class FolderCompareSync_class:
         tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         
         # Left tree with columns
-        left_frame = ttk.LabelFrame(tree_frame, text="LEFT", padding=5)
+        left_frame = ttk.LabelFrame(tree_frame, text=LEFT_SIDE_uppercase, padding=5)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 2))
         
         self.left_tree = ttk.Treeview(left_frame, show='tree headings', selectmode='none')
@@ -2717,7 +2705,7 @@ class FolderCompareSync_class:
         left_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         
         # Right tree with columns
-        right_frame = ttk.LabelFrame(tree_frame, text="RIGHT", padding=5)
+        right_frame = ttk.LabelFrame(tree_frame, text=RIGHT_SIDE_uppercase, padding=5)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(2, 0))
         
         self.right_tree = ttk.Treeview(right_frame, show='tree headings', selectmode='none')
@@ -2910,522 +2898,6 @@ class FolderCompareSync_class:
         self.file_count_right = 0
         self.total_file_count = 0
 
-                                                                                           
-                                                                                   
-                                                                             
-        
-                               
-                                                                                                              
-                                                                        
-                  
-            
-                                                                         
-                                                                                                                                
-        
-                                                                          
-                                              
-                                                                                           
-                                                                                           
-             
-                                             
-                                           
-                                                                                                         
-        
-                       
-                                                                                      
-                                                              
-                                               
-                                                       
-        
-                                 
-                                                                                                 
-                                                                                                                                           
-        
-                                
-                                                                  
-                                                                
-                                                                
-                  
-        
-                                                      
-                                                                                                      
-                                                             
-        
-            
-                                                          
-                              
-                    
-                                                                                
-                                                                  
-                                                                                              
-                                      
-                                                                                  
-                                    
-                                                                                                 
-                                                                                                 
-                        
-                                                                        
-                                                      
-            
-                                                                         
-                                                                     
-            
-                              
-                            
-                                                                                    
-                            
-                                                                                          
-                                                             
-        
-                                                                       
-
-    
-       
-                                        
-    
-                                                                         
-                                                                                                                
-                                                                                                       
-                                                                             
-                                                                                       
-                                                                  
-                 
-                    
-                              
-                                           
-                                           
-                                           
-                           
-                                        
-                                        
-                                    
-                                                                                        
-                                                                  
-                                                                                                   
-                                                                       
-
-                  
-                                              
-                                                          
-                                                                    
-                                                     
-
-                         
-                         
-    
-                                           
-                                            
-                                                        
-                                                                    
-    
-                                         
-                                      
-                                                               
-                                                                   
-    
-                                     
-                                     
-                                                             
-                                                                    
-    
-                              
-                             
-                                                    
-                                                                            
-    
-                     
-                    
-    
-                                    
-                                          
-                                            
-                                              
-                              
-    
-                                   
-                                                
-                               
-                                 
-    
-                                        
-                                               
-                                               
-    
-                                           
-                                                        
-                                          
-    
-                                       
-                                                   
-                                            
-    
-                                                 
-                            
-                              
-    
-                                        
-                                           
-                                                      
-                                            
-    
-                        
-                       
-                                                              
-                                                      
-                                                           
-                                       
-                                                        
-                                                        
-                                                  
-    
-                                                                                     
-                                                                
-   
-
-                                                                         
-           
-                                                        
-        
-                
-                
-                                                                             
-           
-                            
-        
-                                             
-                                                                   
-                                                 
-                                                                
-                                                                 
-            
-                                    
-                                       
-                                                    
-                                                   
-                                                                                                
-            
-                              
-                                                    
-                                              
-        
-                               
-                                             
-                                              
-        
-                                                                                          
-                              
-    
-                                                                                             
-           
-                                                       
-        
-             
-             
-                                                        
-                                                                       
-           
-                                                            
-                          
-        
-                                                 
-                                                     
-                                   
-            
-                                                 
-                                                                 
-            
-                                           
-                                                          
-                                                       
-                                   
-                                                                                                          
-            
-                              
-                                                    
-                                                  
-        
-                                               
-                                             
-                                                  
-        
-                                                                                                      
-    
-                                                                                   
-                                                                                                        
-           
-                                                                      
-        
-             
-             
-                                                               
-                                                                 
-                                                           
-                                                             
-           
-                                                                            
-        
-            
-                                      
-                                                               
-                                                                                          
-            
-                                           
-                                                                     
-                                                                                    
-                                                                                      
-            
-                                                                                   
-            
-                              
-                                                                              
-                            
-                                                                                           
-
-
-                                                                                                      
-                                                                                  
-                                                                                                                      
-        
-                                          
-                                                                    
-                                                                             
-        
-                                                                    
-        
-                                                        
-                                                                                               
-                                                                                                                              
-        
-                              
-                                                                                             
-                                                              
-                  
-            
-                                                                 
-        
-                                                      
-                                                                  
-                                                                              
-                                                                                
-                                                                                                                                         
-            
-                                                                               
-        
-                                                                              
-            
-                                                                                              
-                                                                     
-                                                                             
-             
-                                                                                     
-            
-                                                                     
-            
-                                                             
-                                       
-                                        
-            
-                                              
-                                                                       
-                            
-                                                     
-                    
-                                               
-                                                                        
-                            
-                                                      
-            
-                                                                                                                          
-            
-                                                                    
-                                                       
-            
-                                        
-                                
-                                                      
-                                                              
-                 
-                                                        
-                                                                
-            
-                                                 
-                                
-                                                                      
-                                                                  
-                 
-                                                             
-                                                              
-            
-                                                                        
-            
-                                                                 
-                                                                      
-                                                           
-                                                           
-              
-                                                             
-            
-                                                                                                                              
-                                                                             
-                                                 
-            
-                              
-                                                                                 
-                            
-                                                                                  
-                                                                                                      
-        
-                                                                   
-                                                                             
-
-                                                                                                 
-           
-                                                                         
-        
-                
-                
-                                                                      
-                                                                                 
-        
-             
-             
-                                                              
-                                                                
-                                                                
-                                                    
-        
-                
-                
-                                                                      
-           
-                                                       
-                                                  
-            
-                                                
-                                                                                    
-            
-                                                                       
-                                           
-                                                                                        
-            
-                                                           
-                                           
-                                                                                          
-            
-                                                                                
-                              
-                                                                               
-            
-                
-                                    
-                                                                     
-                                              
-                                                                                                           
-                                                               
-                                               
-                                                                                                             
-                                                               
-                                        
-                                                                        
-                                        
-                                                                           
-                                                             
-                     
-                                             
-                                                         
-                                               
-                                                     
-        
-                                                           
-                         
-        
-                               
-                            
-                                                     
-                                         
-                        
-                
-                                              
-                                                   
-                                                  
-                                                                    
-        
-                                       
-                           
-        
-                                          
-                              
-                                                 
-        
-                                              
-                                                           
-                                                       
-            
-                                                      
-                          
-                                                
-                                                                                           
-                                                
-                                               
-                                                                 
-            
-                                                  
-                                                        
-                                             
-                           
-                                               
-                                                  
-                 
-                
-                                                            
-                                                     
-        
-                             
-    
-                                                                                                                                      
-                                                         
-                                                                         
-        
-            
-                                      
-                                      
-                                       
-                                                                         
-            
-                                     
-                             
-                                                
-                                                                       
-                           
-                                                   
-                                      
-                                                                                           
-                     
-                                                                                                     
-            
-                                        
-                              
-                                                 
-                                                                        
-                           
-                                                    
-                                       
-                                                                                            
-                     
-                                                                                                      
-            
-                                                                                                                 
-            
-                            
-                                                                    
-                                           
-                                                                              
-            
-                              
-                                                                                                
-                            
-                                                                                               
-
     def apply_filter(self):
         """Apply wildcard filter to display only matching files with limit checking."""
         if self.limit_exceeded:
@@ -3613,8 +3085,8 @@ class FolderCompareSync_class:
         self.right_tree.bind('<<TreeviewClose>>', lambda e: self.handle_tree_expand_collapse(self.right_tree, self.left_tree, e, False))
         
         # Bind checkbox-like behavior for item selection (with missing item exclusion)
-        self.left_tree.bind('<Button-1>', lambda e: self.handle_tree_click(self.left_tree, 'left', e))
-        self.right_tree.bind('<Button-1>', lambda e: self.handle_tree_click(self.right_tree, 'right', e))
+        self.left_tree.bind('<Button-1>', lambda e: self.handle_tree_click(self.left_tree, LEFT_SIDE_lowercase, e))
+        self.right_tree.bind('<Button-1>', lambda e: self.handle_tree_click(self.right_tree, RIGHT_SIDE_lowercase, e))
         
     def handle_tree_expand_collapse(self, source_tree, target_tree, event, is_expand):
         """
@@ -3688,7 +3160,7 @@ class FolderCompareSync_class:
         Args:
         -----
         item_id: Tree item ID to check
-        side: Which tree side ('left' or 'right')
+        side: Which tree side (LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase)
         
         Returns:
         --------
@@ -3709,9 +3181,9 @@ class FolderCompareSync_class:
         if result and result.is_different:
             # Also ensure the item exists on this side
             item_exists = False
-            if side == 'left' and result.left_item and result.left_item.exists:
+            if side.lower() == LEFT_SIDE_lowercase and result.left_item and result.left_item.exists:
                 item_exists = True
-            elif side == 'right' and result.right_item and result.right_item.exists:
+            elif side.lower() == RIGHT_SIDE_lowercase and result.right_item and result.right_item.exists:
                 item_exists = True
                 
             if __debug__ and item_exists:
@@ -3733,13 +3205,13 @@ class FolderCompareSync_class:
         Args:
         -----
         item_id: Tree item ID
-        side: Which tree side ('left' or 'right')
+        side: Which tree side (LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase)
         
         Returns:
         --------
         str: Relative path or None if not found
         """
-        path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
+        path_map = self.path_to_item_left if side.lower() == LEFT_SIDE_lowercase else self.path_to_item_right
         
         # Find the relative path by searching the mapping
         for rel_path, mapped_item_id in path_map.items():
@@ -3785,8 +3257,8 @@ class FolderCompareSync_class:
         if __debug__:
             log_and_flush(logging.DEBUG, f"Toggling selection for item {item_id} on {side} side")
             
-        selected_set = self.selected_left if side == 'left' else self.selected_right
-        tree = self.left_tree if side == 'left' else self.right_tree
+        selected_set = self.selected_left if side.lower() == LEFT_SIDE_lowercase else self.selected_right
+        tree = self.left_tree if side.lower() == LEFT_SIDE_lowercase else self.right_tree
         
         was_selected = item_id in selected_set
         
@@ -3823,8 +3295,8 @@ class FolderCompareSync_class:
         Implements intelligent folder selection logic that only selects
         child items that have actual differences requiring synchronization.
         """
-        selected_set = self.selected_left if side == 'left' else self.selected_right
-        tree = self.left_tree if side == 'left' else self.right_tree
+        selected_set = self.selected_left if side.lower() == LEFT_SIDE_lowercase else self.selected_right
+        tree = self.left_tree if side.lower() == LEFT_SIDE_lowercase else self.right_tree
         
         if __debug__:
             log_and_flush(logging.DEBUG, f"Smart ticking children for {item_id} - only selecting different items")
@@ -3862,8 +3334,8 @@ class FolderCompareSync_class:
             
     def untick_children(self, item_id, side):
         """Untick all children of an item recursively."""
-        selected_set = self.selected_left if side == 'left' else self.selected_right
-        tree = self.left_tree if side == 'left' else self.right_tree
+        selected_set = self.selected_left if side.lower() == LEFT_SIDE_lowercase else self.selected_right
+        tree = self.left_tree if side.lower() == LEFT_SIDE_lowercase else self.right_tree
         
         def untick_recursive(item):
             selected_set.discard(item)
@@ -3882,9 +3354,9 @@ class FolderCompareSync_class:
         Also prevent attempting to untick parents of root items
         which can cause errors and inconsistent selection state.
         """
-        selected_set = self.selected_left if side == 'left' else self.selected_right
-        tree = self.left_tree if side == 'left' else self.right_tree
-        root_item = self.root_item_left if side == 'left' else self.root_item_right
+        selected_set = self.selected_left if side.lower() == LEFT_SIDE_lowercase else self.selected_right
+        tree = self.left_tree if side.lower() == LEFT_SIDE_lowercase else self.right_tree
+        root_item = self.root_item_left if side.lower() == LEFT_SIDE_lowercase else self.root_item_right
         
         if __debug__:
             log_and_flush(logging.DEBUG, f"Unticking parents for item {item_id}, root_item: {root_item}")
@@ -3937,7 +3409,7 @@ class FolderCompareSync_class:
             
         # Update right tree  
         for item in self.right_tree.get_children():
-            self.update_item_display(self.right_tree, item, 'right')
+            self.update_item_display(self.right_tree, item, RIGHT_SIDE_lowercase)
             
     def update_item_display(self, tree, item, side, recursive=True):
         """
@@ -3948,7 +3420,7 @@ class FolderCompareSync_class:
         Only updates checkbox display for non-missing items
         to maintain consistent visual representation of selectable items.
         """
-        selected_set = self.selected_left if side == 'left' else self.selected_right
+        selected_set = self.selected_left if side.lower() == LEFT_SIDE_lowercase else self.selected_right
         
         # Get current text 
         current_text = tree.item(item, 'text')
@@ -4189,7 +3661,7 @@ class FolderCompareSync_class:
             progress.close()
             
     def build_file_list_with_progress(self, root_path: str, progress: ProgressDialog, 
-                                    start_percent: int, end_percent: int) -> Optional[Dict[str, FileMetadata_class]]:
+                                    start_percent: int, end_percent: int) -> Optional[dict[str, FileMetadata_class]]:
         """
         Build a dictionary of relative_path -> FileMetadata with progress tracking and early limit checking.
         
@@ -4207,7 +3679,7 @@ class FolderCompareSync_class:
         
         Returns:
         --------
-        Dict[str, FileMetadata_class] or None: File metadata dict or None if limit exceeded
+        dict[str, FileMetadata_class] or None: File metadata dict or None if limit exceeded
         """
         if __debug__:
             log_and_flush(logging.DEBUG, f"Building file list with progress for: {root_path}")
@@ -4402,7 +3874,7 @@ class FolderCompareSync_class:
             return None  # v000.0004 hash computation failed
         
     def compare_items(self, left_item: Optional[FileMetadata_class], 
-                     right_item: Optional[FileMetadata_class]) -> Set[str]:
+                     right_item: Optional[FileMetadata_class]) -> set[str]:
         """
         Compare two items and return set of differences.
         
@@ -4418,7 +3890,7 @@ class FolderCompareSync_class:
         
         Returns:
         --------
-        Set[str]: Set of difference types found
+        set[str]: Set of difference types found
         """
         differences = set()
         
@@ -4814,7 +4286,7 @@ class FolderCompareSync_class:
         log_and_flush(logging.INFO, "Populating tree views under root paths with stable ordering...") # v000.0002 changed - removed sorting
         self.populate_tree(self.left_tree, left_structure, self.root_item_left, 'left', '') # v000.0002 changed - removed sorting
                                                                          
-        self.populate_tree(self.right_tree, right_structure, self.root_item_right, 'right', '') # v000.0002 changed - removed sorting
+        self.populate_tree(self.right_tree, right_structure, self.root_item_right, RIGHT_SIDE_lowercase, '') # v000.0002 changed - removed sorting
                                                                          
         
         elapsed_time = time.time() - start_time
@@ -4868,9 +4340,9 @@ class FolderCompareSync_class:
                     
                     if result:
                         # Get the folder metadata from the appropriate side
-                        if side == 'left' and result.left_item:
+                        if side.lower() == LEFT_SIDE_lowercase and result.left_item:
                             folder_metadata = result.left_item
-                        elif side == 'right' and result.right_item:
+                        elif side.lower() == RIGHT_SIDE_lowercase and result.right_item:
                             folder_metadata = result.right_item
                         
                         # v000.0006 added - Format folder timestamps if available
@@ -4896,7 +4368,7 @@ class FolderCompareSync_class:
                                                                                     
                 
                 # Store path mapping for both real and missing folders
-                path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
+                path_map = self.path_to_item_left if side.lower() == LEFT_SIDE_lowercase else self.path_to_item_right
                 path_map[item_rel_path] = item_id
                 
             else:
@@ -4922,7 +4394,7 @@ class FolderCompareSync_class:
                                         values=(size_str, date_created_str, date_modified_str, sha512_str, status))
                 
                 # Store path mapping for both missing and existing files
-                path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
+                path_map = self.path_to_item_left if side.lower() == LEFT_SIDE_lowercase else self.path_to_item_right
                 path_map[item_rel_path] = item_id
                                         
         # Configure missing item styling using configurable color
@@ -4983,13 +4455,13 @@ class FolderCompareSync_class:
         Args:
         -----
         rel_path: Relative path to search for
-        side: Which tree side ('left' or 'right')
+        side: Which tree side (LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase)
         
         Returns:
         --------
         str: Tree item ID or None if not found
         """
-        path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
+        path_map = self.path_to_item_left if side.lower() == LEFT_SIDE_lowercase else self.path_to_item_right
         return path_map.get(rel_path)
         
     def select_all_differences_left(self):
@@ -5055,7 +4527,7 @@ class FolderCompareSync_class:
         count = 0
         for rel_path, result in results_to_use.items():
             if result.is_different and result.right_item and result.right_item.exists:
-                item_id = self.find_tree_item_by_path(rel_path, 'right')
+                item_id = self.find_tree_item_by_path(rel_path, RIGHT_SIDE_lowercase)
                 if item_id:
                     self.selected_right.add(item_id)
                     count += 1
@@ -5155,7 +4627,7 @@ class FolderCompareSync_class:
         # Start copy operation in background thread
         status_text = "Simulating copy..." if self.dry_run_mode.get() else "Copying files..."
         self.status_var.set(status_text)
-        threading.Thread(target=self.perform_enhanced_copy_operation, args=('left_to_right', selected_paths), daemon=True).start()
+        threading.Thread(target=self.perform_enhanced_copy_operation, args=('left_to_right'.lower(), selected_paths), daemon=True).start()
         
     def copy_right_to_left(self):
         """Copy selected items from right to left with dry run support and limit checking."""
@@ -5198,7 +4670,7 @@ class FolderCompareSync_class:
         # Start copy operation in background thread
         status_text = "Simulating copy..." if self.dry_run_mode.get() else "Copying files..."
         self.status_var.set(status_text)
-        threading.Thread(target=self.perform_enhanced_copy_operation, args=('right_to_left', selected_paths), daemon=True).start()
+        threading.Thread(target=self.perform_enhanced_copy_operation, args=('right_to_left'.lower(), selected_paths), daemon=True).start()
 
     def perform_enhanced_copy_operation(self, direction, selected_paths): # changed for v000.0005
         """
@@ -5211,7 +4683,7 @@ class FolderCompareSync_class:
         
         Args:
         -----
-        direction: Copy direction ('left_to_right' or 'right_to_left')
+        direction: Copy direction ('left_to_right'.lower() or 'right_to_left'.lower())
         selected_paths: List of relative paths to copy
         """
         start_time = time.time()
@@ -5221,14 +4693,14 @@ class FolderCompareSync_class:
         log_and_flush(logging.INFO, f"Starting copy operation{dry_run_text}: {direction} with {len(selected_paths)} items")
         
         # Determine source and destination folders
-        if direction == 'left_to_right':
+        if direction.lower() == 'left_to_right'.lower():
             source_folder = self.left_folder.get()
             dest_folder = self.right_folder.get()
-            direction_text = "LEFT to RIGHT"
+            direction_text = f"{LEFT_SIDE_uppercase} to {RIGHT_SIDE_uppercase}"
         else:
             source_folder = self.right_folder.get()
             dest_folder = self.left_folder.get()
-            direction_text = "RIGHT to LEFT"
+            direction_text = f"{RIGHT_SIDE_uppercase} to {LEFT_SIDE_uppercase}"
         
         # Start copy operation session with dedicated logging and dry run support
         operation_name = f"Copy {len(selected_paths)} items from {direction_text}{dry_run_text}"
@@ -5785,53 +5257,83 @@ class DeleteOrphansManager_class:
     # ========================================================================
     # STATIC UTILITY METHODS - ORPHAN DETECTION AND DATA MANAGEMENT
     # ========================================================================
-    
+
     @staticmethod
-    def detect_orphaned_files(comparison_results: Dict, side: str, 
-                             active_filter: Optional[str] = None) -> List[str]:
+    def detect_orphaned_files(comparison_results: dict, side: str, 
+                             active_filter: Optional[str] = None) -> tuple[list[str], dict[str, dict[str, Any]]]: # v001.0017 changed [enhanced return type to include orphan metadata]
         """
         Detect orphaned files from comparison results - files that exist on one side but are missing on the other.
         
         Purpose:
         --------
         Analyzes comparison results to identify files that exist only on the specified side,
-        with optional filter support for consistent behavior with main application.
+        with enhanced logic to distinguish truly orphaned folders from folders that just contain orphaned files. # v001.0017 added [enhanced folder orphan detection]
         
         Args:
         -----
-        comparison_results: Dictionary of comparison results from main application
-        side: 'left' or 'right' - which side to find orphans for
+        comparison_results: dictionary of comparison results from main application
+        side: LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase - which side to find orphans for
         active_filter: Optional wildcard filter to respect from main application
         
         Returns:
         --------
-        List[str]: List of relative paths of orphaned files on the specified side
+        tuple[list[str], dict[str, dict]]: (orphaned_paths, orphan_metadata) # v001.0017 changed [enhanced return type]
+            orphaned_paths: List of relative paths of orphaned files on the specified side
+            orphan_metadata: dict mapping rel_path -> {'is_true_orphan': bool, 'contains_orphans': bool, 'orphan_reason': str} # v001.0017 added [orphan metadata dictionary]
         """
         orphaned_paths = []
+        orphan_metadata = {}  # v001.0017 added [orphan metadata tracking]
         
         if not comparison_results:
             log_and_flush(logging.DEBUG, f"No comparison results available for orphan detection on {side} side")
-            return orphaned_paths
+            return orphaned_paths, orphan_metadata  # v001.0017 changed [return tuple with metadata]
             
         log_and_flush(logging.DEBUG, f"Detecting orphaned files on {side} side from {len(comparison_results)} comparison results")
         
+        # v001.0017 added [build folder hierarchy for true orphan detection]
+        # First pass: identify all folders and their existence on both sides
+        folders_on_side = set()  # v001.0017 added [track folders that exist on specified side]
+        folders_on_other_side = set()  # v001.0017 added [track folders that exist on other side]
+        
+        for rel_path, result in comparison_results.items():
+            if not rel_path:  # Skip empty paths
+                continue
+                
+            # Track folder existence for true orphan detection # v001.0017 added [folder existence tracking]
+            if side.lower() == LEFT_SIDE_lowercase:  # v001.0017 changed [case insensitive comparison]
+                if result.left_item and result.left_item.exists and result.left_item.is_folder:
+                    folders_on_side.add(rel_path)  # v001.0017 added [track left folders]
+                if result.right_item and result.right_item.exists and result.right_item.is_folder:
+                    folders_on_other_side.add(rel_path)  # v001.0017 added [track right folders]
+            else:  # side.lower() == RIGHT_SIDE_lowercase  # v001.0017 changed [case insensitive comparison]
+                if result.right_item and result.right_item.exists and result.right_item.is_folder:
+                    folders_on_side.add(rel_path)  # v001.0017 added [track right folders]
+                if result.left_item and result.left_item.exists and result.left_item.is_folder:
+                    folders_on_other_side.add(rel_path)  # v001.0017 added [track left folders]
+        
+        # Second pass: identify orphaned items with enhanced metadata # v001.0017 added [enhanced orphan detection]
         for rel_path, result in comparison_results.items():
             if not rel_path:  # Skip empty paths
                 continue
                 
             # Determine if this item is orphaned on the specified side
             is_orphaned = False
+            orphan_reason = ""  # v001.0017 added [track orphan reason]
             
-            if side == 'left':
+            if side.lower() == LEFT_SIDE_lowercase:  # v001.0017 changed [case insensitive comparison]
                 # Left orphan: exists in left but missing in right
                 is_orphaned = (result.left_item is not None and 
                               result.left_item.exists and
                               (result.right_item is None or not result.right_item.exists))
-            elif side == 'right':
+                if is_orphaned:
+                    orphan_reason = "exists in LEFT but missing in RIGHT"  # v001.0017 added [orphan reason tracking]
+            elif side.lower() == RIGHT_SIDE_lowercase:  # v001.0017 changed [case insensitive comparison]
                 # Right orphan: exists in right but missing in left  
                 is_orphaned = (result.right_item is not None and
                               result.right_item.exists and
                               (result.left_item is None or not result.left_item.exists))
+                if is_orphaned:
+                    orphan_reason = "exists in RIGHT but missing in LEFT"  # v001.0017 added [orphan reason tracking]
             
             if is_orphaned:
                 # Apply filter if active (consistent with main application filtering)
@@ -5842,33 +5344,69 @@ class DeleteOrphansManager_class:
                         
                 orphaned_paths.append(rel_path)
                 
-        log_and_flush(logging.INFO, f"Found {len(orphaned_paths)} orphaned files on {side} side")
+                # v001.0017 added [determine if this is a true orphan or just contains orphans]
+                is_true_orphan = True  # v001.0017 added [assume true orphan initially]
+                contains_orphans = False  # v001.0017 added [track if folder contains orphaned children]
+                
+                # For folders, check if this is a truly orphaned folder or just contains orphans # v001.0017 added [enhanced folder analysis]
+                current_item = result.left_item if side.lower() == LEFT_SIDE_lowercase else result.right_item
+                if current_item and current_item.is_folder:
+                    # This is a folder - check if it's truly orphaned or just contains orphans # v001.0017 added [folder orphan analysis]
+                    if rel_path in folders_on_other_side:
+                        # Folder exists on both sides, so it's not truly orphaned # v001.0017 added [folder exists on both sides]
+                        is_true_orphan = False  # v001.0017 added [not a true orphan]
+                        contains_orphans = True  # v001.0017 added [but contains orphaned children]
+                        orphan_reason += " (folder exists on both sides but contains orphaned children)"  # v001.0017 added [enhanced reason]
+                    else:
+                        # Folder doesn't exist on other side, so it's truly orphaned # v001.0017 added [folder truly orphaned]
+                        is_true_orphan = True  # v001.0017 added [true orphan folder]
+                        contains_orphans = True  # v001.0017 added [orphaned folder contains everything as orphans]
+                        orphan_reason += " (entire folder is orphaned)"  # v001.0017 added [enhanced reason]
+                
+                # Store enhanced metadata for this orphaned item # v001.0017 added [store orphan metadata]
+                orphan_metadata[rel_path] = {
+                    'is_true_orphan': is_true_orphan,  # v001.0017 added [true orphan flag]
+                    'contains_orphans': contains_orphans,  # v001.0017 added [contains orphans flag]
+                    'orphan_reason': orphan_reason,  # v001.0017 added [detailed reason]
+                    'is_folder': current_item.is_folder if current_item else False  # v001.0017 added [item type]
+                }
+                    
+        log_and_flush(logging.INFO, f"Enhanced orphan detection: found {len(orphaned_paths)} orphaned files on {side} side")
         if active_filter:
             log_and_flush(logging.INFO, f"Orphan detection used active filter: {active_filter}")
+        
+        # v001.0017 added [log enhanced orphan statistics]
+        true_orphan_folders = sum(1 for meta in orphan_metadata.values() if meta['is_true_orphan'] and meta['is_folder'])
+        contains_orphan_folders = sum(1 for meta in orphan_metadata.values() if not meta['is_true_orphan'] and meta['is_folder'])
+        orphan_files = sum(1 for meta in orphan_metadata.values() if not meta['is_folder'])
+        
+        log_and_flush(logging.DEBUG, f"Enhanced orphan breakdown: {true_orphan_folders} truly orphaned folders, {contains_orphan_folders} folders containing orphans, {orphan_files} orphaned files")
             
-        return sorted(orphaned_paths)  # Return in stable alphabetical order
-
+        return sorted(orphaned_paths), orphan_metadata  # v001.0017 changed [return tuple with enhanced metadata]
+    
     @staticmethod
-    def create_orphan_metadata_dict(comparison_results: Dict, orphaned_paths: List[str], 
-                                   side: str, source_folder: str) -> Dict[str, Dict[str, Any]]:
+    def create_orphan_metadata_dict(comparison_results: dict, orphaned_paths: list[str], 
+                                   side: str, source_folder: str, 
+                                   orphan_detection_metadata: dict[str, dict[str, Any]] = None) -> dict[str, dict[str, Any]]: # v001.0017 changed [added orphan_detection_metadata parameter]
         """
-        Create metadata dictionary for orphaned files with validation status.
+        Create metadata dictionary for orphaned files with validation status and enhanced orphan classification.
         
         Purpose:
         --------
         Builds comprehensive metadata for orphaned files including file information,
-        validation status, and accessibility for the delete orphans dialog.
+        validation status, accessibility, and enhanced orphan classification (true orphan vs contains orphans). # v001.0017 added [enhanced orphan classification]
         
         Args:
         -----
-        comparison_results: Dictionary of comparison results from main application
+        comparison_results: dictionary of comparison results from main application
         orphaned_paths: List of relative paths of orphaned files
-        side: 'left' or 'right' - which side the orphans are on
+        side: LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase - which side the orphans are on
         source_folder: Full path to the source folder
+        orphan_detection_metadata: Enhanced metadata from detect_orphaned_files (optional for backward compatibility) # v001.0017 added [enhanced metadata parameter]
         
         Returns:
         --------
-        Dict[str, Dict]: Dictionary mapping rel_path -> metadata dict with validation
+        dict[str, dict]: dictionary mapping rel_path -> metadata dict with validation and enhanced orphan info # v001.0017 changed [enhanced metadata description]
         """
         orphan_metadata = {}
         
@@ -5878,9 +5416,9 @@ class DeleteOrphansManager_class:
                 continue
                 
             # Get the metadata for the correct side
-            if side == 'left' and result.left_item:
+            if side.lower() == LEFT_SIDE_lowercase and result.left_item:  # v001.0017 changed [case insensitive comparison]
                 file_metadata = result.left_item
-            elif side == 'right' and result.right_item:
+            elif side.lower() == RIGHT_SIDE_lowercase and result.right_item:  # v001.0017 changed [case insensitive comparison]
                 file_metadata = result.right_item
             else:
                 continue  # No metadata available
@@ -5890,6 +5428,16 @@ class DeleteOrphansManager_class:
             
             # Validate file accessibility
             accessible, status_msg, validation_metadata = DeleteOrphansManager_class.validate_orphan_file_access(full_path)
+            
+            # v001.0017 added [get enhanced orphan classification from detection metadata]
+            enhanced_orphan_info = orphan_detection_metadata.get(rel_path, {}) if orphan_detection_metadata else {}
+            is_true_orphan = enhanced_orphan_info.get('is_true_orphan', True)  # v001.0017 added [default to true for backward compatibility]
+            contains_orphans = enhanced_orphan_info.get('contains_orphans', False)  # v001.0017 added [contains orphans flag]
+            orphan_reason = enhanced_orphan_info.get('orphan_reason', 'orphaned item')  # v001.0017 added [orphan reason]
+            
+            # v001.0017 added [determine initial selection based on enhanced orphan classification]
+            # True orphans should be selected by default, non-true orphans (folders that just contain orphans) should not
+            default_selected = is_true_orphan  # v001.0017 added [smart default selection]
             
             # Create comprehensive metadata entry
             metadata_entry = {
@@ -5904,16 +5452,27 @@ class DeleteOrphansManager_class:
                 'accessible': accessible,
                 'status': status_msg,
                 'validation_metadata': validation_metadata,
-                'selected': True,  # Default to selected
+                'selected': default_selected,  # v001.0017 changed [use smart default selection instead of always True]
+                # v001.0017 added [enhanced orphan classification fields]
+                'is_true_orphan': is_true_orphan,  # v001.0017 added [true orphan classification]
+                'contains_orphans': contains_orphans,  # v001.0017 added [contains orphans flag]
+                'orphan_reason': orphan_reason,  # v001.0017 added [detailed orphan reason]
             }
             
             orphan_metadata[rel_path] = metadata_entry
             
-        log_and_flush(logging.DEBUG, f"Created metadata for {len(orphan_metadata)} orphaned files")
+        log_and_flush(logging.DEBUG, f"Created enhanced metadata for {len(orphan_metadata)} orphaned files")
+        
+        # v001.0017 added [log enhanced selection statistics]
+        if orphan_detection_metadata:
+            true_orphans_selected = sum(1 for m in orphan_metadata.values() if m['is_true_orphan'] and m['selected'])
+            contains_orphans_not_selected = sum(1 for m in orphan_metadata.values() if not m['is_true_orphan'] and not m['selected'])
+            log_and_flush(logging.DEBUG, f"Enhanced selection: {true_orphans_selected} true orphans auto-selected, {contains_orphans_not_selected} non-true orphans not auto-selected")
+        
         return orphan_metadata
 
     @staticmethod
-    def refresh_orphan_metadata_status(orphan_metadata: Dict[str, Dict[str, Any]]) -> Tuple[int, int]:
+    def refresh_orphan_metadata_status(orphan_metadata: dict[str, dict[str, Any]]) -> tuple[int, int]:
         """
         Refresh the validation status of orphaned files to detect external changes.
         
@@ -5924,11 +5483,11 @@ class DeleteOrphansManager_class:
         
         Args:
         -----
-        orphan_metadata: Dictionary of orphan metadata to refresh
+        orphan_metadata: dictionary of orphan metadata to refresh
         
         Returns:
         --------
-        Tuple[int, int]: (still_accessible_count, changed_count)
+        tuple[int, int]: (still_accessible_count, changed_count)
         """
         still_accessible = 0
         changed_count = 0
@@ -5957,7 +5516,7 @@ class DeleteOrphansManager_class:
         return still_accessible, changed_count
 
     @staticmethod
-    def build_orphan_tree_structure(orphan_metadata: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    def build_orphan_tree_structure(orphan_metadata: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """
         Build hierarchical tree structure from orphaned file metadata.
         
@@ -5968,11 +5527,11 @@ class DeleteOrphansManager_class:
         
         Args:
         -----
-        orphan_metadata: Dictionary of orphan file metadata
+        orphan_metadata: dictionary of orphan file metadata
         
         Returns:
         --------
-        Dict: Nested dictionary representing folder structure
+        dict: Nested dictionary representing folder structure
         """
         tree_structure = {}
         
@@ -6004,7 +5563,7 @@ class DeleteOrphansManager_class:
         return tree_structure
 
     @staticmethod
-    def calculate_orphan_statistics(orphan_metadata: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    def calculate_orphan_statistics(orphan_metadata: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """
         Calculate statistics for orphaned files including totals, sizes, and selection counts.
         
@@ -6015,11 +5574,11 @@ class DeleteOrphansManager_class:
         
         Args:
         -----
-        orphan_metadata: Dictionary of orphan file metadata
+        orphan_metadata: dictionary of orphan file metadata
         
         Returns:
         --------
-        Dict: Statistics including total files, selected files, total size, selected size, etc.
+        dict: Statistics including total files, selected files, total size, selected size, etc.
         """
         stats = {
             'total_files': 0,
@@ -6076,7 +5635,7 @@ class DeleteOrphansManager_class:
         -----
         parent: Parent window for modal dialog
         orphaned_files: List of relative paths of orphaned files
-        side: 'left' or 'right' - which side orphans are on
+        side: LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase - which side orphans are on
         source_folder: Full path to source folder
         dry_run_mode: Whether main app is in dry run mode
         comparison_results: Main app comparison results for metadata
@@ -6084,14 +5643,14 @@ class DeleteOrphansManager_class:
         """
         self.parent = parent
         self.orphaned_files = orphaned_files.copy()  # Create local copy
-        self.side = side
+        self.side = side.upper()
         self.source_folder = source_folder
         self.dry_run_mode = dry_run_mode  # v001.0013 Keep original for reference only
         self.comparison_results = comparison_results
         self.active_filter = active_filter
         
         # Dialog state variables
-        self.deletion_method = tk.StringVar(value="recycle_bin")  # Default to safer option
+        self.deletion_method = tk.StringVar(value="recycle_bin".lower())  # Default to safer option
         self.local_dry_run_mode = tk.BooleanVar(value=dry_run_mode)  # v001.0013 added [local dry run mode for delete orphans dialog]
         self.dialog_filter = tk.StringVar()  # Dialog-specific filter
         self.result = None  # Result of dialog operation
@@ -6195,23 +5754,48 @@ class DeleteOrphansManager_class:
             self._initialize_data_direct()
             
     def _initialize_data_direct(self):
-        """Initialize orphan data directly for small datasets."""
-        # Create metadata with validation
+        """Initialize orphan data directly for small datasets with enhanced orphan classification."""
+        # v001.0017 changed [use enhanced detect_orphaned_files method]
+        # Get enhanced orphan detection results
+        orphaned_paths, orphan_detection_metadata = self.detect_orphaned_files(
+            self.comparison_results, 
+            self.side, 
+            self.active_filter
+        )
+        
+        # Update our orphaned_files list with the detected paths
+        self.orphaned_files = orphaned_paths  # v001.0017 added [update orphaned files list]
+        
+        # v001.0017 changed [pass enhanced metadata to create_orphan_metadata_dict]
+        # Create metadata with validation and enhanced orphan classification
         self.orphan_metadata = self.create_orphan_metadata_dict(
             self.comparison_results, 
             self.orphaned_files, 
             self.side, 
-            self.source_folder
+            self.source_folder,
+            orphan_detection_metadata  # v001.0017 added [pass enhanced detection metadata]
         )
         
         # Build tree structure
         self.orphan_tree_data = self.build_orphan_tree_structure(self.orphan_metadata)
         
-        # Select all items by default
-        self.selected_items = set(self.orphaned_files)
+        # v001.0017 changed [smart selection based on enhanced orphan classification]
+        # Select only true orphans by default, not folders that just contain orphans
+        self.selected_items = set()  # v001.0017 changed [start with empty selection]
+        for rel_path, metadata in self.orphan_metadata.items():
+            if metadata.get('selected', False):  # v001.0017 added [respect smart default selection from metadata]
+                self.selected_items.add(rel_path)  # v001.0017 added [add to selection if default selected]
         
-        # Log details about inaccessible files # v001.0013 added [detailed logging for inaccessible files]
-        self.log_inaccessible_files() # v001.0013 added [detailed logging for inaccessible files]
+        # Log details about inaccessible files
+        self.log_inaccessible_files()
+        
+        # v001.0017 added [log enhanced orphan classification results]
+        true_orphans = sum(1 for m in self.orphan_metadata.values() if m.get('is_true_orphan', False))
+        contains_orphans = sum(1 for m in self.orphan_metadata.values() if not m.get('is_true_orphan', True))
+        auto_selected = len(self.selected_items)
+        
+        self.add_status_message(f"Enhanced classification: {true_orphans} true orphans, {contains_orphans} folders containing orphans")
+        self.add_status_message(f"Smart selection: {auto_selected} items auto-selected (true orphans only)")
         
         # Update UI
         self.build_orphan_tree()
@@ -6220,55 +5804,139 @@ class DeleteOrphansManager_class:
         # Log initialization results
         accessible_count = sum(1 for m in self.orphan_metadata.values() if m['accessible'])
         self.add_status_message(f"Initialization complete: {accessible_count} accessible files")
-        
+
     def _initialize_data_with_progress(self, progress):
-        """Initialize orphan data with progress feedback for large datasets."""
+        """Initialize orphan data with progress feedback for large datasets using enhanced orphan classification."""
         try:
-            progress.update_progress(10, "Creating file metadata...")
+            progress.update_progress(10, "Performing enhanced orphan detection...")  # v001.0017 changed [enhanced detection message]
             
-            # Create metadata with validation
+            # v001.0017 changed [use enhanced detect_orphaned_files method]
+            # Get enhanced orphan detection results
+            orphaned_paths, orphan_detection_metadata = self.detect_orphaned_files(
+                self.comparison_results, 
+                self.side, 
+                self.active_filter
+            )
+            
+            # Update our orphaned_files list with the detected paths
+            self.orphaned_files = orphaned_paths  # v001.0017 added [update orphaned files list]
+            
+            progress.update_progress(30, "Creating enhanced file metadata...")  # v001.0017 changed [enhanced metadata message]
+            
+            # v001.0017 changed [pass enhanced metadata to create_orphan_metadata_dict]
+            # Create metadata with validation and enhanced orphan classification
             self.orphan_metadata = self.create_orphan_metadata_dict(
                 self.comparison_results, 
                 self.orphaned_files, 
-                self.side, 
-                self.source_folder
+                self.side.upper(), 
+                self.source_folder,
+                orphan_detection_metadata  # v001.0017 added [pass enhanced detection metadata]
             )
             
-            progress.update_progress(50, "Building tree structure...")
+            progress.update_progress(60, "Building tree structure...")
             
             # Build tree structure
             self.orphan_tree_data = self.build_orphan_tree_structure(self.orphan_metadata)
             
-            progress.update_progress(80, "Setting up selections...")
+            progress.update_progress(80, "Setting up smart selections...")  # v001.0017 changed [smart selection message]
             
-            # Select all items by default
-            self.selected_items = set(self.orphaned_files)
+            # v001.0017 changed [smart selection based on enhanced orphan classification]
+            # Select only true orphans by default, not folders that just contain orphans
+            self.selected_items = set()  # v001.0017 changed [start with empty selection]
+            for rel_path, metadata in self.orphan_metadata.items():
+                if metadata.get('selected', False):  # v001.0017 added [respect smart default selection from metadata]
+                    self.selected_items.add(rel_path)  # v001.0017 added [add to selection if default selected]
             
             progress.update_progress(90, "Updating display...")
             
             # Update UI in main thread
-            self.dialog.after(0, self._finalize_initialization)
+            self.dialog.after(0, self._finalize_initialization_enhanced)  # v001.0017 changed [use enhanced finalization]
             
             progress.update_progress(100, "Complete")
             
         except Exception as e:
-            log_and_flush(logging.ERROR, f"Error during orphan data initialization: {e}")
-            self.dialog.after(0, lambda: self.add_status_message(f"Initialization error: {str(e)}"))
+            log_and_flush(logging.ERROR, f"Error during enhanced orphan data initialization: {e}")  # v001.0017 changed [enhanced error message]
+            self.dialog.after(0, lambda: self.add_status_message(f"Enhanced initialization error: {str(e)}"))  # v001.0017 changed [enhanced error message]
         finally:
             progress.close()
             
-    def _finalize_initialization(self):
-        """Finalize initialization in main thread."""
-        # Log details about inaccessible files # v001.0013 added [detailed logging for inaccessible files in large datasets]
-        self.log_inaccessible_files() # v001.0013 added [detailed logging for inaccessible files in large datasets]
+    def _finalize_initialization_enhanced(self):  # v001.0017 added [enhanced finalization for large datasets]
+        """Finalize enhanced initialization in orphan main thread for large datasets."""
+        # Log details about inaccessible files
+        self.log_inaccessible_files()
+        
+        # v001.0017 added [log enhanced orphan classification results for large datasets]
+        true_orphans = sum(1 for m in self.orphan_metadata.values() if m.get('is_true_orphan', False))
+        contains_orphans = sum(1 for m in self.orphan_metadata.values() if not m.get('is_true_orphan', True))
+        auto_selected = len(self.selected_items)
+        
+        self.add_status_message(f"Enhanced classification: {true_orphans} true orphans, {contains_orphans} folders containing orphans")
+        self.add_status_message(f"Smart selection: {auto_selected} items auto-selected (true orphans only)")
         
         self.build_orphan_tree()
         self.update_statistics()
         
         # Log results
         accessible_count = sum(1 for m in self.orphan_metadata.values() if m['accessible'])
-        self.add_status_message(f"Initialization complete: {accessible_count} accessible files")
+        self.add_status_message(f"Enhanced initialization complete: {accessible_count} accessible files")
+
+    def set_enhanced_detection_metadata(self, orphan_detection_metadata: dict[str, dict[str, Any]]): # v001.0017 added [method to accept enhanced detection metadata]
+        """
+        Set enhanced detection metadata for improved orphan classification.
         
+        Purpose:
+        --------
+        Allows the dialog to receive enhanced orphan classification metadata from the 
+        main application's detect_orphaned_files method for better selection logic.
+        
+        Args:
+        -----
+        orphan_detection_metadata: Enhanced metadata from detect_orphaned_files containing
+                                  is_true_orphan, contains_orphans, and orphan_reason for each item
+        """
+        self.enhanced_detection_metadata = orphan_detection_metadata  # v001.0017 added [store enhanced metadata]
+        
+        # v001.0017 added [update existing orphan metadata with enhanced classification]
+        # If we already have orphan_metadata, enhance it with the new classification data
+        if hasattr(self, 'orphan_metadata') and self.orphan_metadata:
+            for rel_path, enhanced_info in orphan_detection_metadata.items():
+                if rel_path in self.orphan_metadata:
+                    # Update existing metadata with enhanced classification
+                    self.orphan_metadata[rel_path].update({
+                        'is_true_orphan': enhanced_info.get('is_true_orphan', True),
+                        'contains_orphans': enhanced_info.get('contains_orphans', False),
+                        'orphan_reason': enhanced_info.get('orphan_reason', 'orphaned item'),
+                    })
+                    
+                    # v001.0017 added [update selection based on enhanced classification]
+                    # Adjust selection based on true orphan status
+                    if enhanced_info.get('is_true_orphan', True):
+                        # True orphans should be selected if accessible
+                        if self.orphan_metadata[rel_path].get('accessible', False):
+                            self.orphan_metadata[rel_path]['selected'] = True
+                            self.selected_items.add(rel_path)
+                    else:
+                        # Non-true orphans (folders containing orphans) should not be auto-selected
+                        self.orphan_metadata[rel_path]['selected'] = False
+                        self.selected_items.discard(rel_path)
+            
+            # v001.0017 added [log enhanced classification update results]
+            true_orphans_updated = sum(1 for m in self.orphan_metadata.values() if m.get('is_true_orphan', False))
+            contains_orphans_updated = sum(1 for m in self.orphan_metadata.values() if not m.get('is_true_orphan', True))
+            selected_after_update = len(self.selected_items)
+            
+            self.add_status_message(f"Enhanced classification applied: {true_orphans_updated} true orphans, {contains_orphans_updated} folders containing orphans")
+            self.add_status_message(f"Selection updated: {selected_after_update} items selected based on enhanced classification")
+            
+            # v001.0017 added [rebuild tree and update display with enhanced classification]
+            # Rebuild tree display to reflect enhanced classification
+            if hasattr(self, 'tree') and self.tree:
+                self.build_orphan_tree()
+                self.update_statistics()
+        else:
+            # v001.0017 added [store for later use during initialization]
+            self.add_status_message("Enhanced detection metadata received - will be applied during initialization")
+
     def _cleanup_large_data(self):
         """Clean up large data structures based on thresholds."""
         cleaned_items = []
@@ -6416,7 +6084,7 @@ class DeleteOrphansManager_class:
         
         # Explanatory text
         side_text = self.side.upper()
-        opposite_side = "RIGHT" if self.side == "left" else "LEFT"
+        opposite_side = RIGHT_SIDE_uppercase if self.side.lower() == LEFT_SIDE_lowercase else LEFT_SIDE_uppercase
         
         explanation = (
             f"The following orphaned files exist in {side_text} but are missing in {opposite_side}.\n"
@@ -6499,7 +6167,7 @@ class DeleteOrphansManager_class:
         recycle_rb = ttk.Radiobutton(
             radio_frame,
             text="Move to Recycle Bin (recommended)",
-            variable=self.deletion_method,
+            variable=self.deletion_method.lower(),
             value="recycle_bin",
             style="DeleteOrphansCheckbutton.TCheckbutton"  # ✅ Reuse checkbox style for radio buttons        
         )
@@ -6509,7 +6177,7 @@ class DeleteOrphansManager_class:
         permanent_rb = ttk.Radiobutton(
             radio_frame,
             text="Permanent Deletion (cannot be undone)",
-            variable=self.deletion_method,
+            variable=self.deletion_method.lower(),
             value="permanent",
             style="DeleteOrphansCheckbutton.TCheckbutton"  # ✅ Reuse checkbox style for radio buttons
         )
@@ -6685,7 +6353,7 @@ class DeleteOrphansManager_class:
             
             if response is True:  # Yes - save to file
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                default_filename = f"foldercomparesync_delete_{self.side}_{timestamp}.log"
+                default_filename = f"foldercomparesync_delete_{self.side.upper()}_{timestamp}.log"
                 
                 file_path = filedialog.asksaveasfilename(
                     title="Save Delete Orphans Log",
@@ -6742,7 +6410,14 @@ class DeleteOrphansManager_class:
         self.add_status_message(f"Tree built with {len(self.orphan_metadata)} items")
         
     def populate_orphan_tree(self, tree, structure, parent_id, current_path):
-        """Recursively populate tree with orphan file structure."""
+        """
+        Recursively populate tree with orphan file structure using enhanced orphan classification.
+        
+        Purpose:
+        --------
+        Creates tree display that respects true orphan status vs folders that just contain orphaned files. # v001.0017 changed [enhanced orphan-aware tree population]
+        Only truly orphaned folders are auto-ticked, while folders that just contain orphaned files are not.
+        """
         if not structure:
             return
             
@@ -6763,8 +6438,13 @@ class DeleteOrphansManager_class:
                 date_modified_str = format_timestamp(metadata['date_modified'])
                 status_str = metadata['status']
                 
-                # Create item text with checkbox
+                # v001.0017 changed [enhanced file checkbox logic based on true orphan status]
+                # Create item text with checkbox based on selection and accessibility
                 if metadata['accessible']:
+                    # v001.0017 added [show enhanced orphan reason in status for debugging]
+                    if hasattr(metadata, 'orphan_reason') and __debug__:
+                        status_str += f" ({metadata.get('orphan_reason', 'orphaned')})"
+                    
                     checkbox = "☑" if metadata['rel_path'] in self.selected_items else "☐"
                     item_text = f"{checkbox} {name}"
                     tags = ()
@@ -6787,14 +6467,56 @@ class DeleteOrphansManager_class:
                 
             else:
                 # This is a folder - create folder entry and recurse
-                folder_checkbox = "☑" if self.is_folder_selected(item_rel_path) else "☐"
-                folder_text = f"{folder_checkbox} {name}/"
+                # v001.0017 changed [enhanced folder checkbox logic based on true orphan classification]
+                
+                # Check if this folder has metadata (is an orphaned folder)
+                folder_metadata = self.orphan_metadata.get(item_rel_path)
+                
+                if folder_metadata:
+                    # This folder is in our orphan metadata
+                    if folder_metadata.get('is_true_orphan', False):
+                        # Truly orphaned folder - should be ticked if selected and accessible
+                        if folder_metadata.get('accessible', False) and folder_metadata.get('selected', False):
+                            folder_checkbox = "☑"
+                        elif folder_metadata.get('accessible', False):
+                            folder_checkbox = "☐"
+                        else:
+                            folder_checkbox = ""  # Inaccessible folder
+                            
+                        # v001.0017 added [show enhanced status for truly orphaned folders]
+                        folder_status = f"True Orphan Folder"
+                        if __debug__ and folder_metadata.get('orphan_reason'):
+                            folder_status += f" ({folder_metadata['orphan_reason']})"
+                    else:
+                        # Folder exists on both sides but contains orphaned files - should NOT be auto-ticked
+                        if folder_metadata.get('accessible', False):
+                            # Check manual selection state
+                            folder_checkbox = "☑" if folder_metadata.get('selected', False) else "☐"
+                        else:
+                            folder_checkbox = ""  # Inaccessible folder
+                            
+                        # v001.0017 added [show enhanced status for folders containing orphans]
+                        folder_status = f"Contains Orphans"
+                        if __debug__ and folder_metadata.get('orphan_reason'):
+                            folder_status += f" ({folder_metadata['orphan_reason']})"
+                            
+                    # v001.0017 changed [enhanced folder text with better status indication]
+                    if folder_checkbox:
+                        folder_text = f"{folder_checkbox} {name}/"
+                    else:
+                        folder_text = f"{name}/ (inaccessible)"
+                        
+                else:
+                    # Folder not in orphan metadata - use old logic as fallback
+                    folder_checkbox = "☑" if self.is_folder_selected(item_rel_path) else "☐"
+                    folder_text = f"{folder_checkbox} {name}/"
+                    folder_status = "Folder"  # v001.0017 changed [simplified status for non-orphan folders]
                 
                 folder_id = tree.insert(
                     parent_id,
                     tk.END,
                     text=folder_text,
-                    values=("", "", "", "Folder"),
+                    values=("", "", "", folder_status),  # v001.0017 changed [use enhanced folder status]
                     open=True  # Expand by default
                 )
                 
@@ -6803,12 +6525,48 @@ class DeleteOrphansManager_class:
                     self.populate_orphan_tree(tree, content, folder_id, item_rel_path)
                     
     def is_folder_selected(self, folder_path):
-        """Check if a folder should be considered selected based on its children."""
-        # A folder is selected if any of its children are selected
-        for rel_path in self.selected_items:
+        """
+        Check if a folder should be considered selected based on enhanced orphan classification.
+        
+        Purpose:
+        --------
+        Determines folder checkbox state based on true orphan status rather than just containing orphaned files. # v001.0017 changed [enhanced folder selection logic]
+        Only truly orphaned folders should appear as selected, not folders that just contain orphaned files.
+        """
+        # v001.0017 changed [enhanced logic for true orphan vs contains orphans]
+        # Check if this folder itself is a true orphan
+        folder_metadata = self.orphan_metadata.get(folder_path)
+        if folder_metadata:
+            # If this folder is in our metadata, check its true orphan status
+            if folder_metadata.get('is_true_orphan', False):
+                # This is a truly orphaned folder - should be selected if accessible
+                return folder_metadata.get('selected', False) and folder_metadata.get('accessible', False)
+            else:
+                # This folder exists on both sides but contains orphaned files - should NOT be auto-selected
+                # However, it could still be manually selected by user
+                return folder_metadata.get('selected', False) and folder_metadata.get('accessible', False)
+        
+        # v001.0017 changed [fallback logic for folders not directly in metadata]
+        # For folders not directly in our orphan metadata (parent folders), check if they should be selected
+        # based on their children's selection status
+        selected_children = 0
+        total_accessible_children = 0
+        
+        for rel_path, metadata in self.orphan_metadata.items():
             if rel_path.startswith(folder_path + '/') or rel_path == folder_path:
-                return True
-        return False
+                if metadata.get('accessible', False):
+                    total_accessible_children += 1
+                    if metadata.get('selected', False):
+                        selected_children += 1
+        
+        # v001.0017 changed [only show folder as selected if it's a true orphan or manually selected]
+        # Don't auto-select folders just because they contain orphaned files
+        if total_accessible_children == 0:
+            return False  # No accessible children
+        
+        # For folders that aren't true orphans, only show as selected if user manually selected them
+        # This prevents auto-ticking of folders that just contain orphaned files
+        return selected_children > 0 and selected_children == total_accessible_children  # v001.0017 changed [stricter selection criteria]
         
     def expand_all_tree_items(self):
         """Expand all tree items by default."""
@@ -7098,7 +6856,7 @@ class DeleteOrphansManager_class:
         self.orphan_metadata = self.create_orphan_metadata_dict(
             self.comparison_results,
             self.orphaned_files,
-            self.side,
+            self.side.upper(),
             self.source_folder
         )
         
@@ -7196,8 +6954,8 @@ class DeleteOrphansManager_class:
             if not self.orphan_metadata[path]['is_folder']
         )
         
-        deletion_method = self.deletion_method.get()
-        method_text = "Move to Recycle Bin" if deletion_method == "recycle_bin" else "Permanently Delete"
+        deletion_method = self.deletion_method.get().lower()
+        method_text = "Move to Recycle Bin" if deletion_method.lower() == "recycle_bin".lower() else "Permanently Delete"
         
         # Use local dry run mode instead of main app dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         is_local_dry_run = self.local_dry_run_mode.get() # v001.0013 changed [use local dry run mode instead of main app dry run mode]
@@ -7213,7 +6971,7 @@ class DeleteOrphansManager_class:
         
         if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
             confirmation_message += "*** DRY RUN MODE - No files will be actually deleted ***\n\n"
-        elif deletion_method == "permanent":
+        elif deletion_method.lower() == "permanent".lower():
             confirmation_message += "⚠ WARNING: Permanent deletion cannot be undone! ⚠\n\n"
         else:
             confirmation_message += "Files will be moved to Recycle Bin where they can be recovered.\n\n"
@@ -7243,7 +7001,7 @@ class DeleteOrphansManager_class:
         self.add_status_message(f"Starting deletion process: {len(selected_accessible)} files")
         
         # Close dialog and start deletion in background
-        deletion_method_final = deletion_method
+        deletion_method_final = deletion_method.lower()
         selected_files_final = selected_accessible.copy()
         
         # Start deletion process in background thread
@@ -7254,7 +7012,7 @@ class DeleteOrphansManager_class:
         ).start()
         
         # Set result and close dialog
-        self.result = "deleted"
+        self.result = "deleted".lower()
         self.close_dialog()
         
     def perform_deletion(self, selected_paths, deletion_method):
@@ -7270,7 +7028,7 @@ class DeleteOrphansManager_class:
         
         # Log operation start
         dry_run_text = " (DRY RUN)" if is_local_dry_run else "" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
-        method_text = "Recycle Bin" if deletion_method == "recycle_bin" else "Permanent"
+        method_text = "Recycle Bin" if deletion_method.lower() == "recycle_bin".lower() else "Permanent"
         
         log_and_flush(logging.INFO, "=" * 80)
         log_and_flush(logging.INFO, f"DELETE ORPHANS OPERATION STARTED{dry_run_text}")
@@ -7328,7 +7086,7 @@ class DeleteOrphansManager_class:
                         success_count += 1
                     else:
                         # Actual deletion
-                        if deletion_method == "recycle_bin":
+                        if deletion_method.lower() == "recycle_bin".lower():
                             success, error_msg = self.delete_file_to_recycle_bin(full_path, show_progress=False)
                         else:
                             success, error_msg = self.delete_file_permanently(full_path)
@@ -7384,7 +7142,7 @@ class DeleteOrphansManager_class:
     def create_deletion_logger(self, operation_id):
         """Create dedicated logger for deletion operation."""
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        log_filename = f"foldercomparesync_delete_{self.side}_{timestamp}_{operation_id}.log"
+        log_filename = f"foldercomparesync_delete_{self.side.upper()}_{timestamp}_{operation_id}.log"
         log_filepath = os.path.join(os.path.dirname(__file__), log_filename)
         
         operation_logger = logging.getLogger(f"delete_orphans_{operation_id}")
@@ -7427,7 +7185,7 @@ class DeleteOrphansManager_class:
         
         # Log file reference
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        log_filename = f"foldercomparesync_delete_{self.side}_{timestamp}_{operation_id}.log"
+        log_filename = f"foldercomparesync_delete_{self.side.upper()}_{timestamp}_{operation_id}.log"
         message += f"Detailed log saved to:\n{log_filename}\n\n"
         
         if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
@@ -7487,7 +7245,7 @@ class DeleteOrphansManager_class:
         
         if not inaccessible_files: # v001.0013 added [detailed logging for inaccessible files]
             self.add_status_message("All orphaned files are accessible for deletion") # v001.0013 added [detailed logging for inaccessible files]
-            log_and_flush(logging.INFO, f"All {len(self.orphan_metadata)} orphaned files on {self.side} side are accessible") # v001.0013 added [detailed logging for inaccessible files]
+            log_and_flush(logging.INFO, f"All {len(self.orphan_metadata)} orphaned files on {self.side.upper()} side are accessible") # v001.0013 added [detailed logging for inaccessible files]
             return # v001.0013 added [detailed logging for inaccessible files]
         
         # Log summary # v001.0013 added [detailed logging for inaccessible files]
@@ -7496,7 +7254,7 @@ class DeleteOrphansManager_class:
         accessible_count = total_count - inaccessible_count # v001.0013 added [detailed logging for inaccessible files]
         
         self.add_status_message(f"INACCESSIBLE FILES: {inaccessible_count} of {total_count} files cannot be deleted") # v001.0013 added [detailed logging for inaccessible files]
-        log_and_flush(logging.WARNING, f"Found {inaccessible_count} inaccessible orphaned files on {self.side} side out of {total_count} total") # v001.0013 added [detailed logging for inaccessible files]
+        log_and_flush(logging.WARNING, f"Found {inaccessible_count} inaccessible orphaned files on {self.side.upper()} side out of {total_count} total") # v001.0013 added [detailed logging for inaccessible files]
         
         # Group by reason for better reporting # v001.0013 added [detailed logging for inaccessible files]
         reasons = {} # v001.0013 added [detailed logging for inaccessible files]
