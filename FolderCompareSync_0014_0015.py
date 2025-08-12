@@ -183,8 +183,8 @@ MAX_FILTER_RESULTS = 200000       # Maximum items to show when filtering (perfor
 # DELETE ORPHANS CONFIGURATION CONSTANTS
 # ============================================================================
 # Delete Orphans Dialog Configuration
-DELETE_ORPHANS_DIALOG_WIDTH_PERCENT = 0.60    # 60% of main window width  # v001.0013 changed [reduced delete orphans dialog width from 85% to 60%]
-DELETE_ORPHANS_DIALOG_HEIGHT_PERCENT = 1.0    # Full height               # v001.0012 added [delete orphans dialog sizing]
+DELETE_ORPHANS_DIALOG_WIDTH_PERCENT = 0.40     # 50% of main window width  # v001.0013 changed [reduced delete orphans dialog width from 85% to 60%]
+DELETE_ORPHANS_DIALOG_HEIGHT_PERCENT = 1.0     # Full height               # v001.0012 added [delete orphans dialog sizing]
 DELETE_ORPHANS_STATUS_LINES = 10               # Visible lines in status log  # v001.0012 added [delete orphans status area]
 DELETE_ORPHANS_STATUS_MAX_HISTORY = 5000       # Maximum lines to keep     # v001.0012 added [delete orphans status area]
 
@@ -2464,8 +2464,8 @@ class FolderCompareSync_class:
             mode = "DEBUG" if enabled else "NORMAL"
             self.status_var.set(f"{current_status} ({mode})")
 
-    def delete_left_orphans(self): # v001.0012 added [delete left orphans button command]
-        """Handle Delete LEFT-only Orphaned Files button.""" # v001.0012 added [delete left orphans button command]
+    def delete_left_orphans_onclick(self): # v001.0012 added [delete left orphans button command]
+        """Handle Delete Orphaned Files from LEFT-only button.""" # v001.0012 added [delete left orphans button command]
         if self.limit_exceeded: # v001.0012 added [delete left orphans button command]
             messagebox.showwarning("Operation Disabled", "Delete operations are disabled when file limits are exceeded.") # v001.0012 added [delete left orphans button command]
             return # v001.0012 added [delete left orphans button command]
@@ -2520,8 +2520,8 @@ class FolderCompareSync_class:
             # Cleanup memory after dialog operations # v001.0012 added [delete left orphans button command]
             gc.collect() # v001.0012 added [delete left orphans button command]
 
-    def delete_right_orphans(self): # v001.0012 added [delete right orphans button command]
-        """Handle Delete RIGHT-only Orphaned Files button.""" # v001.0012 added [delete right orphans button command]
+    def delete_right_orphans_onclick(self): # v001.0012 added [delete right orphans button command]
+        """Handle Delete Orphaned Files from RIGHT-only button.""" # v001.0012 added [delete right orphans button command]
         if self.limit_exceeded: # v001.0012 added [delete right orphans button command]
             messagebox.showwarning("Operation Disabled", "Delete operations are disabled when file limits are exceeded.") # v001.0012 added [delete right orphans button command]
             return # v001.0012 added [delete right orphans button command]
@@ -2741,10 +2741,10 @@ class FolderCompareSync_class:
         ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left, style="LimeGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
         delete_frame = ttk.Frame(main_frame)
         delete_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
-        ttk.Button(delete_frame, text="Delete LEFT-only Orphaned Files", 
-                      command=self.delete_left_orphans, style="PurpleBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(delete_frame, text="Delete RIGHT-only Orphaned Files", 
-                      command=self.delete_right_orphans, style="DarkGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(delete_frame, text="Delete Orphaned Files from LEFT-only", 
+                      command=self.delete_left_orphans_onclick, style="PurpleBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(delete_frame, text="Delete Orphaned Files from RIGHT-only", 
+                      command=self.delete_right_orphans_onclick, style="DarkGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(copy_frame, text="Quit", command=self.root.quit, style="BlueBold.TButton").pack(side=tk.RIGHT)
     
         # status log frame at bottom with export functionality
