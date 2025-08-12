@@ -2,7 +2,11 @@
 """
 FolderCompareSync - A Folder Comparison & Synchronization Tool
 
-Version  v001.0015 - add configurable tree row height control for compact folder display
+Version  v001.0018 - fix delete orphans dialog cancel button error by adding None check for manager result,
+                     fix static method calling syntax in delete orphans functionality 
+         v001.0017 - enhance delete orphans logic to distinguish true orphans from folders containing orphans
+         v001.0016 - fix button and status message font scaling to use global constants consistently
+         v001.0015 - add configurable tree row height control for compact folder display
          v001.0014 - add configurable font scaling system for improved UI text readability
 
 Author: hydra3333
@@ -42,7 +46,7 @@ This application uses Python's built-in __debug__ flag and logging for debugging
     # If you hit an error and want more detail:
     if some_error_condition:
         self.set_debug_loglevel(True)  # Turn on debug logging
-        logger.debug("Now getting detailed debug info...")
+        log_and_flush(logging.DEBUG, "Now getting detailed debug info...")
         ...
         self.set_debug_loglevel(False)  # Turn off debug logging
 """
@@ -63,13 +67,14 @@ from ctypes import wintypes, Structure, c_char_p, c_int, c_void_p, POINTER, byre
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple, Any, Union
+from typing import Optional, Any, Union   # v001.0017 - removed  Remove Dict, List, Set, Tuple since "dict" "list" "set" "tuple" are newer in python 3.9+
 from enum import Enum
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import tkinter.font as tkfont
 import threading
 import logging
+import traceback
 import gc # for python garbage collection of unused structures etc
 
 # ============================================================================
@@ -88,12 +93,6 @@ WINDOW_HEIGHT_PERCENT = 0.93       # 93% of screen height
 MIN_WINDOW_WIDTH = 800             # Minimum window width in pixels
 MIN_WINDOW_HEIGHT = 600            # Minimum window height in pixels
 WINDOW_TOP_OFFSET = 0              # Pixels from top of screen
-
-# Status log configuration
-STATUS_LOG_VISIBLE_LINES = 5       # Visible lines in status log window
-STATUS_LOG_FONT = ("Courier", 9)   # Monospace font for better alignment
-STATUS_LOG_BG_COLOR = "#f8f8f8"    # Light background color
-STATUS_LOG_FG_COLOR = "#333333"    # Dark text color
 
 # Progress dialog appearance and behavior
 PROGRESS_DIALOG_WIDTH = 400        # Progress dialog width in pixels
@@ -122,7 +121,12 @@ DEBUG_LOG_FREQUENCY = 100           # Log debug info every N items (avoid spam i
 TREE_UPDATE_BATCH_SIZE = 200000     # Process tree updates in batches of N items (used in sorting)
 MEMORY_EFFICIENT_THRESHOLD = 10000  # Switch to memory-efficient mode above N items
 
-# Tree column configuration (default widths) - for new columns
+# Tree column configuration (default widths)
+LEFT_SIDE_lowercase = 'left'.lower()
+LEFT_SIDE_uppercase = LEFT_SIDE_lowercase.upper()
+RIGHT_SIDE_lowercase = 'right'.lower()
+RIGHT_SIDE_uppercase = RIGHT_SIDE_lowercase.upper()
+#
 TREE_STRUCTURE_WIDTH = 350         # Default structure column width
 TREE_STRUCTURE_MIN_WIDTH = 120     # Minimum structure column width
 TREE_SIZE_WIDTH = 50               # Size column width
@@ -153,19 +157,33 @@ UI_FONT_SCALE = 1                  # v001.0014 added [font scaling system for UI
                                    # (1 = no scaling, 1.2 = 20% larger, etc.)
                                    # Font scaling infrastructure preserved for future use if needed
 
-# Specific font sizes (start at "next size up" from tkinter defaults) # v001.0014 added [font scaling system for UI text size control]
-BUTTON_FONT_SIZE = 10              # Button text size (default ~9, so +1) # v001.0014 added [font scaling system for UI text size control]
-LABEL_FONT_SIZE = 9                # Label text size (default ~8, so +1) # v001.0014 added [font scaling system for UI text size control]
-ENTRY_FONT_SIZE = 9                # Entry field text size (default ~8, so +1) # v001.0014 added [font scaling system for UI text size control]
-CHECKBOX_FONT_SIZE = 9             # Checkbox text size (default ~8, so +1) # v001.0014 added [font scaling system for UI text size control]
-DIALOG_FONT_SIZE = 10              # Dialog text size # v001.0014 added [font scaling system for UI text size control]
-STATUS_MESSAGE_FONT_SIZE = 9       # Status message text size # v001.0014 added [font scaling system for UI text size control]
+# Specific font sizes # v001.0014 added [font scaling system for UI text size control]
+BUTTON_FONT_SIZE = 10               # Button text size (default ~9, so +2) # v001.0014 added [font scaling system for UI text size control]
+LABEL_FONT_SIZE = 11                # Label text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
+ENTRY_FONT_SIZE = 11                # Entry field text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
+CHECKBOX_FONT_SIZE = 11             # Checkbox text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
+DIALOG_FONT_SIZE = 11               # Dialog text size # v001.0014 added [font scaling system for UI text size control]
+STATUS_MESSAGE_FONT_SIZE = 12       # Status message text size # v001.0014 added [font scaling system for UI text size control]
+INSTRUCTION_FONT_SIZE = 11          # formerly INSTRUCTION_TEXT_SIZE Font size for instructional text
+# pre-calculate scaled font sizes
+SCALED_BUTTON_FONT_SIZE = ( BUTTON_FONT_SIZE * UI_FONT_SCALE )                 # Button text size (default ~9, so +2) # v001.0014 added [font scaling system for UI text size control]
+SCALED_LABEL_FONT_SIZE = ( LABEL_FONT_SIZE * UI_FONT_SCALE )                   # Label text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
+SCALED_ENTRY_FONT_SIZE = ( ENTRY_FONT_SIZE * UI_FONT_SCALE )                   # Entry field text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
+SCALED_CHECKBOX_FONT_SIZE = ( CHECKBOX_FONT_SIZE * UI_FONT_SCALE )             # Checkbox text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
+SCALED_DIALOG_FONT_SIZE = ( DIALOG_FONT_SIZE * UI_FONT_SCALE )                 # Dialog text size # v001.0014 added [font scaling system for UI text size control]
+SCALED_STATUS_MESSAGE_FONT_SIZE = ( STATUS_MESSAGE_FONT_SIZE * UI_FONT_SCALE ) # Status message text size # v001.0014 added [font scaling system for UI text size control]
+SCALED_INSTRUCTION_FONT_SIZE = ( INSTRUCTION_FONT_SIZE * UI_FONT_SCALE )       # Font size for instructional text
+
+# Status log configuration
+STATUS_LOG_VISIBLE_LINES = 6       # Visible lines in status log window, was 5
+STATUS_LOG_FONT = ("Courier", SCALED_STATUS_MESSAGE_FONT_SIZE)   # v001.0016
+STATUS_LOG_BG_COLOR = "#f8f8f8"    # Light background color
+STATUS_LOG_FG_COLOR = "#333333"    # Dark text color
 
 # Display colors and styling
-MISSING_ITEM_COLOR = "gray"       # Color for missing items in tree
+MISSING_ITEM_COLOR = "gray"           # Color for missing items in tree
 INSTRUCTION_TEXT_COLOR = "royalblue"  # Color for instructional text
-INSTRUCTION_TEXT_SIZE = 8         # Font size for instructional text
-FILTER_HIGHLIGHT_COLOR = "#ffffcc"  # Background color for filtered items
+FILTER_HIGHLIGHT_COLOR = "#ffffcc"    # Background color for filtered items
 
 # Filtering and sorting configuration
 MAX_FILTER_RESULTS = 200000       # Maximum items to show when filtering (performance)
@@ -174,8 +192,8 @@ MAX_FILTER_RESULTS = 200000       # Maximum items to show when filtering (perfor
 # DELETE ORPHANS CONFIGURATION CONSTANTS
 # ============================================================================
 # Delete Orphans Dialog Configuration
-DELETE_ORPHANS_DIALOG_WIDTH_PERCENT = 0.60    # 60% of main window width  # v001.0013 changed [reduced delete orphans dialog width from 85% to 60%]
-DELETE_ORPHANS_DIALOG_HEIGHT_PERCENT = 1.0    # Full height               # v001.0012 added [delete orphans dialog sizing]
+DELETE_ORPHANS_DIALOG_WIDTH_PERCENT = 0.40     # 50% of main window width  # v001.0013 changed [reduced delete orphans dialog width from 85% to 60%]
+DELETE_ORPHANS_DIALOG_HEIGHT_PERCENT = 1.0     # Full height               # v001.0012 added [delete orphans dialog sizing]
 DELETE_ORPHANS_STATUS_LINES = 10               # Visible lines in status log  # v001.0012 added [delete orphans status area]
 DELETE_ORPHANS_STATUS_MAX_HISTORY = 5000       # Maximum lines to keep     # v001.0012 added [delete orphans status area]
 
@@ -261,6 +279,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def log_and_flush(level, msg, *args, **kwargs):
+    # If you want to guarantee that a log line is on disk (or shown in the console) before the next line runs,
+    # even if the program crashes, you can explicitly flush the handler(s) right after the log call.
+    # Example Usage:
+    #     log_and_flush(logging.INFO, "About to process file: %s", file_path)
+    #
+    logger.log(level, msg, *args, **kwargs)
+    for h in logger.handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass  # Ignore handlers that don't support flush
+
 # ************** At program startup **************
 def check_dependencies(deps):
     missing = []
@@ -280,7 +311,7 @@ def check_dependencies(deps):
         )
         # Print to stderr and to the logger, then exit
         sys.stderr.write(missing_msg)
-        logger.critical(missing_msg)
+        log_and_flush(logging.CRITICAL, missing_msg)
         sys.exit(1)
 # Check the timezone dependencies are installed by pip
 #     pip install --upgrade python-dateutil
@@ -367,7 +398,7 @@ def format_timestamp(timestamp: Union[datetime, float, int, None],
         return formatted
     except (ValueError, OSError, OverflowError) as e:
         # Handle invalid timestamps gracefully
-        logger.debug(f"Invalid timestamp formatting: {timestamp} - {e}")
+        log_and_flush(logging.DEBUG, f"Invalid timestamp formatting: {timestamp} - {e}")
         return f"Invalid timestamp: {timestamp}"
 
 def format_size(size_bytes):
@@ -456,7 +487,7 @@ import argparse
 import tempfile
 import shutil
 from pathlib import Path
-from typing import Tuple, Optional, Union
+from typing import Optional, Any, Union
 
 # ==========================================================================================================
 # WINDOWS FILETIME STRUCTURE AND API SETUP
@@ -572,8 +603,8 @@ class FileTimestampManager:
         self._local_tz = self._get_local_timezone()
         self._windows_epoch = datetime(1601, 1, 1, tzinfo=timezone.utc)
         self._dry_run = dry_run
-        logger.debug(f"FileTimestampManager initialized with timezone: {self.get_timezone_string()}")
-        logger.debug(f"FileTimestampManager dry run mode: {self._dry_run}")
+        log_and_flush(logging.DEBUG, f"FileTimestampManager initialized with timezone: {self.get_timezone_string()}")
+        log_and_flush(logging.DEBUG, f"FileTimestampManager dry run mode: {self._dry_run}")
 
     def get_timezone_string(self) -> str:
         """
@@ -618,19 +649,19 @@ class FileTimestampManager:
             timezone object representing the local timezone
         """
         # Method 0: Use dateutil.tz.tzwinlocal (Windows registry direct)
-        logger.debug("Attempting timezone detection using Method 0: dateutil.tz.tzwinlocal...")
+        log_and_flush(logging.DEBUG, "Attempting timezone detection using Method 0: dateutil.tz.tzwinlocal...")
         try:
             tz = tzwinlocal()
             if tz:
                 # Get a human-readable description
                 tz_name = tz.tzname(datetime.now())
-                logger.info(f"Timezone detected via Method 0: dateutil.tz.tzwinlocal: {tz_name}")
+                log_and_flush(logging.INFO, f"Timezone detected via Method 0: dateutil.tz.tzwinlocal: {tz_name}")
                 return tz
         except Exception as e:
-            logger.debug(f"tzwinlocal method failed: {e}")
+            log_and_flush(logging.DEBUG, f"tzwinlocal method failed: {e}")
 
         # Method 1: Try zoneinfo (Python 3.9+) with Windows timezone mapping
-        logger.debug("Attempting timezone detection using Method 1: zoneinfo method...")
+        log_and_flush(logging.DEBUG, "Attempting timezone detection using Method 1: zoneinfo method...")
         try:
             if hasattr(time, 'tzname') and time.tzname[0]:
                 # Comprehensive Windows to IANA timezone mappings
@@ -678,30 +709,30 @@ class FileTimestampManager:
                 }
                 # Try to map Windows timezone name to IANA
                 win_tz_name = time.tzname[0]
-                logger.debug(f"Windows timezone name detected: {win_tz_name}")
+                log_and_flush(logging.DEBUG, f"Windows timezone name detected: {win_tz_name}")
                 
                 if win_tz_name in windows_to_iana:
                     iana_name = windows_to_iana[win_tz_name]
                     tz = zoneinfo.ZoneInfo(iana_name)
-                    logger.info(f"Timezone detected via Method 1a: zoneinfo mapping: {iana_name} (from Windows: {win_tz_name})")
+                    log_and_flush(logging.INFO, f"Timezone detected via Method 1a: zoneinfo mapping: {iana_name} (from Windows: {win_tz_name})")
                     return tz
                     
                 # Try the name directly (might work on some systems)
                 try:
                     tz = zoneinfo.ZoneInfo(win_tz_name)
-                    logger.info(f"Timezone detected via Method 1b: zoneinfo direct: {win_tz_name}")
+                    log_and_flush(logging.INFO, f"Timezone detected via Method 1b: zoneinfo direct: {win_tz_name}")
                     return tz
                 except:
-                    logger.debug(f"Could not use Windows timezone name directly: {win_tz_name}")
+                    log_and_flush(logging.DEBUG, f"Could not use Windows timezone name directly: {win_tz_name}")
         except zoneinfo.ZoneInfoNotFoundError as e:
-            logger.warning(f"IANA lookup failed (no tzdata?): {e}")
+            log_and_flush(logging.WARNING, f"IANA lookup failed (no tzdata?): {e}")
         except ImportError as e:
-            logger.debug("zoneinfo module not available, {e},skipping Method 1")
+            log_and_flush(logging.DEBUG, "zoneinfo module not available, {e},skipping Method 1")
         except (AttributeError, Exception) as e:
-            logger.debug(f"Zoneinfo method failed: {e}")
+            log_and_flush(logging.DEBUG, f"Zoneinfo method failed: {e}")
         
         # Method 2: Use time module offset to create timezone
-        logger.debug("Attempting timezone detection using Method 2: time module offset method...")
+        log_and_flush(logging.DEBUG, "Attempting timezone detection using Method 2: time module offset method...")
         try:
             # We already have time imported at module level – do not do an inner import here!
             # Get the actual current offset by comparing local and UTC time
@@ -721,16 +752,16 @@ class FileTimestampManager:
             offset_str = (
                 f"UTC{sign}{hours:02d}:{minutes:02d}" if minutes else f"UTC{sign}{hours:02d}:00"
             )
-            logger.info(f"Timezone detected via Method 2: time module offset: {offset_str}")
+            log_and_flush(logging.INFO, f"Timezone detected via Method 2: time module offset: {offset_str}")
             return tz
         except Exception as e:
-            logger.debug(f"Time module offset method failed: {e}")
+            log_and_flush(logging.DEBUG, f"Time module offset method failed: {e}")
         
         # Method 3: Final fallback to UTC
-        logger.warning("Could not determine local timezone, falling back to Method 3: UTC")
+        log_and_flush(logging.WARNING, "Could not determine local timezone, falling back to Method 3: UTC")
         return timezone.utc
     
-    def get_file_timestamps(self, file_path: Union[str, Path]) -> Tuple[datetime, datetime]:
+    def get_file_timestamps(self, file_path: Union[str, Path]) -> tuple[datetime, datetime]:
         """
         Get creation and modification timestamps from a file or directory.
         
@@ -738,7 +769,7 @@ class FileTimestampManager:
             file_path: Path to the file or directory
             
         Returns:
-            Tuple of (creation_time, modification_time) as timezone-aware datetime objects
+            tuple of (creation_time, modification_time) as timezone-aware datetime objects
             
         Raises:
             FileNotFoundError: If the file doesn't exist
@@ -757,9 +788,9 @@ class FileTimestampManager:
             creation_time = datetime.fromtimestamp(creation_timestamp, tz=self._local_tz)
             modification_time = datetime.fromtimestamp(modification_timestamp, tz=self._local_tz)
             
-            logger.debug(f"Retrieved timestamps for {file_path}:")
-            logger.debug(f"  Creation: {creation_time}")
-            logger.debug(f"  Modified: {modification_time}")
+            log_and_flush(logging.DEBUG, f"Retrieved timestamps for {file_path}:")
+            log_and_flush(logging.DEBUG, f"  Creation: {creation_time}")
+            log_and_flush(logging.DEBUG, f"  Modified: {modification_time}")
             
             return creation_time, modification_time
         except OSError as e:
@@ -787,7 +818,7 @@ class FileTimestampManager:
             ValueError: If neither timestamp is provided
         """
         if self._dry_run:
-            logger.info(f"[DRY RUN] Would set timestamps for {file_path}")
+            log_and_flush(logging.INFO, f"[DRY RUN] Would set timestamps for {file_path}")
             return True
             
         if creation_time is None and modification_time is None:
@@ -805,14 +836,14 @@ class FileTimestampManager:
             if creation_time is not None:
                 creation_filetime = self._datetime_to_filetime(creation_time)
                 dt_display = self._filetime_to_datetime(creation_filetime)
-                logger.debug(f"Creation FILETIME: {creation_filetime}")
-                logger.debug(f"        = {dt_display.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+                log_and_flush(logging.DEBUG, f"Creation FILETIME: {creation_filetime}")
+                log_and_flush(logging.DEBUG, f"        = {dt_display.strftime('%Y-%m-%d %H:%M:%S %Z')}")
             
             if modification_time is not None:
                 modification_filetime = self._datetime_to_filetime(modification_time)
                 dt_display = self._filetime_to_datetime(modification_filetime)
-                logger.debug(f"Modification FILETIME: {modification_filetime}")
-                logger.debug(f"        = {dt_display.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+                log_and_flush(logging.DEBUG, f"Modification FILETIME: {modification_filetime}")
+                log_and_flush(logging.DEBUG, f"        = {dt_display.strftime('%Y-%m-%d %H:%M:%S %Z')}")
             
             # Try the proper FILETIME structure method first
             success = self._set_file_times_windows_proper(
@@ -821,17 +852,17 @@ class FileTimestampManager:
             
             # If that fails, try the fallback method
             if not success:
-                logger.debug("Primary method failed, trying fallback...")
+                log_and_flush(logging.DEBUG, "Primary method failed, trying fallback...")
                 success = self._set_file_times_windows_fallback(
                     str(file_path), creation_filetime, modification_filetime
                 )
             if success:
-                logger.debug(f"Successfully set timestamps for {file_path}")
+                log_and_flush(logging.DEBUG, f"Successfully set timestamps for {file_path}")
             else:
-                logger.error(f"Failed to set timestamps for {file_path}")
+                log_and_flush(logging.ERROR, f"Failed to set timestamps for {file_path}")
             return success
         except Exception as e:
-            logger.error(f"Error setting timestamps for {file_path}: {e}")
+            log_and_flush(logging.ERROR, f"Error setting timestamps for {file_path}: {e}")
             return False
     
     def _datetime_to_filetime(self, dt: datetime) -> int:
@@ -851,7 +882,7 @@ class FileTimestampManager:
         if dt.tzinfo is None:
             # Assume naive datetime is in local timezone
             dt = dt.replace(tzinfo=self._local_tz)
-            logger.debug(f"Converting naive datetime to local timezone: {dt}")
+            log_and_flush(logging.DEBUG, f"Converting naive datetime to local timezone: {dt}")
         
         # Convert to UTC for consistent FILETIME calculation
         dt_utc = dt.astimezone(timezone.utc)
@@ -913,7 +944,7 @@ class FileTimestampManager:
             
             if handle == INVALID_HANDLE_VALUE:
                 error_code = kernel32.GetLastError()
-                logger.debug(f"CreateFileW failed with error code: {error_code}")
+                log_and_flush(logging.DEBUG, f"CreateFileW failed with error code: {error_code}")
                 return False
             
             # Prepare FILETIME structures
@@ -939,12 +970,12 @@ class FileTimestampManager:
             
             if not result:
                 error_code = kernel32.GetLastError()
-                logger.debug(f"SetFileTime failed with error code: {error_code}")
+                log_and_flush(logging.DEBUG, f"SetFileTime failed with error code: {error_code}")
             
             return bool(result)
             
         except Exception as e:
-            logger.debug(f"Exception in proper method: {e}")
+            log_and_flush(logging.DEBUG, f"Exception in proper method: {e}")
             return False
         finally:
             # Always close the handle if it was opened
@@ -1013,7 +1044,7 @@ class FileTimestampManager:
             return bool(result)
             
         except Exception as e:
-            logger.debug(f"Exception in fallback method: {e}")
+            log_and_flush(logging.DEBUG, f"Exception in fallback method: {e}")
             return False
         finally:
             # Always close the handle if it was opened
@@ -1036,7 +1067,7 @@ class FileTimestampManager:
             True if successful, False otherwise
         """
         if self._dry_run:
-            logger.info(f"[DRY RUN] Would copy timestamps from {source_file} to {target_file}")
+            log_and_flush(logging.INFO, f"[DRY RUN] Would copy timestamps from {source_file} to {target_file}")
             return True
             
         try:
@@ -1047,12 +1078,12 @@ class FileTimestampManager:
             success = self.set_file_timestamps(target_file, creation_time, modification_time)
             
             if success:
-                logger.debug(f"Successfully copied timestamps from {source_file} to {target_file}")
+                log_and_flush(logging.DEBUG, f"Successfully copied timestamps from {source_file} to {target_file}")
             
             return success
             
         except Exception as e:
-            logger.error(f"Error copying timestamps: {e}")
+            log_and_flush(logging.ERROR, f"Error copying timestamps: {e}")
             return False
     
     def verify_timestamps(self, file_path: Union[str, Path], 
@@ -1079,19 +1110,19 @@ class FileTimestampManager:
             if expected_creation is not None:
                 diff = abs((actual_creation - expected_creation).total_seconds())
                 if diff > tolerance_seconds:
-                    logger.debug(f"Creation time mismatch: {diff} seconds")
+                    log_and_flush(logging.DEBUG, f"Creation time mismatch: {diff} seconds")
                     return False
             
             if expected_modification is not None:
                 diff = abs((actual_modification - expected_modification).total_seconds())
                 if diff > tolerance_seconds:
-                    logger.debug(f"Modification time mismatch: {diff} seconds")
+                    log_and_flush(logging.DEBUG, f"Modification time mismatch: {diff} seconds")
                     return False
             
             return True
             
         except Exception as e:
-            logger.debug(f"Error verifying timestamps: {e}")
+            log_and_flush(logging.DEBUG, f"Error verifying timestamps: {e}")
             return False
 
 # ---------- End of Common FileTimestampManager Code ----------
@@ -1116,10 +1147,16 @@ class ErrorDetailsDialog:
         default_font = tkfont.nametofont("TkDefaultFont") # v001.0014 added [create scaled fonts for error dialog]
         
         self.scaled_label_font = default_font.copy() # v001.0014 added [create scaled fonts for error dialog]
-        self.scaled_label_font.configure(size=int(LABEL_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for error dialog]
+        self.scaled_label_font.configure(size=SCALED_LABEL_FONT_SIZE) # v001.0014 added [create scaled fonts for error dialog]
+        # Create a bold version
+        self.scaled_label_font_bold = self.scaled_label_font.copy()
+        self.scaled_label_font_bold.configure(weight="bold")
         
         self.scaled_button_font = default_font.copy() # v001.0014 added [create scaled fonts for error dialog]
-        self.scaled_button_font.configure(size=int(BUTTON_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for error dialog]
+        self.scaled_button_font.configure(size=SCALED_BUTTON_FONT_SIZE) # v001.0014 added [create scaled fonts for error dialog]
+        # Create a bold version
+        self.scaled_button_font_bold = self.scaled_button_font.copy()
+        self.scaled_button_font_bold.configure(weight="bold")
         
         # Main frame
         main_frame = ttk.Frame(self.dialog, padding=12) # v001.0014 changed [tightened padding from padding=15 to padding=12]
@@ -1202,9 +1239,9 @@ class CopyStrategy(Enum):
     Defines the available copy strategies for file operations
     based on file size, location, and drive type characteristics.
     """
-    DIRECT = "direct"           # Strategy A: Direct copy for small files on local drives
-    STAGED = "staged"           # Strategy B: Staged copy with rename-based backup for large files
-    NETWORK = "network"         # Network-optimized copy with retry logic
+    DIRECT = "direct".lower()           # Strategy A: Direct copy for small files on local drives
+    STAGED = "staged".lower()           # Strategy B: Staged copy with rename-based backup for large files
+    NETWORK = "network".lower()         # Network-optimized copy with retry logic
 
 class DriveType(Enum):
     """
@@ -1309,7 +1346,7 @@ def get_drive_type(path: str) -> DriveType:
             return DriveType.UNKNOWN
             
     except Exception as e:
-        logger.warning(f"Could not determine drive type for {path}: {e}")
+        log_and_flush(logging.WARNING, f"Could not determine drive type for {path}: {e}")
         return DriveType.UNKNOWN
 
 def determine_copy_strategy(source_path: str, target_path: str, file_size: int) -> CopyStrategy:
@@ -1372,7 +1409,7 @@ def create_copy_operation_logger(operation_id: str) -> logging.Logger: # v000.00
     Usage:
     ------
     logger = create_copy_operation_logger("abc123def")
-    logger.info("Copy operation starting...")
+    log_and_flush(logging.INFO, "Copy operation starting...")
     """
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_filename = f"foldercomparesync_copy_{timestamp}_{operation_id}.log"
@@ -1482,7 +1519,7 @@ class ComparisonResult_class:
     """
     left_item: Optional[FileMetadata_class]
     right_item: Optional[FileMetadata_class]
-    differences: Set[str]  # Set of difference types: 'existence', 'size', 'date_created', 'date_modified', 'sha512'
+    differences: set[str]  # Set of difference types: 'existence', 'size', 'date_created', 'date_modified', 'sha512'
     is_different: bool = False
     
     def __post_init__(self):
@@ -1516,7 +1553,7 @@ class ProgressDialog:
         message: Initial progress message
         max_value: Maximum value for percentage (None for indeterminate)
         """
-        logger.debug(f"Creating progress dialog: {title}")
+        log_and_flush(logging.DEBUG, f"Creating progress dialog: {title}")
         
         self.parent = parent
         self.max_value = max_value
@@ -1598,7 +1635,7 @@ class ProgressDialog:
         
     def close(self):
         """Close the progress dialog and clean up resources."""
-        logger.debug("Closing progress dialog")
+        log_and_flush(logging.DEBUG, "Closing progress dialog")
         try:
             if hasattr(self, 'progress_bar'):
                 self.progress_bar.stop()  # Stop any animation
@@ -1651,7 +1688,7 @@ class FileCopyManager:
         self.operation_sequence = 0  # New: Sequential numbering for operations
         
         # Log timezone information for the copy manager
-        logger.info(f"FileCopyManager initialized with timezone: {self.timestamp_manager.get_timezone_string()}")
+        log_and_flush(logging.INFO, f"FileCopyManager initialized with timezone: {self.timestamp_manager.get_timezone_string()}")
     def set_dry_run_mode(self, enabled: bool):
         """
         Enable or disable dry run mode for safe operation testing.
@@ -1673,10 +1710,10 @@ class FileCopyManager:
     def _log_status(self, message: str):
         """Log status message to both operation logger and status callback."""
         if self.operation_logger:
-            self.operation_logger.info(message)
+            self.operation_log_and_flush(logging.INFO, message)
         if self.status_callback:
             self.status_callback(message)
-        logger.debug(f"Copy operation status: {message}")
+        log_and_flush(logging.DEBUG, f"Copy operation status: {message}")
     
     def _verify_copy(self, source_path: str, target_path: str) -> bool:
         """
@@ -2067,12 +2104,12 @@ class FileCopyManager:
         
         dry_run_text = " (DRY RUN SIMULATION)" if dry_run else ""
         
-        self.operation_logger.info("=" * 80)
-        self.operation_logger.info(f"COPY OPERATION STARTED: {operation_name}{dry_run_text}")
-        self.operation_logger.info(f"Operation ID: {self.operation_id}")
-        self.operation_logger.info(f"Mode: {'DRY RUN SIMULATION' if dry_run else 'NORMAL OPERATION'}")
-        self.operation_logger.info(f"Timestamp: {datetime.now().isoformat()}")
-        self.operation_logger.info("=" * 80)
+        self.operation_log_and_flush(logging.INFO, "=" * 80)
+        self.operation_log_and_flush(logging.INFO, f"COPY OPERATION STARTED: {operation_name}{dry_run_text}")
+        self.operation_log_and_flush(logging.INFO, f"Operation ID: {self.operation_id}")
+        self.operation_log_and_flush(logging.INFO, f"Mode: {'DRY RUN SIMULATION' if dry_run else 'NORMAL OPERATION'}")
+        self.operation_log_and_flush(logging.INFO, f"Timestamp: {datetime.now().isoformat()}")
+        self.operation_log_and_flush(logging.INFO, "=" * 80)
         
         return self.operation_id
     
@@ -2089,17 +2126,17 @@ class FileCopyManager:
         if self.operation_logger:
             dry_run_text = " (DRY RUN SIMULATION)" if self.dry_run_mode else ""
             
-            self.operation_logger.info("=" * 80)
-            self.operation_logger.info(f"COPY OPERATION COMPLETED{dry_run_text}")
-            self.operation_logger.info(f"Operation ID: {self.operation_id}")
-            self.operation_logger.info(f"Files processed successfully: {success_count}")
-            self.operation_logger.info(f"Files failed: {error_count}")
-            self.operation_logger.info(f"Total bytes processed: {total_bytes:,}")
-            self.operation_logger.info(f"Total operations: {self.operation_sequence}")
+            self.operation_log_and_flush(logging.INFO, "=" * 80)
+            self.operation_log_and_flush(logging.INFO, f"COPY OPERATION COMPLETED{dry_run_text}")
+            self.operation_log_and_flush(logging.INFO, f"Operation ID: {self.operation_id}")
+            self.operation_log_and_flush(logging.INFO, f"Files processed successfully: {success_count}")
+            self.operation_log_and_flush(logging.INFO, f"Files failed: {error_count}")
+            self.operation_log_and_flush(logging.INFO, f"Total bytes processed: {total_bytes:,}")
+            self.operation_log_and_flush(logging.INFO, f"Total operations: {self.operation_sequence}")
             if self.dry_run_mode:
-                self.operation_logger.info("NOTE: This was a DRY RUN simulation - no actual files were modified")
-            self.operation_logger.info(f"Timestamp: {datetime.now().isoformat()}")
-            self.operation_logger.info("=" * 80)
+                self.operation_log_and_flush(logging.INFO, "NOTE: This was a DRY RUN simulation - no actual files were modified")
+            self.operation_log_and_flush(logging.INFO, f"Timestamp: {datetime.now().isoformat()}")
+            self.operation_log_and_flush(logging.INFO, "=" * 80)
             
             # Close the operation logger
             for handler in self.operation_logger.handlers[:]:
@@ -2137,17 +2174,17 @@ class FolderCompareSync_class:
     
     def __init__(self):
         """Initialize the main application with all components and limits."""
-        logger.info("Initializing FolderCompareSync application")
+        log_and_flush(logging.INFO, "Initializing FolderCompareSync application")
         global log_level
         if __debug__:
             if log_level == logging.DEBUG:
-                logger.debug("Debug mode enabled - Debug log_level active")
+                log_and_flush(logging.DEBUG, "Debug mode enabled - Debug log_level active")
             else:
-                logger.debug("Debug mode enabled - non-Debug log_level active")
+                log_and_flush(logging.DEBUG, "Debug mode enabled - non-Debug log_level active")
         
         self.root = tk.Tk()
         self.root.title("FolderCompareSync - Folder Comparison and Syncing Tool")
-
+    
         # NEW style configs for the "Compare" "Copy" "Quit" buttons  button
         # 1) Get the existing default font and make a bold copy
         self.default_font = tkfont.nametofont("TkDefaultFont")
@@ -2157,41 +2194,137 @@ class FolderCompareSync_class:
         # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
         # Create scaled fonts based on configuration
         self.scaled_button_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_button_font.configure( # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-            size=int(BUTTON_FONT_SIZE * UI_FONT_SCALE), # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-            weight="bold" # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        ) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_button_font.configure(size=SCALED_BUTTON_FONT_SIZE)
+        # Create a bold version
+        self.scaled_button_font_bold = self.scaled_button_font.copy()
+        self.scaled_button_font_bold.configure(weight="bold")
         
         self.scaled_label_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_label_font.configure(size=int(LABEL_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_label_font.configure(size=SCALED_LABEL_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
         
         self.scaled_entry_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_entry_font.configure(size=int(ENTRY_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_entry_font.configure(size=SCALED_ENTRY_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
         
         self.scaled_checkbox_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_checkbox_font.configure(size=int(CHECKBOX_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_checkbox_font.configure(size=SCALED_CHECKBOX_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
         
         self.scaled_dialog_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_dialog_font.configure(size=int(DIALOG_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        self.scaled_dialog_font.configure(size=SCALED_DIALOG_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        
+        self.scaled_status_font = self.default_font.copy() # v001.0016 added [scaled font for status messages using global SCALED_STATUS_MESSAGE_FONT_SIZE]
+        self.scaled_status_font.configure(size=SCALED_STATUS_MESSAGE_FONT_SIZE) # v001.0016 added [scaled font for status messages using global SCALED_STATUS_MESSAGE_FONT_SIZE]
         
         self.style = ttk.Style(self.root)
-        # 2) Create styles for the "Compare" "Copy" "Quit" buttons using that bold_font
-        self.style.configure("LimeGreenBold.TButton", foreground="limegreen",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("GreenBold.TButton", foreground="green",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("RedBold.TButton", foreground="red",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("PurpleBold.TButton", foreground="purple",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("MediumPurpleBold.TButton", foreground="mediumpurple",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("IndigoBold.TButton", foreground="indigo",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("BlueBold.TButton", foreground="blue",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("GoldBold.TButton", foreground="gold",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
-        self.style.configure("YellowBold.TButton", foreground="yellow",font=self.scaled_button_font,) # v001.0014 changed [use scaled button font instead of bold_font]
+        # 2) Create colour styles for some bolded_fonts
+        self.style.configure("LimeGreenBold.TButton", foreground="limegreen",font=self.scaled_button_font_bold)
+        self.style.configure("GreenBold.TButton", foreground="green",font=self.scaled_button_font_bold)
+        self.style.configure("DarkGreenBold.TButton", foreground="darkgreen",font=self.scaled_button_font_bold)
+        self.style.configure("RedBold.TButton", foreground="red",font=self.scaled_button_font_bold)
+        self.style.configure("PurpleBold.TButton", foreground="purple",font=self.scaled_button_font_bold)
+        self.style.configure("MediumPurpleBold.TButton", foreground="mediumpurple",font=self.scaled_button_font_bold)
+        self.style.configure("IndigoBold.TButton", foreground="indigo",font=self.scaled_button_font_bold)
+        self.style.configure("BlueBold.TButton", foreground="blue",font=self.scaled_button_font_bold)
+        self.style.configure("GoldBold.TButton", foreground="gold",font=self.scaled_button_font_bold)
+        self.style.configure("YellowBold.TButton", foreground="yellow",font=self.scaled_button_font_bold)
 
+        # v001.0016 added [default button style for buttons without specific colors]
+        self.style.configure("DefaultNormal.TButton", font=self.scaled_button_font, weight="normal") # v001.0016 added [default button style for buttons without specific colors]
+        self.style.configure("DefaultBold.TButton.TButton", font=self.scaled_button_font_bold, weight="bold")     # v001.0016 added [default bold button style for buttons without specific colors]
+
+        # v001.0014 added [create custom ttk styles for scaled fonts]
+        # Create custom styles for ttk widgets that need scaled fonts
+        self.style.configure("Scaled.TCheckbutton", font=self.scaled_checkbox_font)
+        self.style.configure("Scaled.TLabel", font=self.scaled_label_font)
+        self.style.configure("StatusMessage.TLabel", font=self.scaled_status_font) # v001.0016 added [status message label style using SCALED_STATUS_MESSAGE_FONT_SIZE]
+        self.style.configure("Scaled.TEntry", font=self.scaled_entry_font)
+    
         # Configure tree row height for all treeviews globally # v001.0015 added [tree row height control for compact display]
         self.style.configure("Treeview", rowheight=TREE_ROW_HEIGHT) # v001.0015 added [tree row height control for compact display]
-
+    
         # Get screen dimensions for smart window sizing
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
+        
+        # Use configurable window sizing percentages
+        window_width = int(screen_width * WINDOW_WIDTH_PERCENT)
+        window_height = int(screen_height * WINDOW_HEIGHT_PERCENT)
+        
+        # Center horizontally, use configurable top offset for optimal taskbar clearance
+        x = (screen_width - window_width) // 2
+        y = WINDOW_TOP_OFFSET
+        
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)  # Use configurable minimum size
+        
+        # Application state variables
+        self.left_folder = tk.StringVar()
+        self.right_folder = tk.StringVar()
+        self.compare_existence = tk.BooleanVar(value=True)
+        self.compare_size = tk.BooleanVar(value=True)
+        self.compare_date_created = tk.BooleanVar(value=True)
+        self.compare_date_modified = tk.BooleanVar(value=True)
+        self.compare_sha512 = tk.BooleanVar(value=False)
+        self.overwrite_mode = tk.BooleanVar(value=True)
+        self.dry_run_mode = tk.BooleanVar(value=False)
+        
+        # Filtering state # v000.0002 changed - removed sorting
+        self.filter_wildcard = tk.StringVar()
+
+        self.filtered_results = {}  # Store filtered comparison results
+        self.is_filtered = False
+        
+        # Data storage for comparison results and selection state
+        self.comparison_results: dict[str, ComparisonResult_class] = {}
+        self.selected_left: set[str] = set()
+        self.selected_right: set[str] = set()
+        self.tree_structure: dict[str, list[str]] = {LEFT_SIDE_lowercase: [], RIGHT_SIDE_lowercase: []}
+        
+        # Path mapping for proper status determination and tree navigation
+        # Maps relative_path -> tree_item_id for efficient lookups
+        self.path_to_item_left: dict[str, str] = {}  # rel_path -> tree_item_id
+        self.path_to_item_right: dict[str, str] = {}  # rel_path -> tree_item_id
+        
+        # Store root item IDs for special handling in selection logic
+        self.root_item_left: Optional[str] = None
+        self.root_item_right: Optional[str] = None
+        
+        # Flag to prevent recursive display updates during tree operations
+        self._updating_display = False
+        
+        # Status log management using configurable constants
+        self.status_log_lines = []  # Store status messages
+        self.max_status_lines = STATUS_LOG_MAX_HISTORY  # Use configurable maximum (5000)
+        
+        # File count tracking for limits
+        self.file_count_left = 0
+        self.file_count_right = 0
+        self.total_file_count = 0
+        self.limit_exceeded = False
+        
+        # UI References for widget interaction
+        self.left_tree = None
+        self.right_tree = None
+        self.status_var = tk.StringVar(value="Ready")
+        self.summary_var = tk.StringVar(value="Summary: No comparison performed")
+        self.status_log_text = None  # Will be set in setup_ui
+        
+        # copy system with staged strategy and dry run support
+        self.copy_manager = FileCopyManager(status_callback=self.add_status_message)
+        
+        if __debug__:
+            log_and_flush(logging.DEBUG, "Application state initialized with dual copy system")
+        
+        self.setup_ui()
+        
+        # Add startup warnings about performance and limits
+        self.add_status_message("Application initialized - dual copy system ready")
+        self.add_status_message(f"WARNING: Large folder operations may be slow. Maximum {MAX_FILES_FOLDERS:,} files/folders supported.")
+        self.add_status_message("Tip: Use filtering and dry run mode for testing with large datasets.")
+        
+        # Display detected timezone information
+        timezone_str = self.copy_manager.timestamp_manager.get_timezone_string()
+        self.add_status_message(f"Timezone detected: {timezone_str} - will be used for timestamp operations")
+        log_and_flush(logging.INFO, "Application initialization complete ")
 
     def add_status_message(self, message):
         """
@@ -2224,7 +2357,7 @@ class FolderCompareSync_class:
             self.status_log_text.config(state=tk.DISABLED)
             self.status_log_text.see(tk.END)  # Auto-scroll to bottom
             
-        logger.info(f"STATUS: {message}")
+        log_and_flush(logging.INFO, f"STATUS: {message}")
 
     def export_status_log(self):
         """
@@ -2329,10 +2462,10 @@ class FolderCompareSync_class:
         global log_level
         if enabled:
             log_level = logging.DEBUG
-            logger.info("[DEBUG] Debug logging enabled - Debug output activated")
+            log_and_flush(logging.INFO, "[DEBUG] Debug logging enabled - Debug output activated")
         else:
             log_level = logging.INFO
-            logger.info("[INFO] Debug logging disabled - Info mode activated")
+            log_and_flush(logging.INFO, "[INFO] Debug logging disabled - Info mode activated")
         logger.setLevel(log_level)
         # Update status to show updated current mode
         if hasattr(self, 'status_var'):
@@ -2340,117 +2473,100 @@ class FolderCompareSync_class:
             mode = "DEBUG" if enabled else "NORMAL"
             self.status_var.set(f"{current_status} ({mode})")
 
-    def delete_left_orphans(self): # v001.0012 added [delete left orphans button command]
-        """Handle Delete LEFT-only Orphaned Files button.""" # v001.0012 added [delete left orphans button command]
-        if self.limit_exceeded: # v001.0012 added [delete left orphans button command]
-            messagebox.showwarning("Operation Disabled", "Delete operations are disabled when file limits are exceeded.") # v001.0012 added [delete left orphans button command]
-            return # v001.0012 added [delete left orphans button command]
-            
-        if not self.comparison_results: # v001.0012 added [delete left orphans button command]
-            self.add_status_message("No comparison data available - please run comparison first") # v001.0012 added [delete left orphans button command]
-            messagebox.showinfo("No Data", "Please perform a folder comparison first.") # v001.0012 added [delete left orphans button command]
-            return # v001.0012 added [delete left orphans button command]
-            
-        # Get current filter if active # v001.0012 added [delete left orphans button command]
-        active_filter = self.filter_wildcard.get() if self.is_filtered else None # v001.0012 added [delete left orphans button command]
-        
-        # Detect orphaned files on left side # v001.0012 added [delete left orphans button command]
-        orphaned_files = DeleteOrphansManager_class.detect_orphaned_files(self.comparison_results, 'left', active_filter) # v001.0012 changed [use DeleteOrphansManager_class class method]
-        
-        if not orphaned_files: # v001.0012 added [delete left orphans button command]
-            filter_text = f" (with active filter: {active_filter})" if active_filter else "" # v001.0012 added [delete left orphans button command]
-            self.add_status_message(f"No orphaned files found on LEFT side{filter_text}") # v001.0012 added [delete left orphans button command]
-            messagebox.showinfo("No Orphans", f"No orphaned files found on LEFT side{filter_text}.") # v001.0012 added [delete left orphans button command]
-            return # v001.0012 added [delete left orphans button command]
-            
-        self.add_status_message(f"Opening delete orphans dialog for LEFT side: {len(orphaned_files)} files") # v001.0012 added [delete left orphans button command]
-        
-        try: # v001.0012 added [delete left orphans button command]
-            # Create and show delete orphans manager/dialog # v001.0012 added [delete left orphans button command]
-            manager = DeleteOrphansManager_class ( # v001.0012 changed [use DeleteOrphansManager_class instead of DeleteOrphansDialog]
-                parent=self.root, # v001.0012 added [delete left orphans button command]
-                orphaned_files=orphaned_files, # v001.0012 added [delete left orphans button command]
-                side='left', # v001.0012 added [delete left orphans button command]
-                source_folder=self.left_folder.get(), # v001.0012 added [delete left orphans button command]
-                dry_run_mode=self.dry_run_mode.get(), # v001.0012 added [delete left orphans button command]
-                comparison_results=self.comparison_results, # v001.0012 added [delete left orphans button command]
-                active_filter=active_filter # v001.0012 added [delete left orphans button command]
-            ) # v001.0012 added [delete left orphans button command]
-            
-            # Wait for dialog to complete # v001.0012 added [delete left orphans button command]
-            self.root.wait_window(manager.dialog) # v001.0012 changed [use manager.dialog instead of dialog.dialog]
-            
-            # Check if files were actually deleted (not dry run) # v001.0012 added [delete left orphans button command]
-            if hasattr(manager, 'result') and manager.result == 'deleted' and not self.dry_run_mode.get(): # v001.0012 changed [use manager instead of dialog]
-                self.add_status_message("Delete operation completed - refreshing folder comparison...") # v001.0012 added [delete left orphans button command]
-                # Refresh comparison to show updated state # v001.0012 added [delete left orphans button command]
-                self.refresh_after_copy_operation() # v001.0012 added [delete left orphans button command]
-            else: # v001.0012 added [delete left orphans button command]
-                self.add_status_message("Delete orphans dialog closed") # v001.0012 added [delete left orphans button command]
-                
-        except Exception as e: # v001.0012 added [delete left orphans button command]
-            error_msg = f"Error opening delete orphans dialog: {str(e)}" # v001.0012 added [delete left orphans button command]
-            self.add_status_message(f"ERROR: {error_msg}") # v001.0012 added [delete left orphans button command]
-            self.show_error(error_msg) # v001.0012 added [delete left orphans button command]
-        finally: # v001.0012 added [delete left orphans button command]
-            # Cleanup memory after dialog operations # v001.0012 added [delete left orphans button command]
-            gc.collect() # v001.0012 added [delete left orphans button command]
+    def delete_left_orphans_onclick(self): # v001.0017 changed [now calls consolidated method]
+        """Handle Delete Orphaned Files from LEFT-only button using enhanced orphan detection."""
+        self.delete_orphans(LEFT_SIDE_lowercase)
 
-    def delete_right_orphans(self): # v001.0012 added [delete right orphans button command]
-        """Handle Delete RIGHT-only Orphaned Files button.""" # v001.0012 added [delete right orphans button command]
-        if self.limit_exceeded: # v001.0012 added [delete right orphans button command]
-            messagebox.showwarning("Operation Disabled", "Delete operations are disabled when file limits are exceeded.") # v001.0012 added [delete right orphans button command]
-            return # v001.0012 added [delete right orphans button command]
-            
-        if not self.comparison_results: # v001.0012 added [delete right orphans button command]
-            self.add_status_message("No comparison data available - please run comparison first") # v001.0012 added [delete right orphans button command]
-            messagebox.showinfo("No Data", "Please perform a folder comparison first.") # v001.0012 added [delete right orphans button command]
-            return # v001.0012 added [delete right orphans button command]
-            
-        # Get current filter if active # v001.0012 added [delete right orphans button command]
-        active_filter = self.filter_wildcard.get() if self.is_filtered else None # v001.0012 added [delete right orphans button command]
+    def delete_right_orphans_onclick(self): # v001.0017 changed [now calls consolidated method]
+        """Handle Delete Orphaned Files from RIGHT-only button using enhanced orphan detection."""
+        self.delete_orphans(RIGHT_SIDE_lowercase)
+
+    def delete_orphans(self, side: str): # v001.0017 added [consolidated delete orphans method]
+        """
+        Handle Delete Orphaned Files button for specified side with enhanced orphan detection.
         
-        # Detect orphaned files on right side # v001.0012 added [delete right orphans button command]
-        orphaned_files = DeleteOrphansManager_class.detect_orphaned_files(self.comparison_results, 'right', active_filter) # v001.0012 changed [use DeleteOrphansManager_class class method]
+        Purpose:
+        --------
+        Consolidated method that handles delete orphans functionality for both left and right sides
+        using enhanced orphan classification logic that distinguishes true orphans from folders
+        that just contain orphaned files.
         
-        if not orphaned_files: # v001.0012 added [delete right orphans button command]
-            filter_text = f" (with active filter: {active_filter})" if active_filter else "" # v001.0012 added [delete right orphans button command]
-            self.add_status_message(f"No orphaned files found on RIGHT side{filter_text}") # v001.0012 added [delete right orphans button command]
-            messagebox.showinfo("No Orphans", f"No orphaned files found on RIGHT side{filter_text}.") # v001.0012 added [delete right orphans button command]
-            return # v001.0012 added [delete right orphans button command]
+        Args:
+        -----
+        side: LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase - which side to process orphaned files for
+        """
+        if self.limit_exceeded:
+            messagebox.showwarning("Operation Disabled", "Delete operations are disabled when file limits are exceeded.")
+            return
             
-        self.add_status_message(f"Opening delete orphans dialog for RIGHT side: {len(orphaned_files)} files") # v001.0012 added [delete right orphans button command]
+        if not self.comparison_results:
+            self.add_status_message("No comparison data available - please run comparison first")
+            messagebox.showinfo("No Data", "Please perform a folder comparison first.")
+            return
+            
+        # Get current filter if active
+        active_filter = self.filter_wildcard.get() if self.is_filtered else None
         
-        try: # v001.0012 added [delete right orphans button command]
-            # Create and show delete orphans manager/dialog # v001.0012 added [delete right orphans button command]
-            manager = DeleteOrphansManager_class( # v001.0012 changed [use DeleteOrphansManager_class instead of DeleteOrphansDialog]
-                parent=self.root, # v001.0012 added [delete right orphans button command]
-                orphaned_files=orphaned_files, # v001.0012 added [delete right orphans button command]
-                side='right', # v001.0012 added [delete right orphans button command]
-                source_folder=self.right_folder.get(), # v001.0012 added [delete right orphans button command]
-                dry_run_mode=self.dry_run_mode.get(), # v001.0012 added [delete right orphans button command]
-                comparison_results=self.comparison_results, # v001.0012 added [delete right orphans button command]
-                active_filter=active_filter # v001.0012 added [delete right orphans button command]
-            ) # v001.0012 added [delete right orphans button command]
+        # v001.0017 changed [use enhanced detect_orphaned_files method]
+        # Get enhanced orphan detection results
+        orphaned_files, orphan_detection_metadata = DeleteOrphansManager_class.detect_orphaned_files(
+            self.comparison_results, side, active_filter
+        )
+        
+        side_upper = side.upper()  # v001.0017 added [preserve original case for display while using case insensitive logic]
+        if not orphaned_files:
+            filter_text = f" (with active filter: {active_filter})" if active_filter else ""
+            self.add_status_message(f"No orphaned files found on {side_upper} side{filter_text}")
+            messagebox.showinfo("No Orphans", f"No orphaned files found on {side_upper} side{filter_text}.")
+            return
             
-            # Wait for dialog to complete # v001.0012 added [delete right orphans button command]
-            self.root.wait_window(manager.dialog) # v001.0012 changed [use manager.dialog instead of dialog.dialog]
+        # v001.0017 added [log enhanced orphan classification results]
+        true_orphans = sum(1 for meta in orphan_detection_metadata.values() if meta.get('is_true_orphan', False))
+        contains_orphans = sum(1 for meta in orphan_detection_metadata.values() if not meta.get('is_true_orphan', True))
+        
+        self.add_status_message(f"Enhanced orphan detection on {side_upper}: {true_orphans} true orphans, {contains_orphans} folders containing orphans")
+        self.add_status_message(f"Opening enhanced delete orphans dialog for {side_upper} side: {len(orphaned_files)} total items")
+        
+        try:
+            # v001.0017 changed [pass enhanced detection metadata to DeleteOrphansManager]
+            # Get the appropriate source folder with case insensitive comparison
+            source_folder = self.left_folder.get() if side.lower() == LEFT_SIDE_lowercase else self.right_folder.get()  # v001.0017 changed [case insensitive comparison]
             
-            # Check if files were actually deleted (not dry run) # v001.0012 added [delete right orphans button command]
-            if hasattr(manager, 'result') and manager.result == 'deleted' and not self.dry_run_mode.get(): # v001.0012 changed [use manager instead of dialog]
-                self.add_status_message("Delete operation completed - refreshing folder comparison...") # v001.0012 added [delete right orphans button command]
-                # Refresh comparison to show updated state # v001.0012 added [delete right orphans button command]
-                self.refresh_after_copy_operation() # v001.0012 added [delete right orphans button command]
-            else: # v001.0012 added [delete right orphans button command]
-                self.add_status_message("Delete orphans dialog closed") # v001.0012 added [delete right orphans button command]
+            # Create and show enhanced delete orphans manager/dialog
+            manager = DeleteOrphansManager_class(
+                parent=self.root,
+                orphaned_files=orphaned_files,
+                side=side,
+                source_folder=source_folder,
+                dry_run_mode=self.dry_run_mode.get(),
+                comparison_results=self.comparison_results,
+                active_filter=active_filter
+            )
+            
+            # v001.0017 added [pass enhanced detection metadata to manager for smart initialization]
+            # Note: This requires enhancement to DeleteOrphansManager_class.__init__ to accept this parameter
+            if hasattr(manager, 'set_enhanced_detection_metadata'):  # v001.0017 added [backward compatibility check]
+                manager.set_enhanced_detection_metadata(orphan_detection_metadata)  # v001.0017 added [pass enhanced metadata]
+            
+            # Wait for dialog to complete
+            self.root.wait_window(manager.dialog)
+            
+            # Check if files were actually deleted (not dry run)
+            #if hasattr(manager, 'result') and manager.result.lower() == 'deleted'.lower() and not self.dry_run_mode.get(): # v001.0018 superseded, [add None check for manager.result before calling .lower()]
+            if hasattr(manager, 'result') and manager.result and manager.result.lower() == 'deleted'.lower():   # v001.0018 changed [add None check for manager.result before calling .lower()]
+                self.add_status_message("Enhanced delete operation completed - refreshing folder comparison...")
+                # Refresh comparison to show updated state
+                self.refresh_after_copy_operation()
+            else:
+                self.add_status_message("Enhanced delete orphans dialog closed")
                 
-        except Exception as e: # v001.0012 added [delete right orphans button command]
-            error_msg = f"Error opening delete orphans dialog: {str(e)}" # v001.0012 added [delete right orphans button command]
-            self.add_status_message(f"ERROR: {error_msg}") # v001.0012 added [delete right orphans button command]
-            self.show_error(error_msg) # v001.0012 added [delete right orphans button command]
-        finally: # v001.0012 added [delete right orphans button command]
-            # Cleanup memory after dialog operations # v001.0012 added [delete right orphans button command]
-            gc.collect() # v001.0012 added [delete right orphans button command]
+        except Exception as e:
+            error_msg = f"Error opening enhanced delete orphans dialog: {str(e)}"
+            self.add_status_message(f"ERROR: {error_msg}")
+            self.show_error(error_msg)
+        finally:
+            # Cleanup memory after dialog operations
+            gc.collect()
 
     def setup_ui(self):
         """
@@ -2461,7 +2577,7 @@ class FolderCompareSync_class:
         Creates and configures all GUI components including the new dry run checkbox,
         export functionality, and limit warnings for the application interface.
         """
-        logger.debug("Setting up FolderCompareSync_class user interface with features")
+        log_and_flush(logging.DEBUG, "Setting up FolderCompareSync_class user interface with features")
         
         # Main container
         main_frame = ttk.Frame(self.root)
@@ -2479,27 +2595,27 @@ class FolderCompareSync_class:
                 f"SHA512 operations will take circa 2 seconds elapsed per GB of file read."
             ),
             foreground="royalblue",
-            font=self.scaled_label_font # v001.0014 changed [use scaled label font instead of default]
+            style="Scaled.TLabel" # v001.0014 changed [use scaled label style instead of font]
         )
-
+    
         warning_label.pack(side=tk.LEFT)
         
         # Folder selection frame
         folder_frame = ttk.LabelFrame(main_frame, text="Folder Selection", padding=8) # v001.0014 changed [tightened padding from padding=10 to padding=8]
         folder_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
-
+    
         # Left folder selection
-        ttk.Label(folder_frame, text="Left Folder:", font=self.scaled_label_font).grid(row=0, column=0, sticky=tk.W, padx=(0, 5)) # v001.0014 changed [added scaled label font]
-        ttk.Button(folder_frame, text="Browse", command=self.browse_left_folder).grid(row=0, column=1, padx=(0, 5))
-        left_entry = ttk.Entry(folder_frame, textvariable=self.left_folder, width=60, font=self.scaled_entry_font) # v001.0014 changed [added scaled entry font]
+        ttk.Label(folder_frame, text="Left Folder:", style="Scaled.TLabel").grid(row=0, column=0, sticky=tk.W, padx=(0, 5)) # v001.0014 changed [use scaled label style]
+        ttk.Button(folder_frame, text="Browse", command=self.browse_left_folder, style="DefaultNormal.TButton").grid(row=0, column=1, padx=(0, 5)) # v001.0016 changed [use default button style]
+        left_entry = ttk.Entry(folder_frame, textvariable=self.left_folder, width=60, style="Scaled.TEntry") # v001.0014 changed [use scaled entry style]
         left_entry.grid(row=0, column=2, sticky=tk.EW)
         
         # Right folder selection
-        ttk.Label(folder_frame, text="Right Folder:", font=self.scaled_label_font).grid(row=1, column=0, sticky=tk.W, padx=(0, 5), pady=(3, 0)) # v001.0014 changed [added scaled label font and tightened padding from pady=(5, 0) to pady=(3, 0)]
-        ttk.Button(folder_frame, text="Browse", command=self.browse_right_folder).grid(row=1, column=1, padx=(0, 5), pady=(3, 0)) # v001.0014 changed [tightened padding from pady=(5, 0) to pady=(3, 0)]
-        right_entry = ttk.Entry(folder_frame, textvariable=self.right_folder, width=60, font=self.scaled_entry_font) # v001.0014 changed [added scaled entry font]
+        ttk.Label(folder_frame, text="Right Folder:", style="Scaled.TLabel").grid(row=1, column=0, sticky=tk.W, padx=(0, 5), pady=(3, 0)) # v001.0014 changed [use scaled label style and tightened padding from pady=(5, 0) to pady=(3, 0)]
+        ttk.Button(folder_frame, text="Browse", command=self.browse_right_folder, style="DefaultNormal.TButton").grid(row=1, column=1, padx=(0, 5), pady=(3, 0)) # v001.0016 changed [use default button style and tightened padding from pady=(5, 0) to pady=(3, 0)]
+        right_entry = ttk.Entry(folder_frame, textvariable=self.right_folder, width=60, style="Scaled.TEntry") # v001.0014 changed [use scaled entry style]
         right_entry.grid(row=1, column=2, sticky=tk.EW, pady=(3, 0)) # v001.0014 changed [tightened padding from pady=(5, 0) to pady=(3, 0)]
-
+    
         # Let column 2 (the entry) grow
         folder_frame.columnconfigure(2, weight=1)
        
@@ -2515,17 +2631,17 @@ class FolderCompareSync_class:
         instruction_frame = ttk.Frame(criteria_frame)
         instruction_frame.pack(fill=tk.X)
         
-        ttk.Label(instruction_frame, text="Compare Options:", font=self.scaled_label_font).pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [added scaled label font]
-        ttk.Checkbutton(instruction_frame, text="Existence", variable=self.compare_existence, font=self.scaled_checkbox_font).pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [added scaled checkbox font]
-        ttk.Checkbutton(instruction_frame, text="Size", variable=self.compare_size, font=self.scaled_checkbox_font).pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [added scaled checkbox font]
-        ttk.Checkbutton(instruction_frame, text="Date Created", variable=self.compare_date_created, font=self.scaled_checkbox_font).pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [added scaled checkbox font]
-        ttk.Checkbutton(instruction_frame, text="Date Modified", variable=self.compare_date_modified, font=self.scaled_checkbox_font).pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [added scaled checkbox font]
-        ttk.Checkbutton(instruction_frame, text="SHA512", variable=self.compare_sha512, font=self.scaled_checkbox_font).pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [added scaled checkbox font]
+        ttk.Label(instruction_frame, text="Compare Options:", style="Scaled.TLabel").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled label style]
+        ttk.Checkbutton(instruction_frame, text="Existence", variable=self.compare_existence, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled checkbox style]
+        ttk.Checkbutton(instruction_frame, text="Size", variable=self.compare_size, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled checkbox style]
+        ttk.Checkbutton(instruction_frame, text="Date Created", variable=self.compare_date_created, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled checkbox style]
+        ttk.Checkbutton(instruction_frame, text="Date Modified", variable=self.compare_date_modified, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled checkbox style]
+        ttk.Checkbutton(instruction_frame, text="SHA512", variable=self.compare_sha512, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled checkbox style]
         
         # Add instructional text for workflow guidance using configurable colors and font size
         ttk.Label(instruction_frame, text="<- select options then click Compare", 
                  foreground=INSTRUCTION_TEXT_COLOR, 
-                 font=("TkDefaultFont", INSTRUCTION_TEXT_SIZE, "italic")).pack(side=tk.LEFT, padx=(20, 0))
+                 font=("TkDefaultFont", SCALED_INSTRUCTION_FONT_SIZE, "italic")).pack(side=tk.LEFT, padx=(20, 0))
         
         # Control frame - reorganized for better layout
         control_frame = ttk.Frame(options_frame)
@@ -2536,48 +2652,48 @@ class FolderCompareSync_class:
         top_controls.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         
         # Dry run checkbox next to overwrite mode
-        dry_run_cb = ttk.Checkbutton(top_controls, text="DRY RUN Only", variable=self.dry_run_mode, command=self.on_dry_run_changed, font=self.scaled_checkbox_font) # v001.0014 changed [added scaled checkbox font]
+        dry_run_cb = ttk.Checkbutton(top_controls, text="DRY RUN Only", variable=self.dry_run_mode, command=self.on_dry_run_changed, style="Scaled.TCheckbutton") # v001.0014 changed [use scaled checkbox style]
         dry_run_cb.pack(side=tk.LEFT, padx=(0, 10))
         
-        ttk.Checkbutton(top_controls, text="Overwrite Mode", variable=self.overwrite_mode, font=self.scaled_checkbox_font).pack(side=tk.LEFT, padx=(0, 20)) # v001.0014 changed [added scaled checkbox font]
+        ttk.Checkbutton(top_controls, text="Overwrite Mode", variable=self.overwrite_mode, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 20)) # v001.0014 changed [use scaled checkbox style]
         ttk.Button(top_controls, text="Compare", command=self.start_comparison, style="LimeGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 20))
-
+    
         # selection controls with auto-clear and complete reset functionality
         # Left pane selection controls
         ttk.Button(top_controls, text="Select All Differences - Left", 
-                  command=self.select_all_differences_left).pack(side=tk.LEFT, padx=(0, 5))
+                  command=self.select_all_differences_left, style="DefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use default button style]
         ttk.Button(top_controls, text="Clear All - Left", 
-                  command=self.clear_all_left).pack(side=tk.LEFT, padx=(0, 15))
+                  command=self.clear_all_left, style="DefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 15)) # v001.0016 changed [use default button style]
         
         # Right pane selection controls  
         ttk.Button(top_controls, text="Select All Differences - Right", 
-                  command=self.select_all_differences_right).pack(side=tk.LEFT, padx=(0, 5))
+                  command=self.select_all_differences_right, style="DefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use default button style]
         ttk.Button(top_controls, text="Clear All - Right", 
-                  command=self.clear_all_right).pack(side=tk.LEFT)
-
+                  command=self.clear_all_right, style="DefaultNormal.TButton").pack(side=tk.LEFT) # v001.0016 changed [use default button style]
+    
         # Filter and tree control frame
         filter_tree_frame = ttk.Frame(control_frame)
         filter_tree_frame.pack(fill=tk.X, pady=(3, 0)) # v001.0014 changed [tightened padding from pady=(5, 0) to pady=(3, 0)]
         
         # Wildcard filter controls
-        ttk.Label(filter_tree_frame, text="Filter Files by Wildcard:", font=self.scaled_label_font).pack(side=tk.LEFT, padx=(0, 5)) # v001.0014 changed [added scaled label font]
-        filter_entry = ttk.Entry(filter_tree_frame, textvariable=self.filter_wildcard, width=20, font=self.scaled_entry_font) # v001.0014 changed [added scaled entry font]
+        ttk.Label(filter_tree_frame, text="Filter Files by Wildcard:", style="Scaled.TLabel").pack(side=tk.LEFT, padx=(0, 5)) # v001.0014 changed [use scaled label style]
+        filter_entry = ttk.Entry(filter_tree_frame, textvariable=self.filter_wildcard, width=20, style="Scaled.TEntry") # v001.0014 changed [use scaled entry style]
         filter_entry.pack(side=tk.LEFT, padx=(0, 5))
         filter_entry.bind('<Return>', lambda e: self.apply_filter())
         
-        ttk.Button(filter_tree_frame, text="Apply Filter", command=self.apply_filter).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(filter_tree_frame, text="Clear Filter", command=self.clear_filter).pack(side=tk.LEFT, padx=(0, 20))
+        ttk.Button(filter_tree_frame, text="Apply Filter", command=self.apply_filter, style="DefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use default button style]
+        ttk.Button(filter_tree_frame, text="Clear Filter", command=self.clear_filter, style="DefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 20)) # v001.0016 changed [use default button style]
         
         # Tree expansion controls
-        ttk.Button(filter_tree_frame, text="Expand All", command=self.expand_all_trees).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(filter_tree_frame, text="Collapse All", command=self.collapse_all_trees).pack(side=tk.LEFT)
+        ttk.Button(filter_tree_frame, text="Expand All", command=self.expand_all_trees, style="DefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use default button style]
+        ttk.Button(filter_tree_frame, text="Collapse All", command=self.collapse_all_trees, style="DefaultNormal.TButton").pack(side=tk.LEFT) # v001.0016 changed [use default button style]
         
         # Tree comparison frame (adjusted height to make room for status log)
         tree_frame = ttk.Frame(main_frame)
         tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         
         # Left tree with columns
-        left_frame = ttk.LabelFrame(tree_frame, text="LEFT", padding=5)
+        left_frame = ttk.LabelFrame(tree_frame, text=LEFT_SIDE_uppercase, padding=5)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 2))
         
         self.left_tree = ttk.Treeview(left_frame, show='tree headings', selectmode='none')
@@ -2593,7 +2709,7 @@ class FolderCompareSync_class:
         left_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         
         # Right tree with columns
-        right_frame = ttk.LabelFrame(tree_frame, text="RIGHT", padding=5)
+        right_frame = ttk.LabelFrame(tree_frame, text=RIGHT_SIDE_uppercase, padding=5)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(2, 0))
         
         self.right_tree = ttk.Treeview(right_frame, show='tree headings', selectmode='none')
@@ -2614,15 +2730,15 @@ class FolderCompareSync_class:
         copy_frame = ttk.Frame(main_frame)
         copy_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         ttk.Button(copy_frame, text="Copy LEFT to Right", command=self.copy_left_to_right, style="RedBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left, style="GreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left, style="LimeGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
         delete_frame = ttk.Frame(main_frame)
         delete_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
-        ttk.Button(delete_frame, text="Delete LEFT-only Orphaned Files", 
-                      command=self.delete_left_orphans, style="PurpleBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(delete_frame, text="Delete RIGHT-only Orphaned Files", 
-                      command=self.delete_right_orphans, style="MediumPurpleBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(delete_frame, text="Delete Orphaned Files from LEFT-only", 
+                      command=self.delete_left_orphans_onclick, style="PurpleBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(delete_frame, text="Delete Orphaned Files from RIGHT-only", 
+                      command=self.delete_right_orphans_onclick, style="DarkGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(copy_frame, text="Quit", command=self.root.quit, style="BlueBold.TButton").pack(side=tk.RIGHT)
-
+    
         # status log frame at bottom with export functionality
         status_log_frame = ttk.LabelFrame(main_frame, text="Status Log", padding=5)
         status_log_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
@@ -2632,8 +2748,8 @@ class FolderCompareSync_class:
         status_header.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         
         ttk.Label(status_header, text=f"Operation History ({STATUS_LOG_MAX_HISTORY:,} lines max):", 
-                 font=self.scaled_label_font).pack(side=tk.LEFT) # v001.0014 changed [added scaled label font]
-        ttk.Button(status_header, text="Export Log", command=self.export_status_log).pack(side=tk.RIGHT)
+                 style="Scaled.TLabel").pack(side=tk.LEFT) # v001.0014 changed [use scaled label style]
+        ttk.Button(status_header, text="Export Log", command=self.export_status_log, style="DefaultNormal.TButton").pack(side=tk.RIGHT) # v001.0016 changed [use default button style]
         
         # Create text widget with scrollbar for status log using configurable parameters
         status_log_container = ttk.Frame(status_log_frame)
@@ -2644,7 +2760,7 @@ class FolderCompareSync_class:
             height=STATUS_LOG_VISIBLE_LINES,  # Use configurable visible lines
             wrap=tk.WORD,
             state=tk.DISABLED,  # Read-only
-            font=STATUS_LOG_FONT,  # Use configurable font (keep monospace, unchanged)
+            font=STATUS_LOG_FONT,    # v001.0016 changed [now uses SCALED_STATUS_MESSAGE_FONT_SIZE]
             bg=STATUS_LOG_BG_COLOR,  # Use configurable background color
             fg=STATUS_LOG_FG_COLOR   # Use configurable text color
         )
@@ -2659,16 +2775,16 @@ class FolderCompareSync_class:
         status_frame = ttk.Frame(main_frame)
         status_frame.pack(fill=tk.X)
         
-        ttk.Label(status_frame, textvariable=self.summary_var, font=self.scaled_label_font).pack(side=tk.LEFT) # v001.0014 changed [added scaled label font]
+        ttk.Label(status_frame, textvariable=self.summary_var, style="StatusMessage.TLabel").pack(side=tk.LEFT) # v001.0016 changed [use status message style for summary]
         ttk.Separator(status_frame, orient=tk.VERTICAL).pack(side=tk.RIGHT, fill=tk.Y, padx=10)
-        ttk.Label(status_frame, text="Status:", font=self.scaled_label_font).pack(side=tk.RIGHT, padx=(0, 5)) # v001.0014 changed [added scaled label font]
-        ttk.Label(status_frame, textvariable=self.status_var, font=self.scaled_label_font).pack(side=tk.RIGHT) # v001.0014 changed [added scaled label font]
+        ttk.Label(status_frame, text="Status:", style="StatusMessage.TLabel").pack(side=tk.RIGHT, padx=(0, 5)) # v001.0016 changed [use status message style for status label]
+        ttk.Label(status_frame, textvariable=self.status_var, style="StatusMessage.TLabel").pack(side=tk.RIGHT) # v001.0016 changed [use status message style for status]
         
         # Configure tree event bindings for interaction
         self.setup_tree_events()
         
-        logger.debug("FolderCompareSync_class User interface setup complete with features")
-        
+        log_and_flush(logging.DEBUG, "FolderCompareSync_class User interface setup complete with features")
+
     def setup_tree_columns(self, tree): # v000.0002 changed - column sorting disabled
         """
         Setup columns for metadata display in tree (sorting disabled).
@@ -2786,522 +2902,6 @@ class FolderCompareSync_class:
         self.file_count_right = 0
         self.total_file_count = 0
 
-                                                                                           
-                                                                                   
-                                                                             
-        
-                               
-                                                                                                              
-                                                                        
-                  
-            
-                                                                         
-                                                                                                                                
-        
-                                                                          
-                                              
-                                                                                           
-                                                                                           
-             
-                                             
-                                           
-                                                                                                         
-        
-                       
-                                                                                      
-                                                              
-                                               
-                                                       
-        
-                                 
-                                                                                                 
-                                                                                                                                           
-        
-                                
-                                                                  
-                                                                
-                                                                
-                  
-        
-                                                      
-                                                                                                      
-                                                             
-        
-            
-                                                          
-                              
-                    
-                                                                                
-                                                                  
-                                                                                              
-                                      
-                                                                                  
-                                    
-                                                                                                 
-                                                                                                 
-                        
-                                                                        
-                                                      
-            
-                                                                         
-                                                                     
-            
-                              
-                            
-                                                                                    
-                            
-                                                                                          
-                                                             
-        
-                                                                       
-
-    
-       
-                                        
-    
-                                                                         
-                                                                                                                
-                                                                                                       
-                                                                             
-                                                                                       
-                                                                  
-                 
-                    
-                              
-                                           
-                                           
-                                           
-                           
-                                        
-                                        
-                                    
-                                                                                        
-                                                                  
-                                                                                                   
-                                                                       
-
-                  
-                                              
-                                                          
-                                                                    
-                                                     
-
-                         
-                         
-    
-                                           
-                                            
-                                                        
-                                                                    
-    
-                                         
-                                      
-                                                               
-                                                                   
-    
-                                     
-                                     
-                                                             
-                                                                    
-    
-                              
-                             
-                                                    
-                                                                            
-    
-                     
-                    
-    
-                                    
-                                          
-                                            
-                                              
-                              
-    
-                                   
-                                                
-                               
-                                 
-    
-                                        
-                                               
-                                               
-    
-                                           
-                                                        
-                                          
-    
-                                       
-                                                   
-                                            
-    
-                                                 
-                            
-                              
-    
-                                        
-                                           
-                                                      
-                                            
-    
-                        
-                       
-                                                              
-                                                      
-                                                           
-                                       
-                                                        
-                                                        
-                                                  
-    
-                                                                                     
-                                                                
-   
-
-                                                                         
-           
-                                                        
-        
-                
-                
-                                                                             
-           
-                            
-        
-                                             
-                                                                   
-                                                 
-                                                                
-                                                                 
-            
-                                    
-                                       
-                                                    
-                                                   
-                                                                                                
-            
-                              
-                                                    
-                                              
-        
-                               
-                                             
-                                              
-        
-                                                                                          
-                              
-    
-                                                                                             
-           
-                                                       
-        
-             
-             
-                                                        
-                                                                       
-           
-                                                            
-                          
-        
-                                                 
-                                                     
-                                   
-            
-                                                 
-                                                                 
-            
-                                           
-                                                          
-                                                       
-                                   
-                                                                                                          
-            
-                              
-                                                    
-                                                  
-        
-                                               
-                                             
-                                                  
-        
-                                                                                                      
-    
-                                                                                   
-                                                                                                        
-           
-                                                                      
-        
-             
-             
-                                                               
-                                                                 
-                                                           
-                                                             
-           
-                                                                            
-        
-            
-                                      
-                                                               
-                                                                                          
-            
-                                           
-                                                                     
-                                                                                    
-                                                                                      
-            
-                                                                                   
-            
-                              
-                                                                              
-                            
-                                                                                           
-
-
-                                                                                                      
-                                                                                  
-                                                                                                                      
-        
-                                          
-                                                                    
-                                                                             
-        
-                                                                    
-        
-                                                        
-                                                                                               
-                                                                                                                              
-        
-                              
-                                                                                             
-                                                              
-                  
-            
-                                                                 
-        
-                                                      
-                                                                  
-                                                                              
-                                                                                
-                                                                                                                                         
-            
-                                                                               
-        
-                                                                              
-            
-                                                                                              
-                                                                     
-                                                                             
-             
-                                                                                     
-            
-                                                                     
-            
-                                                             
-                                       
-                                        
-            
-                                              
-                                                                       
-                            
-                                                     
-                    
-                                               
-                                                                        
-                            
-                                                      
-            
-                                                                                                                          
-            
-                                                                    
-                                                       
-            
-                                        
-                                
-                                                      
-                                                              
-                 
-                                                        
-                                                                
-            
-                                                 
-                                
-                                                                      
-                                                                  
-                 
-                                                             
-                                                              
-            
-                                                                        
-            
-                                                                 
-                                                                      
-                                                           
-                                                           
-              
-                                                             
-            
-                                                                                                                              
-                                                                             
-                                                 
-            
-                              
-                                                                                 
-                            
-                                                                                  
-                                                                                                      
-        
-                                                                   
-                                                                             
-
-                                                                                                 
-           
-                                                                         
-        
-                
-                
-                                                                      
-                                                                                 
-        
-             
-             
-                                                              
-                                                                
-                                                                
-                                                    
-        
-                
-                
-                                                                      
-           
-                                                       
-                                                  
-            
-                                                
-                                                                                    
-            
-                                                                       
-                                           
-                                                                                        
-            
-                                                           
-                                           
-                                                                                          
-            
-                                                                                
-                              
-                                                                               
-            
-                
-                                    
-                                                                     
-                                              
-                                                                                                           
-                                                               
-                                               
-                                                                                                             
-                                                               
-                                        
-                                                                        
-                                        
-                                                                           
-                                                             
-                     
-                                             
-                                                         
-                                               
-                                                     
-        
-                                                           
-                         
-        
-                               
-                            
-                                                     
-                                         
-                        
-                
-                                              
-                                                   
-                                                  
-                                                                    
-        
-                                       
-                           
-        
-                                          
-                              
-                                                 
-        
-                                              
-                                                           
-                                                       
-            
-                                                      
-                          
-                                                
-                                                                                           
-                                                
-                                               
-                                                                 
-            
-                                                  
-                                                        
-                                             
-                           
-                                               
-                                                  
-                 
-                
-                                                            
-                                                     
-        
-                             
-    
-                                                                                                                                      
-                                                         
-                                                                         
-        
-            
-                                      
-                                      
-                                       
-                                                                         
-            
-                                     
-                             
-                                                
-                                                                       
-                           
-                                                   
-                                      
-                                                                                           
-                     
-                                                                                                     
-            
-                                        
-                              
-                                                 
-                                                                        
-                           
-                                                    
-                                       
-                                                                                            
-                     
-                                                                                                      
-            
-                                                                                                                 
-            
-                            
-                                                                    
-                                           
-                                                                              
-            
-                              
-                                                                                                
-                            
-                                                                                               
-
     def apply_filter(self):
         """Apply wildcard filter to display only matching files with limit checking."""
         if self.limit_exceeded:
@@ -3318,7 +2918,7 @@ class FolderCompareSync_class:
             self.add_status_message("No comparison data to filter - please run comparison first")
             return
         
-        logger.debug(f"Applying wildcard filter: {wildcard}")
+        log_and_flush(logging.DEBUG, f"Applying wildcard filter: {wildcard}")
         self.add_status_message(f"Applying filter: {wildcard}")
         
         # Create progress dialog for filtering
@@ -3330,7 +2930,7 @@ class FolderCompareSync_class:
                 try:
                     self.perform_filtering(wildcard, progress)
                 except Exception as e:
-                    logger.error(f"Filter operation failed: {e}")
+                    log_and_flush(logging.ERROR, f"Filter operation failed: {e}")
                     self.root.after(0, lambda: self.add_status_message(f"Filter failed: {str(e)}"))
                 finally:
                     self.root.after(0, progress.close)
@@ -3339,12 +2939,12 @@ class FolderCompareSync_class:
             
         except Exception as e:
             progress.close()
-            logger.error(f"Failed to start filter operation: {e}")
+            log_and_flush(logging.ERROR, f"Failed to start filter operation: {e}")
             self.add_status_message(f"Filter failed: {str(e)}")
 
     def perform_filtering(self, wildcard, progress):
         """Perform the actual filtering operation with performance tracking."""
-        logger.debug(f"Performing filtering with pattern: {wildcard}")
+        log_and_flush(logging.DEBUG, f"Performing filtering with pattern: {wildcard}")
         
         progress.update_progress(10, "Preparing filter...")
         
@@ -3369,7 +2969,7 @@ class FolderCompareSync_class:
                     
                     # Limit results for performance using configurable threshold
                     if matched_count >= MAX_FILTER_RESULTS:
-                        logger.warning(f"Filter results limited to {MAX_FILTER_RESULTS} items for performance")
+                        log_and_flush(logging.WARNING, f"Filter results limited to {MAX_FILTER_RESULTS} items for performance")
                         break
         
         progress.update_progress(70, f"Found {matched_count} matches, updating display...")
@@ -3394,7 +2994,7 @@ class FolderCompareSync_class:
             messagebox.showwarning("Operation Disabled", "Filter operations are disabled when file limits are exceeded.")
             return
             
-        logger.debug("Clearing wildcard filter")
+        log_and_flush(logging.DEBUG, "Clearing wildcard filter")
         
         self.filter_wildcard.set("")
         self.filtered_results = {}
@@ -3412,7 +3012,7 @@ class FolderCompareSync_class:
             messagebox.showwarning("Operation Disabled", "Tree operations are disabled when file limits are exceeded.")
             return
             
-        logger.debug("Expanding all tree items")
+        log_and_flush(logging.DEBUG, "Expanding all tree items")
         self.add_status_message("Expanding all folders")
         
         def expand_all_recursive(tree, item=''):
@@ -3434,7 +3034,7 @@ class FolderCompareSync_class:
             messagebox.showwarning("Operation Disabled", "Tree operations are disabled when file limits are exceeded.")
             return
             
-        logger.debug("Collapsing all tree items")
+        log_and_flush(logging.DEBUG, "Collapsing all tree items")
         self.add_status_message("Collapsing all folders")
         
         def collapse_all_recursive(tree, item=''):
@@ -3480,7 +3080,7 @@ class FolderCompareSync_class:
         Configures mouse and keyboard event handling for tree widgets
         while respecting file count limits for performance.
         """
-        logger.debug("Setting up tree event bindings")
+        log_and_flush(logging.DEBUG, "Setting up tree event bindings")
         
         # Bind tree expansion/collapse events with state preservation
         self.left_tree.bind('<<TreeviewOpen>>', lambda e: self.handle_tree_expand_collapse(self.left_tree, self.right_tree, e, True))
@@ -3489,8 +3089,8 @@ class FolderCompareSync_class:
         self.right_tree.bind('<<TreeviewClose>>', lambda e: self.handle_tree_expand_collapse(self.right_tree, self.left_tree, e, False))
         
         # Bind checkbox-like behavior for item selection (with missing item exclusion)
-        self.left_tree.bind('<Button-1>', lambda e: self.handle_tree_click(self.left_tree, 'left', e))
-        self.right_tree.bind('<Button-1>', lambda e: self.handle_tree_click(self.right_tree, 'right', e))
+        self.left_tree.bind('<Button-1>', lambda e: self.handle_tree_click(self.left_tree, LEFT_SIDE_lowercase, e))
+        self.right_tree.bind('<Button-1>', lambda e: self.handle_tree_click(self.right_tree, RIGHT_SIDE_lowercase, e))
         
     def handle_tree_expand_collapse(self, source_tree, target_tree, event, is_expand):
         """
@@ -3512,7 +3112,7 @@ class FolderCompareSync_class:
                 
                 if __debug__:
                     action = "expand" if is_expand else "collapse"
-                    logger.debug(f"Synchronized tree {action} for item {item}")
+                    log_and_flush(logging.DEBUG, f"Synchronized tree {action} for item {item}")
                     
             except tk.TclError:
                 pass  # Item doesn't exist in target tree
@@ -3548,7 +3148,7 @@ class FolderCompareSync_class:
         is_missing = '[MISSING]' in item_text or 'missing' in item_tags
         
         if __debug__ and is_missing:
-            logger.debug(f"Identified missing item: {item_id} with text: {item_text}")
+            log_and_flush(logging.DEBUG, f"Identified missing item: {item_id} with text: {item_text}")
             
         return is_missing
         
@@ -3564,7 +3164,7 @@ class FolderCompareSync_class:
         Args:
         -----
         item_id: Tree item ID to check
-        side: Which tree side ('left' or 'right')
+        side: Which tree side (LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase)
         
         Returns:
         --------
@@ -3585,13 +3185,13 @@ class FolderCompareSync_class:
         if result and result.is_different:
             # Also ensure the item exists on this side
             item_exists = False
-            if side == 'left' and result.left_item and result.left_item.exists:
+            if side.lower() == LEFT_SIDE_lowercase and result.left_item and result.left_item.exists:
                 item_exists = True
-            elif side == 'right' and result.right_item and result.right_item.exists:
+            elif side.lower() == RIGHT_SIDE_lowercase and result.right_item and result.right_item.exists:
                 item_exists = True
                 
             if __debug__ and item_exists:
-                logger.debug(f"Item {item_id} ({rel_path}) is different and exists on {side} side")
+                log_and_flush(logging.DEBUG, f"Item {item_id} ({rel_path}) is different and exists on {side} side")
                 
             return item_exists
             
@@ -3609,13 +3209,13 @@ class FolderCompareSync_class:
         Args:
         -----
         item_id: Tree item ID
-        side: Which tree side ('left' or 'right')
+        side: Which tree side (LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase)
         
         Returns:
         --------
         str: Relative path or None if not found
         """
-        path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
+        path_map = self.path_to_item_left if side.lower() == LEFT_SIDE_lowercase else self.path_to_item_right
         
         # Find the relative path by searching the mapping
         for rel_path, mapped_item_id in path_map.items():
@@ -3647,7 +3247,7 @@ class FolderCompareSync_class:
             # Check if item is missing and ignore clicks on missing items
             if self.is_missing_item(tree, item):
                 if __debug__:
-                    logger.debug(f"Ignoring click on missing item: {item}")
+                    log_and_flush(logging.DEBUG, f"Ignoring click on missing item: {item}")
                 return  # Don't process clicks on missing items
                 
             # Toggle selection for this item if it's not missing
@@ -3659,10 +3259,10 @@ class FolderCompareSync_class:
             return  # Don't process selections when limits exceeded
             
         if __debug__:
-            logger.debug(f"Toggling selection for item {item_id} on {side} side")
+            log_and_flush(logging.DEBUG, f"Toggling selection for item {item_id} on {side} side")
             
-        selected_set = self.selected_left if side == 'left' else self.selected_right
-        tree = self.left_tree if side == 'left' else self.right_tree
+        selected_set = self.selected_left if side.lower() == LEFT_SIDE_lowercase else self.selected_right
+        tree = self.left_tree if side.lower() == LEFT_SIDE_lowercase else self.right_tree
         
         was_selected = item_id in selected_set
         
@@ -3679,7 +3279,7 @@ class FolderCompareSync_class:
             
         if __debug__:
             action = "unticked" if was_selected else "ticked"
-            logger.debug(f"Item {action}, {side} selection count: {len(selected_set)}")
+            log_and_flush(logging.DEBUG, f"Item {action}, {side} selection count: {len(selected_set)}")
             
         # Log selection changes to status window
         total_selected = len(self.selected_left) + len(self.selected_right)
@@ -3699,11 +3299,11 @@ class FolderCompareSync_class:
         Implements intelligent folder selection logic that only selects
         child items that have actual differences requiring synchronization.
         """
-        selected_set = self.selected_left if side == 'left' else self.selected_right
-        tree = self.left_tree if side == 'left' else self.right_tree
+        selected_set = self.selected_left if side.lower() == LEFT_SIDE_lowercase else self.selected_right
+        tree = self.left_tree if side.lower() == LEFT_SIDE_lowercase else self.right_tree
         
         if __debug__:
-            logger.debug(f"Smart ticking children for {item_id} - only selecting different items")
+            log_and_flush(logging.DEBUG, f"Smart ticking children for {item_id} - only selecting different items")
         
         different_count = 0
         total_count = 0
@@ -3718,7 +3318,7 @@ class FolderCompareSync_class:
                 different_count += 1
                 if __debug__:
                     rel_path = self.get_item_relative_path(item, side)
-                    logger.debug(f"Smart-selected different item: {item} ({rel_path})")
+                    log_and_flush(logging.DEBUG, f"Smart-selected different item: {item} ({rel_path})")
                     
             # Recursively process children
             for child in tree.get_children(item):
@@ -3729,7 +3329,7 @@ class FolderCompareSync_class:
             tick_recursive(child)
             
         if __debug__:
-            logger.debug(f"Smart selection complete: {different_count}/{total_count} children selected (only different items)")
+            log_and_flush(logging.DEBUG, f"Smart selection complete: {different_count}/{total_count} children selected (only different items)")
             
         # Log smart selection results
         if different_count > 0:
@@ -3738,8 +3338,8 @@ class FolderCompareSync_class:
             
     def untick_children(self, item_id, side):
         """Untick all children of an item recursively."""
-        selected_set = self.selected_left if side == 'left' else self.selected_right
-        tree = self.left_tree if side == 'left' else self.right_tree
+        selected_set = self.selected_left if side.lower() == LEFT_SIDE_lowercase else self.selected_right
+        tree = self.left_tree if side.lower() == LEFT_SIDE_lowercase else self.right_tree
         
         def untick_recursive(item):
             selected_set.discard(item)
@@ -3758,30 +3358,30 @@ class FolderCompareSync_class:
         Also prevent attempting to untick parents of root items
         which can cause errors and inconsistent selection state.
         """
-        selected_set = self.selected_left if side == 'left' else self.selected_right
-        tree = self.left_tree if side == 'left' else self.right_tree
-        root_item = self.root_item_left if side == 'left' else self.root_item_right
+        selected_set = self.selected_left if side.lower() == LEFT_SIDE_lowercase else self.selected_right
+        tree = self.left_tree if side.lower() == LEFT_SIDE_lowercase else self.right_tree
+        root_item = self.root_item_left if side.lower() == LEFT_SIDE_lowercase else self.root_item_right
         
         if __debug__:
-            logger.debug(f"Unticking parents for item {item_id}, root_item: {root_item}")
+            log_and_flush(logging.DEBUG, f"Unticking parents for item {item_id}, root_item: {root_item}")
         
         parent = tree.parent(item_id)
         while parent:
             selected_set.discard(parent)
             if __debug__:
-                logger.debug(f"Unticked parent: {parent}")
+                log_and_flush(logging.DEBUG, f"Unticked parent: {parent}")
             
             # Safety check - if we've reached the root item, stop here
             # Don't try to untick the parent of the root item as it doesn't exist
             if parent == root_item:
                 if __debug__:
-                    logger.debug(f"Reached root item {root_item}, stopping parent unticking")
+                    log_and_flush(logging.DEBUG, f"Reached root item {root_item}, stopping parent unticking")
                 break
                 
             next_parent = tree.parent(parent)
             if not next_parent:  # Additional safety check for empty parent
                 if __debug__:
-                    logger.debug(f"No parent found for {parent}, stopping parent unticking")
+                    log_and_flush(logging.DEBUG, f"No parent found for {parent}, stopping parent unticking")
                 break
             parent = next_parent
             
@@ -3796,7 +3396,7 @@ class FolderCompareSync_class:
         """
         if self._updating_display or self.limit_exceeded:
             if __debug__:
-                logger.debug("Skipping tree display update - already updating or limits exceeded")
+                log_and_flush(logging.DEBUG, "Skipping tree display update - already updating or limits exceeded")
             return
             
         self._updating_display = True
@@ -3813,7 +3413,7 @@ class FolderCompareSync_class:
             
         # Update right tree  
         for item in self.right_tree.get_children():
-            self.update_item_display(self.right_tree, item, 'right')
+            self.update_item_display(self.right_tree, item, RIGHT_SIDE_lowercase)
             
     def update_item_display(self, tree, item, side, recursive=True):
         """
@@ -3824,7 +3424,7 @@ class FolderCompareSync_class:
         Only updates checkbox display for non-missing items
         to maintain consistent visual representation of selectable items.
         """
-        selected_set = self.selected_left if side == 'left' else self.selected_right
+        selected_set = self.selected_left if side.lower() == LEFT_SIDE_lowercase else self.selected_right
         
         # Get current text 
         current_text = tree.item(item, 'text')
@@ -3854,43 +3454,43 @@ class FolderCompareSync_class:
                 
     def browse_left_folder(self):
         """Browse for left folder with limit awareness."""
-        logger.debug("Opening left folder browser")
+        log_and_flush(logging.DEBUG, "Opening left folder browser")
         folder = filedialog.askdirectory(title="Select Left Folder")
         if folder:
             self.left_folder.set(folder)
             self.add_status_message(f"Selected left folder: {folder}")
-            logger.info(f"Selected left folder: {folder}")
+            log_and_flush(logging.INFO, f"Selected left folder: {folder}")
             
     def browse_right_folder(self):
         """Browse for right folder with limit awareness."""
-        logger.debug("Opening right folder browser")
+        log_and_flush(logging.DEBUG, "Opening right folder browser")
         folder = filedialog.askdirectory(title="Select Right Folder")
         if folder:
             self.right_folder.set(folder)
             self.add_status_message(f"Selected right folder: {folder}")
-            logger.info(f"Selected right folder: {folder}")
+            log_and_flush(logging.INFO, f"Selected right folder: {folder}")
             
     def start_comparison(self): # v000.0002 changed - removed sorting state reset
         """Start folder comparison in background thread with limit checking and complete reset."""
-        logger.info("Starting folder comparison with complete reset")
+        log_and_flush(logging.INFO, "Starting folder comparison with complete reset")
         
         if not self.left_folder.get() or not self.right_folder.get():
             error_msg = "Both folders must be selected before comparison"
-            logger.error(f"Comparison failed: {error_msg}")
+            log_and_flush(logging.ERROR, f"Comparison failed: {error_msg}")
             self.add_status_message(f"Error: {error_msg}")
             self.show_error("Please select both folders to compare")
             return
             
         if not Path(self.left_folder.get()).exists():
             error_msg = f"Left folder does not exist: {self.left_folder.get()}"
-            logger.error(error_msg)
+            log_and_flush(logging.ERROR, error_msg)
             self.add_status_message(f"Error: {error_msg}")
             self.show_error(error_msg)
             return
             
         if not Path(self.right_folder.get()).exists():
             error_msg = f"Right folder does not exist: {self.right_folder.get()}"
-            logger.error(error_msg)
+            log_and_flush(logging.ERROR, error_msg)
             self.add_status_message(f"Error: {error_msg}")
             self.show_error(error_msg)
             return
@@ -3902,12 +3502,12 @@ class FolderCompareSync_class:
         
         # Log the reset
         self.add_status_message("RESET: Clearing all data structures for fresh comparison") # v000.0002 changed - removed sorting
-        logger.info("Complete application reset initiated - clearing all data") # v000.0002 changed - removed sorting
+        log_and_flush(logging.INFO, "Complete application reset initiated - clearing all data") # v000.0002 changed - removed sorting
         
         if __debug__:
-            logger.debug(f"Left folder: {self.left_folder.get()}")
-            logger.debug(f"Right folder: {self.right_folder.get()}")
-            logger.debug(f"Compare criteria: existence={self.compare_existence.get()}, "
+            log_and_flush(logging.DEBUG, f"Left folder: {self.left_folder.get()}")
+            log_and_flush(logging.DEBUG, f"Right folder: {self.right_folder.get()}")
+            log_and_flush(logging.DEBUG, f"Compare criteria: existence={self.compare_existence.get()}, "
                         f"size={self.compare_size.get()}, "
                         f"date_created={self.compare_date_created.get()}, "
                         f"date_modified={self.compare_date_modified.get()}, "
@@ -3917,7 +3517,7 @@ class FolderCompareSync_class:
         # Start comparison in background thread
         self.status_var.set("Comparing folders...")
         self.add_status_message("Starting fresh folder comparison...") # v000.0002 changed - removed sorting
-        logger.info("Starting background comparison thread with reset state")
+        log_and_flush(logging.INFO, "Starting background comparison thread with reset state")
         threading.Thread(target=self.perform_comparison, daemon=True).start()
 
     def perform_comparison(self):
@@ -3930,7 +3530,7 @@ class FolderCompareSync_class:
         and UI updates while enforcing file count limits for performance management.
         """
         start_time = time.time()
-        logger.info("Beginning folder comparison operation")
+        log_and_flush(logging.INFO, "Beginning folder comparison operation")
         
         # Create progress dialog for the overall comparison process
         progress = ProgressDialog(
@@ -3956,7 +3556,7 @@ class FolderCompareSync_class:
             self.total_file_count = 0
             
             if __debug__:
-                logger.debug("Cleared previous comparison results and reset root items")
+                log_and_flush(logging.DEBUG, "Cleared previous comparison results and reset root items")
             
             # Step 1: Build file lists for both folders (40% of total work) with early limit checking
             progress.update_progress(5, "Scanning left folder...")
@@ -3971,7 +3571,7 @@ class FolderCompareSync_class:
             self.file_count_left = file_count_left
             
             self.root.after(0, lambda: self.add_status_message(f"Left folder scan complete: {file_count_left:,} items found"))
-            logger.info(f"Found {file_count_left} items in left folder")
+            log_and_flush(logging.INFO, f"Found {file_count_left} items in left folder")
             
             progress.update_progress(30, "Scanning right folder...")
             self.root.after(0, lambda: self.add_status_message("Scanning right folder for files and folders..."))
@@ -3990,7 +3590,7 @@ class FolderCompareSync_class:
                 return
             
             self.root.after(0, lambda: self.add_status_message(f"Right folder scan complete: {file_count_right:,} items found"))
-            logger.info(f"Found {file_count_right} items in right folder")
+            log_and_flush(logging.INFO, f"Found {file_count_right} items in right folder")
             
             # Step 2: Compare files (50% of total work)
             progress.update_progress(50, "Comparing files and folders...")
@@ -3999,12 +3599,12 @@ class FolderCompareSync_class:
             # Get all unique relative paths
             all_paths = set(left_files.keys()) | set(right_files.keys())
             total_paths = len(all_paths)
-            logger.info(f"Comparing {total_paths} unique paths")
+            log_and_flush(logging.INFO, f"Comparing {total_paths} unique paths")
             
             if __debug__:
-                logger.debug(f"Left-only paths: {len(left_files.keys() - right_files.keys())}")
-                logger.debug(f"Right-only paths: {len(right_files.keys() - left_files.keys())}")
-                logger.debug(f"Common paths: {len(left_files.keys() & right_files.keys())}")
+                log_and_flush(logging.DEBUG, f"Left-only paths: {len(left_files.keys() - right_files.keys())}")
+                log_and_flush(logging.DEBUG, f"Right-only paths: {len(right_files.keys() - left_files.keys())}")
+                log_and_flush(logging.DEBUG, f"Common paths: {len(left_files.keys() & right_files.keys())}")
             
             # Compare each path with progress updates using configurable frequency
             differences_found = 0
@@ -4028,15 +3628,15 @@ class FolderCompareSync_class:
                 if differences:
                     differences_found += 1
                     if __debug__:
-                        logger.debug(f"Difference found in '{rel_path}': {differences}")
+                        log_and_flush(logging.DEBUG, f"Difference found in '{rel_path}': {differences}")
             
             # Step 3: Update UI (10% of total work)
             progress.update_progress(90, "Building comparison trees...")
             self.root.after(0, lambda: self.add_status_message("Building comparison tree views..."))
             
             elapsed_time = time.time() - start_time
-            logger.info(f"Comparison completed in {elapsed_time:.2f} seconds")
-            logger.info(f"Found {differences_found} items with differences")
+            log_and_flush(logging.INFO, f"Comparison completed in {elapsed_time:.2f} seconds")
+            log_and_flush(logging.INFO, f"Found {differences_found} items with differences")
             
             # Update UI in main thread
             progress.update_progress(100, "Finalizing...")
@@ -4051,11 +3651,10 @@ class FolderCompareSync_class:
             ))
             
         except Exception as e:
-            logger.error(f"Comparison failed with exception: {type(e).__name__}: {str(e)}")
+            log_and_flush(logging.ERROR, f"Comparison failed with exception: {type(e).__name__}: {str(e)}")
             if __debug__:
-                import traceback
-                logger.debug("Full exception traceback:")
-                logger.debug(traceback.format_exc())
+                log_and_flush(logging.DEBUG, "Full exception traceback:")
+                log_and_flush(logging.DEBUG, traceback.format_exc())
             
             error_msg = f"Comparison failed: {str(e)}"
             self.root.after(0, lambda: self.add_status_message(f"Error: {error_msg}"))
@@ -4065,7 +3664,7 @@ class FolderCompareSync_class:
             progress.close()
             
     def build_file_list_with_progress(self, root_path: str, progress: ProgressDialog, 
-                                    start_percent: int, end_percent: int) -> Optional[Dict[str, FileMetadata_class]]:
+                                    start_percent: int, end_percent: int) -> Optional[dict[str, FileMetadata_class]]:
         """
         Build a dictionary of relative_path -> FileMetadata with progress tracking and early limit checking.
         
@@ -4083,10 +3682,10 @@ class FolderCompareSync_class:
         
         Returns:
         --------
-        Dict[str, FileMetadata_class] or None: File metadata dict or None if limit exceeded
+        dict[str, FileMetadata_class] or None: File metadata dict or None if limit exceeded
         """
         if __debug__:
-            logger.debug(f"Building file list with progress for: {root_path}")
+            log_and_flush(logging.DEBUG, f"Building file list with progress for: {root_path}")
         
         assert Path(root_path).exists(), f"Root path must exist: {root_path}"
         
@@ -4110,7 +3709,7 @@ class FolderCompareSync_class:
             # Include the root directory itself if it's empty
             if not any(root.iterdir()):
                 if __debug__:
-                    logger.debug(f"Root directory is empty: {root_path}")
+                    log_and_flush(logging.DEBUG, f"Root directory is empty: {root_path}")
                 
             for path in root.rglob('*'):
                 try:
@@ -4144,11 +3743,11 @@ class FolderCompareSync_class:
                             size = path.stat().st_size
                             if size > SHA512_STATUS_MESSAGE_THRESHOLD:
                                 # Large files: Use separate SHA512 computation utility function for progress tracking # v000.0004 added
-                                logger.debug(f"Large file: Performing SHA512 computation via compute_sha512_with_progress() for {path}")
+                                log_and_flush(logging.DEBUG, f"Large file: Performing SHA512 computation via compute_sha512_with_progress() for {path}")
                                 sha512_hash = self.compute_sha512_with_progress(str(path), progress)
                             else:
                                 # Small files: compute directly without progress overhead # v000.0004 added
-                                logger.debug(f"Small file: Performing SHA512 computation locally in build_file_list_with_progress() for {path}")
+                                log_and_flush(logging.DEBUG, f"Small file: Performing SHA512 computation locally in build_file_list_with_progress() for {path}")
                                 if size < SHA512_MAX_FILE_SIZE:
                                     hasher = hashlib.sha512()
                                     with open(str(path), 'rb') as f:
@@ -4156,7 +3755,7 @@ class FolderCompareSync_class:
                                     sha512_hash = hasher.hexdigest()
                         except Exception as e:
                             if __debug__:
-                                logger.debug(f"SHA512 computation failed for {path}: {e}")
+                                log_and_flush(logging.DEBUG, f"SHA512 computation failed for {path}: {e}")
                     
                     # v000.0004 NOTE: Create metadata without SHA512 computation (since SHA512 computation already handled above) # v000.0004 changed
                     metadata = FileMetadata_class.from_path(str(path), compute_hash=False)
@@ -4175,7 +3774,7 @@ class FolderCompareSync_class:
                 except Exception as e:
                     error_count += 1
                     if __debug__:
-                        logger.debug(f"Skipping file due to error: {path} - {e}")
+                        log_and_flush(logging.DEBUG, f"Skipping file due to error: {path} - {e}")
                     continue  # Skip files we can't process
                     
             # Also scan for empty directories that might not be caught by rglob('*')
@@ -4197,18 +3796,17 @@ class FolderCompareSync_class:
                 except Exception as e:
                     error_count += 1
                     if __debug__:
-                        logger.debug(f"Skipping directory due to error: {path} - {e}")
+                        log_and_flush(logging.DEBUG, f"Skipping directory due to error: {path} - {e}")
                     continue
                     
         except Exception as e:
-            logger.error(f"Error scanning directory {root_path}: {e}")
+            log_and_flush(logging.ERROR, f"Error scanning directory {root_path}: {e}")
             if __debug__:
-                import traceback
-                logger.debug(traceback.format_exc())
+                log_and_flush(logging.DEBUG, traceback.format_exc())
             
-        logger.info(f"Scanned {root_path}: {file_count} files, {dir_count} directories, {error_count} errors")
+        log_and_flush(logging.INFO, f"Scanned {root_path}: {file_count} files, {dir_count} directories, {error_count} errors")
         if __debug__:
-            logger.debug(f"Total items found: {len(files)}")
+            log_and_flush(logging.DEBUG, f"Total items found: {len(files)}")
             
         return files
 
@@ -4237,13 +3835,13 @@ class FolderCompareSync_class:
         try:
             path = Path(file_path)
             if not path.exists() or not path.is_file():
-                logger.debug(f"In compute_sha512_with_progress() ... returning None ... not path.exists() or not path.is_file() for {file_path}")
+                log_and_flush(logging.DEBUG, f"In compute_sha512_with_progress() ... returning None ... not path.exists() or not path.is_file() for {file_path}")
                 return None
                 
             size = path.stat().st_size
             if size >= SHA512_MAX_FILE_SIZE:  # v000.0004 respect configurable limit
                 if __debug__:
-                    logger.debug(f"In compute_sha512_with_progress() File too large for SHA512 computation: {size} bytes > {SHA512_MAX_FILE_SIZE} bytes")
+                    log_and_flush(logging.DEBUG, f"In compute_sha512_with_progress() File too large for SHA512 computation: {size} bytes > {SHA512_MAX_FILE_SIZE} bytes")
                 return None
             
             hasher = hashlib.sha512()
@@ -4274,11 +3872,11 @@ class FolderCompareSync_class:
             
         except Exception as e:
             if __debug__:
-                logger.debug(f"In compute_sha512_with_progress() SHA512 computation failed for {file_path}: {e}")
+                log_and_flush(logging.DEBUG, f"In compute_sha512_with_progress() SHA512 computation failed for {file_path}: {e}")
             return None  # v000.0004 hash computation failed
         
     def compare_items(self, left_item: Optional[FileMetadata_class], 
-                     right_item: Optional[FileMetadata_class]) -> Set[str]:
+                     right_item: Optional[FileMetadata_class]) -> set[str]:
         """
         Compare two items and return set of differences.
         
@@ -4294,7 +3892,7 @@ class FolderCompareSync_class:
         
         Returns:
         --------
-        Set[str]: Set of difference types found
+        set[str]: Set of difference types found
         """
         differences = set()
         
@@ -4319,12 +3917,12 @@ class FolderCompareSync_class:
                     left_raw = left_item.date_created.timestamp() if left_item.date_created else 0 # v001.0010 added [debug date created comparison with full microsecond precision]
                     right_raw = right_item.date_created.timestamp() if right_item.date_created else 0 # v001.0010 added [debug date created comparison with full microsecond precision]
                     diff_microseconds = abs(left_raw - right_raw) * 1_000_000 # v001.0010 added [debug date created comparison with full microsecond precision]
-                    logger.debug(f"DATE CREATED DIFFERENCE found for {left_item.path}:") # v001.0010 added [debug date created comparison with full microsecond precision]
-                    logger.debug(f"  Left display : {left_display}") # v001.0010 added [debug date created comparison with full microsecond precision]
-                    logger.debug(f"  Right display: {right_display}") # v001.0010 added [debug date created comparison with full microsecond precision]
-                    logger.debug(f"  Left raw     : {left_item.date_created}") # v001.0010 added [debug date created comparison with full microsecond precision]
-                    logger.debug(f"  Right raw    : {right_item.date_created}") # v001.0010 added [debug date created comparison with full microsecond precision]
-                    logger.debug(f"  Difference   : {diff_microseconds:.1f} microseconds") # v001.0010 added [debug date created comparison with full microsecond precision]
+                    log_and_flush(logging.DEBUG, f"DATE CREATED DIFFERENCE found for {left_item.path}:") # v001.0010 added [debug date created comparison with full microsecond precision]
+                    log_and_flush(logging.DEBUG, f"  Left display : {left_display}") # v001.0010 added [debug date created comparison with full microsecond precision]
+                    log_and_flush(logging.DEBUG, f"  Right display: {right_display}") # v001.0010 added [debug date created comparison with full microsecond precision]
+                    log_and_flush(logging.DEBUG, f"  Left raw     : {left_item.date_created}") # v001.0010 added [debug date created comparison with full microsecond precision]
+                    log_and_flush(logging.DEBUG, f"  Right raw    : {right_item.date_created}") # v001.0010 added [debug date created comparison with full microsecond precision]
+                    log_and_flush(logging.DEBUG, f"  Difference   : {diff_microseconds:.1f} microseconds") # v001.0010 added [debug date created comparison with full microsecond precision]
                 
             if self.compare_date_modified.get() and left_item.date_modified != right_item.date_modified:
                 differences.add('date_modified')
@@ -4335,12 +3933,12 @@ class FolderCompareSync_class:
                     left_raw = left_item.date_modified.timestamp() if left_item.date_modified else 0 # v001.0010 added [debug date modified comparison with full microsecond precision]
                     right_raw = right_item.date_modified.timestamp() if right_item.date_modified else 0 # v001.0010 added [debug date modified comparison with full microsecond precision]
                     diff_microseconds = abs(left_raw - right_raw) * 1_000_000 # v001.0010 added [debug date modified comparison with full microsecond precision]
-                    logger.debug(f"DATE MODIFIED DIFFERENCE found for {left_item.path}:") # v001.0010 added [debug date modified comparison with full microsecond precision]
-                    logger.debug(f"  Left display : {left_display}") # v001.0010 added [debug date modified comparison with full microsecond precision]
-                    logger.debug(f"  Right display: {right_display}") # v001.0010 added [debug date modified comparison with full microsecond precision]
-                    logger.debug(f"  Left raw     : {left_item.date_modified}") # v001.0010 added [debug date modified comparison with full microsecond precision]
-                    logger.debug(f"  Right raw    : {right_item.date_modified}") # v001.0010 added [debug date modified comparison with full microsecond precision]
-                    logger.debug(f"  Difference   : {diff_microseconds:.1f} microseconds") # v001.0010 added [debug date modified comparison with full microsecond precision]
+                    log_and_flush(logging.DEBUG, f"DATE MODIFIED DIFFERENCE found for {left_item.path}:") # v001.0010 added [debug date modified comparison with full microsecond precision]
+                    log_and_flush(logging.DEBUG, f"  Left display : {left_display}") # v001.0010 added [debug date modified comparison with full microsecond precision]
+                    log_and_flush(logging.DEBUG, f"  Right display: {right_display}") # v001.0010 added [debug date modified comparison with full microsecond precision]
+                    log_and_flush(logging.DEBUG, f"  Left raw     : {left_item.date_modified}") # v001.0010 added [debug date modified comparison with full microsecond precision]
+                    log_and_flush(logging.DEBUG, f"  Right raw    : {right_item.date_modified}") # v001.0010 added [debug date modified comparison with full microsecond precision]
+                    log_and_flush(logging.DEBUG, f"  Difference   : {diff_microseconds:.1f} microseconds") # v001.0010 added [debug date modified comparison with full microsecond precision]
                 
             if (self.compare_sha512.get() and left_item.sha512 and right_item.sha512 
                 and left_item.sha512 != right_item.sha512):
@@ -4351,10 +3949,10 @@ class FolderCompareSync_class:
     def update_comparison_ui(self): # v000.0002 changed - removed sorting parameters 
         """Update UI with comparison results and limit checking (no sorting)."""
         if self.limit_exceeded:
-            logger.warning("Skipping UI update due to file limit exceeded")
+            log_and_flush(logging.WARNING, "Skipping UI update due to file limit exceeded")
             return
             
-        logger.info("Updating UI with comparison results")
+        log_and_flush(logging.INFO, "Updating UI with comparison results")
         
         # Clear existing tree content
         left_items = len(self.left_tree.get_children())
@@ -4366,7 +3964,7 @@ class FolderCompareSync_class:
             self.right_tree.delete(item)
             
         if __debug__:
-            logger.debug(f"Cleared {left_items} left tree items and {right_items} right tree items")
+            log_and_flush(logging.DEBUG, f"Cleared {left_items} left tree items and {right_items} right tree items")
             
         # Build tree structure with root handling # v000.0002 changed - removed sorting
         self.build_trees_with_root_paths() # v000.0002 changed - (no sorting)
@@ -4377,15 +3975,15 @@ class FolderCompareSync_class:
         # Update status
         self.status_var.set("Ready")
         self.update_summary()
-        logger.info("UI update completed")
+        log_and_flush(logging.INFO, "UI update completed")
 
     def update_comparison_ui_filtered(self): # v000.0002 changed - removed sorting parameters
         """Update UI with filtered comparison results and limit checking (no sorting)."""
         if self.limit_exceeded:
-            logger.warning("Skipping filtered UI update due to file limit exceeded")
+            log_and_flush(logging.WARNING, "Skipping filtered UI update due to file limit exceeded")
             return
             
-        logger.info("Updating UI with filtered comparison results")
+        log_and_flush(logging.INFO, "Updating UI with filtered comparison results")
         
         # Clear existing tree content
         for item in self.left_tree.get_children():
@@ -4399,7 +3997,7 @@ class FolderCompareSync_class:
         # Update status
         self.status_var.set("Ready (Filtered)")
         self.update_summary()
-        logger.info("Filtered UI update completed")
+        log_and_flush(logging.INFO, "Filtered UI update completed")
 
     def build_trees_with_filtered_results(self):
         """Build tree structures from filtered comparison results with limit checking (no sorting)."""
@@ -4407,7 +4005,7 @@ class FolderCompareSync_class:
             return
             
         if __debug__:
-            logger.debug(f"Building trees from {len(self.filtered_results)} filtered results")
+            log_and_flush(logging.DEBUG, f"Building trees from {len(self.filtered_results)} filtered results")
         
         # Use filtered results instead of full results
         results_to_use = self.filtered_results
@@ -4518,7 +4116,7 @@ class FolderCompareSync_class:
             return
             
         if __debug__:
-            logger.debug(f"Building trees with root paths from {len(self.comparison_results)} comparison results")
+            log_and_flush(logging.DEBUG, f"Building trees with root paths from {len(self.comparison_results)} comparison results")
                                                                                     
         
         start_time = time.time()
@@ -4541,7 +4139,7 @@ class FolderCompareSync_class:
         self.path_to_item_right[''] = self.root_item_right
         
         if __debug__:
-            logger.debug(f"Created root items: left={self.root_item_left}, right={self.root_item_right}")
+            log_and_flush(logging.DEBUG, f"Created root items: left={self.root_item_left}, right={self.root_item_right}")
         
         # Create sentinel class for missing folders to distinguish from real empty folders
         class MissingFolder:
@@ -4556,7 +4154,7 @@ class FolderCompareSync_class:
         for rel_path, result in self.comparison_results.items():
             if not rel_path:  # Skip empty paths
                 if __debug__:
-                    logger.debug("Skipping empty relative path")
+                    log_and_flush(logging.DEBUG, "Skipping empty relative path")
                 continue
                 
             path_parts = rel_path.split('/')
@@ -4585,14 +4183,14 @@ class FolderCompareSync_class:
                         elif not isinstance(current[final_name], (dict, MissingFolder)):
                             # Real conflict: folder trying to replace a file (should be very rare)
                             if __debug__:
-                                logger.debug(f"REAL CONFLICT: Cannot add folder '{final_name}' - file exists with same name")
+                                log_and_flush(logging.DEBUG, f"REAL CONFLICT: Cannot add folder '{final_name}' - file exists with same name")
                         # v000.0003 changed - for folders, don't store metadata directly, just ensure dict exists
                     else:
                         # This is a file
                         if final_name in current and isinstance(current[final_name], (dict, MissingFolder)):
                             # Real conflict: file trying to replace a folder (should be very rare)
                             if __debug__:
-                                logger.debug(f"REAL CONFLICT: Cannot add file '{final_name}' - folder exists with same name")
+                                log_and_flush(logging.DEBUG, f"REAL CONFLICT: Cannot add file '{final_name}' - folder exists with same name")
                         else:
                             current[final_name] = result.left_item  # v000.0003 changed - only store file metadata for files
             
@@ -4619,14 +4217,14 @@ class FolderCompareSync_class:
                         elif not isinstance(current[final_name], (dict, MissingFolder)):
                             # Real conflict: folder trying to replace a file (should be very rare)
                             if __debug__:
-                                logger.debug(f"REAL CONFLICT: Cannot add folder '{final_name}' - file exists with same name")
+                                log_and_flush(logging.DEBUG, f"REAL CONFLICT: Cannot add folder '{final_name}' - file exists with same name")
                         # v000.0003 changed - for folders, don't store metadata directly, just ensure dict exists
                     else:
                         # This is a file
                         if final_name in current and isinstance(current[final_name], (dict, MissingFolder)):
                             # Real conflict: file trying to replace a folder (should be very rare)
                             if __debug__:
-                                logger.debug(f"REAL CONFLICT: Cannot add file '{final_name}' - folder exists with same name")
+                                log_and_flush(logging.DEBUG, f"REAL CONFLICT: Cannot add file '{final_name}' - folder exists with same name")
                         else:
                             current[final_name] = result.right_item  # v000.0003 changed - only store file metadata for files
                             
@@ -4684,18 +4282,18 @@ class FolderCompareSync_class:
                             current[final_name] = None
         
         if __debug__:
-            logger.debug(f"Added {missing_left} missing left placeholders, {missing_right} missing right placeholders")
+            log_and_flush(logging.DEBUG, f"Added {missing_left} missing left placeholders, {missing_right} missing right placeholders")
             
         # Populate trees under root items with stable alphabetical ordering # v000.0002 changed - removed sorting
-        logger.info("Populating tree views under root paths with stable ordering...") # v000.0002 changed - removed sorting
+        log_and_flush(logging.INFO, "Populating tree views under root paths with stable ordering...") # v000.0002 changed - removed sorting
         self.populate_tree(self.left_tree, left_structure, self.root_item_left, 'left', '') # v000.0002 changed - removed sorting
                                                                          
-        self.populate_tree(self.right_tree, right_structure, self.root_item_right, 'right', '') # v000.0002 changed - removed sorting
+        self.populate_tree(self.right_tree, right_structure, self.root_item_right, RIGHT_SIDE_lowercase, '') # v000.0002 changed - removed sorting
                                                                          
         
         elapsed_time = time.time() - start_time
         if __debug__:
-            logger.debug(f"Tree building with root paths completed in {elapsed_time:.3f} seconds")
+            log_and_flush(logging.DEBUG, f"Tree building with root paths completed in {elapsed_time:.3f} seconds")
             
     def populate_tree(self, tree, structure, parent_id, side, current_path):
         """
@@ -4744,9 +4342,9 @@ class FolderCompareSync_class:
                     
                     if result:
                         # Get the folder metadata from the appropriate side
-                        if side == 'left' and result.left_item:
+                        if side.lower() == LEFT_SIDE_lowercase and result.left_item:
                             folder_metadata = result.left_item
-                        elif side == 'right' and result.right_item:
+                        elif side.lower() == RIGHT_SIDE_lowercase and result.right_item:
                             folder_metadata = result.right_item
                         
                         # v000.0006 added - Format folder timestamps if available
@@ -4772,7 +4370,7 @@ class FolderCompareSync_class:
                                                                                     
                 
                 # Store path mapping for both real and missing folders
-                path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
+                path_map = self.path_to_item_left if side.lower() == LEFT_SIDE_lowercase else self.path_to_item_right
                 path_map[item_rel_path] = item_id
                 
             else:
@@ -4798,7 +4396,7 @@ class FolderCompareSync_class:
                                         values=(size_str, date_created_str, date_modified_str, sha512_str, status))
                 
                 # Store path mapping for both missing and existing files
-                path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
+                path_map = self.path_to_item_left if side.lower() == LEFT_SIDE_lowercase else self.path_to_item_right
                 path_map[item_rel_path] = item_id
                                         
         # Configure missing item styling using configurable color
@@ -4859,13 +4457,13 @@ class FolderCompareSync_class:
         Args:
         -----
         rel_path: Relative path to search for
-        side: Which tree side ('left' or 'right')
+        side: Which tree side (LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase)
         
         Returns:
         --------
         str: Tree item ID or None if not found
         """
-        path_map = self.path_to_item_left if side == 'left' else self.path_to_item_right
+        path_map = self.path_to_item_left if side.lower() == LEFT_SIDE_lowercase else self.path_to_item_right
         return path_map.get(rel_path)
         
     def select_all_differences_left(self):
@@ -4882,7 +4480,7 @@ class FolderCompareSync_class:
             return
             
         if __debug__:
-            logger.debug("Auto-clearing all selections before selecting differences in left pane")
+            log_and_flush(logging.DEBUG, "Auto-clearing all selections before selecting differences in left pane")
             
         # First clear all selections for clean state
         self.clear_all_left()
@@ -4899,7 +4497,7 @@ class FolderCompareSync_class:
                     count += 1
                     
         if __debug__:
-            logger.debug(f"Selected {count} different items in left pane (after auto-clear)")
+            log_and_flush(logging.DEBUG, f"Selected {count} different items in left pane (after auto-clear)")
             
         filter_text = " (filtered)" if self.is_filtered else ""
         self.add_status_message(f"Selected all differences in left pane{filter_text}: {count:,} items")
@@ -4920,7 +4518,7 @@ class FolderCompareSync_class:
             return
             
         if __debug__:
-            logger.debug("Auto-clearing all selections before selecting differences in right pane")
+            log_and_flush(logging.DEBUG, "Auto-clearing all selections before selecting differences in right pane")
             
         # First clear all selections for clean state
         self.clear_all_right()
@@ -4931,13 +4529,13 @@ class FolderCompareSync_class:
         count = 0
         for rel_path, result in results_to_use.items():
             if result.is_different and result.right_item and result.right_item.exists:
-                item_id = self.find_tree_item_by_path(rel_path, 'right')
+                item_id = self.find_tree_item_by_path(rel_path, RIGHT_SIDE_lowercase)
                 if item_id:
                     self.selected_right.add(item_id)
                     count += 1
                     
         if __debug__:
-            logger.debug(f"Selected {count} different items in right pane (after auto-clear)")
+            log_and_flush(logging.DEBUG, f"Selected {count} different items in right pane (after auto-clear)")
             
         filter_text = " (filtered)" if self.is_filtered else ""
         self.add_status_message(f"Selected all differences in right pane{filter_text}: {count:,} items")
@@ -4959,7 +4557,7 @@ class FolderCompareSync_class:
             
         cleared_count = len(self.selected_left)
         if __debug__:
-            logger.debug(f"Clearing ALL {cleared_count} selections in left pane")
+            log_and_flush(logging.DEBUG, f"Clearing ALL {cleared_count} selections in left pane")
             
         self.selected_left.clear()
         if cleared_count > 0:
@@ -4982,7 +4580,7 @@ class FolderCompareSync_class:
             
         cleared_count = len(self.selected_right)
         if __debug__:
-            logger.debug(f"Clearing ALL {cleared_count} selections in right pane")
+            log_and_flush(logging.DEBUG, f"Clearing ALL {cleared_count} selections in right pane")
             
         self.selected_right.clear()
         if cleared_count > 0:
@@ -5031,7 +4629,7 @@ class FolderCompareSync_class:
         # Start copy operation in background thread
         status_text = "Simulating copy..." if self.dry_run_mode.get() else "Copying files..."
         self.status_var.set(status_text)
-        threading.Thread(target=self.perform_enhanced_copy_operation, args=('left_to_right', selected_paths), daemon=True).start()
+        threading.Thread(target=self.perform_enhanced_copy_operation, args=('left_to_right'.lower(), selected_paths), daemon=True).start()
         
     def copy_right_to_left(self):
         """Copy selected items from right to left with dry run support and limit checking."""
@@ -5074,7 +4672,7 @@ class FolderCompareSync_class:
         # Start copy operation in background thread
         status_text = "Simulating copy..." if self.dry_run_mode.get() else "Copying files..."
         self.status_var.set(status_text)
-        threading.Thread(target=self.perform_enhanced_copy_operation, args=('right_to_left', selected_paths), daemon=True).start()
+        threading.Thread(target=self.perform_enhanced_copy_operation, args=('right_to_left'.lower(), selected_paths), daemon=True).start()
 
     def perform_enhanced_copy_operation(self, direction, selected_paths): # changed for v000.0005
         """
@@ -5087,24 +4685,24 @@ class FolderCompareSync_class:
         
         Args:
         -----
-        direction: Copy direction ('left_to_right' or 'right_to_left')
+        direction: Copy direction ('left_to_right'.lower() or 'right_to_left'.lower())
         selected_paths: List of relative paths to copy
         """
         start_time = time.time()
         is_dry_run = self.dry_run_mode.get()
         dry_run_text = " (DRY RUN)" if is_dry_run else ""
         
-        logger.info(f"Starting copy operation{dry_run_text}: {direction} with {len(selected_paths)} items")
+        log_and_flush(logging.INFO, f"Starting copy operation{dry_run_text}: {direction} with {len(selected_paths)} items")
         
         # Determine source and destination folders
-        if direction == 'left_to_right':
+        if direction.lower() == 'left_to_right'.lower():
             source_folder = self.left_folder.get()
             dest_folder = self.right_folder.get()
-            direction_text = "LEFT to RIGHT"
+            direction_text = f"{LEFT_SIDE_uppercase} to {RIGHT_SIDE_uppercase}"
         else:
             source_folder = self.right_folder.get()
             dest_folder = self.left_folder.get()
-            direction_text = "RIGHT to LEFT"
+            direction_text = f"{RIGHT_SIDE_uppercase} to {LEFT_SIDE_uppercase}"
         
         # Start copy operation session with dedicated logging and dry run support
         operation_name = f"Copy {len(selected_paths)} items from {direction_text}{dry_run_text}"
@@ -5225,7 +4823,7 @@ class FolderCompareSync_class:
                 except Exception as e:
                     error_count += 1
                     error_msg = f"Error processing {rel_path}: {str(e)}"
-                    logger.error(error_msg)
+                    log_and_flush(logging.ERROR, error_msg)
                     self.copy_manager._log_status(error_msg)
                     self.root.after(0, lambda msg=error_msg: self.add_status_message(f"ERROR: {msg}"))
                     continue
@@ -5243,7 +4841,7 @@ class FolderCompareSync_class:
             summary = f"Copy operation{dry_run_text} complete ({direction_text}): "
             summary += f"{copied_count} {'simulated' if is_dry_run else 'copied'}, {error_count} errors, "
             summary += f"{skipped_count} skipped, {total_bytes_copied:,} bytes in {elapsed_time:.1f}s"
-            logger.info(summary)
+            log_and_flush(logging.INFO, summary)
             self.root.after(0, lambda: self.add_status_message(summary))
             
             # strategy summary
@@ -5305,7 +4903,7 @@ class FolderCompareSync_class:
                 self.root.after(0, lambda: self.add_status_message("DRY RUN complete - no file system changes made"))
             
         except Exception as e:
-            logger.error(f"Copy operation{dry_run_text} failed: {e}")
+            log_and_flush(logging.ERROR, f"Copy operation{dry_run_text} failed: {e}")
             error_msg = f"Copy operation{dry_run_text} failed: {str(e)}"
             self.copy_manager._log_status(error_msg)
             self.root.after(0, lambda: self.add_status_message(f"ERROR: {error_msg}"))
@@ -5323,7 +4921,7 @@ class FolderCompareSync_class:
         This ensures the user sees the current state after copying,
         but only performs refresh for actual copy operations (not dry runs).
         """
-        logger.info("Refreshing trees and clearing selections after copy operation")
+        log_and_flush(logging.INFO, "Refreshing trees and clearing selections after copy operation")
         self.add_status_message("Refreshing folder trees after copy operation...")
         
         # Clear all selections first
@@ -5375,7 +4973,7 @@ class FolderCompareSync_class:
         
     def show_error(self, message):
         """Show error message to user with context and details option."""
-        logger.error(f"Displaying error to user: {message}")
+        log_and_flush(logging.ERROR, f"Displaying error to user: {message}")
         
         # Split message into summary and details if it's long
         if len(message) > 100 or '\n' in message or '|' in message:
@@ -5400,18 +4998,17 @@ class FolderCompareSync_class:
         Main application entry point that starts the GUI event loop
         with comprehensive error handling and graceful shutdown.
         """
-        logger.info("Starting FolderCompareSync GUI application.")
+        log_and_flush(logging.INFO, "Starting FolderCompareSync GUI application.")
         try:
             self.root.mainloop()
         except Exception as e:
-            logger.error(f"Application crashed: {type(e).__name__}: {str(e)}")
+            log_and_flush(logging.ERROR, f"Application crashed: {type(e).__name__}: {str(e)}")
             if __debug__:
-                import traceback
-                logger.debug("Crash traceback:")
-                logger.debug(traceback.format_exc())
+                log_and_flush(logging.DEBUG, "Crash traceback:")
+                log_and_flush(logging.DEBUG, traceback.format_exc())
             raise
         finally:
-            logger.info("Application shutdown")
+            log_and_flush(logging.INFO, "Application shutdown")
 
 # ============================================================================
 # COMPREHENSIVE DELETE ORPHANS MANAGER CLASS
@@ -5661,53 +5258,83 @@ class DeleteOrphansManager_class:
     # ========================================================================
     # STATIC UTILITY METHODS - ORPHAN DETECTION AND DATA MANAGEMENT
     # ========================================================================
-    
+
     @staticmethod
-    def detect_orphaned_files(comparison_results: Dict, side: str, 
-                             active_filter: Optional[str] = None) -> List[str]:
+    def detect_orphaned_files(comparison_results: dict, side: str, 
+                             active_filter: Optional[str] = None) -> tuple[list[str], dict[str, dict[str, Any]]]: # v001.0017 changed [enhanced return type to include orphan metadata]
         """
         Detect orphaned files from comparison results - files that exist on one side but are missing on the other.
         
         Purpose:
         --------
         Analyzes comparison results to identify files that exist only on the specified side,
-        with optional filter support for consistent behavior with main application.
+        with enhanced logic to distinguish truly orphaned folders from folders that just contain orphaned files. # v001.0017 added [enhanced folder orphan detection]
         
         Args:
         -----
-        comparison_results: Dictionary of comparison results from main application
-        side: 'left' or 'right' - which side to find orphans for
+        comparison_results: dictionary of comparison results from main application
+        side: LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase - which side to find orphans for
         active_filter: Optional wildcard filter to respect from main application
         
         Returns:
         --------
-        List[str]: List of relative paths of orphaned files on the specified side
+        tuple[list[str], dict[str, dict]]: (orphaned_paths, orphan_metadata) # v001.0017 changed [enhanced return type]
+            orphaned_paths: List of relative paths of orphaned files on the specified side
+            orphan_metadata: dict mapping rel_path -> {'is_true_orphan': bool, 'contains_orphans': bool, 'orphan_reason': str} # v001.0017 added [orphan metadata dictionary]
         """
         orphaned_paths = []
+        orphan_metadata = {}  # v001.0017 added [orphan metadata tracking]
         
         if not comparison_results:
-            logger.debug(f"No comparison results available for orphan detection on {side} side")
-            return orphaned_paths
+            log_and_flush(logging.DEBUG, f"No comparison results available for orphan detection on {side} side")
+            return orphaned_paths, orphan_metadata  # v001.0017 changed [return tuple with metadata]
             
-        logger.debug(f"Detecting orphaned files on {side} side from {len(comparison_results)} comparison results")
+        log_and_flush(logging.DEBUG, f"Detecting orphaned files on {side} side from {len(comparison_results)} comparison results")
         
+        # v001.0017 added [build folder hierarchy for true orphan detection]
+        # First pass: identify all folders and their existence on both sides
+        folders_on_side = set()  # v001.0017 added [track folders that exist on specified side]
+        folders_on_other_side = set()  # v001.0017 added [track folders that exist on other side]
+        
+        for rel_path, result in comparison_results.items():
+            if not rel_path:  # Skip empty paths
+                continue
+                
+            # Track folder existence for true orphan detection # v001.0017 added [folder existence tracking]
+            if side.lower() == LEFT_SIDE_lowercase:  # v001.0017 changed [case insensitive comparison]
+                if result.left_item and result.left_item.exists and result.left_item.is_folder:
+                    folders_on_side.add(rel_path)  # v001.0017 added [track left folders]
+                if result.right_item and result.right_item.exists and result.right_item.is_folder:
+                    folders_on_other_side.add(rel_path)  # v001.0017 added [track right folders]
+            else:  # side.lower() == RIGHT_SIDE_lowercase  # v001.0017 changed [case insensitive comparison]
+                if result.right_item and result.right_item.exists and result.right_item.is_folder:
+                    folders_on_side.add(rel_path)  # v001.0017 added [track right folders]
+                if result.left_item and result.left_item.exists and result.left_item.is_folder:
+                    folders_on_other_side.add(rel_path)  # v001.0017 added [track left folders]
+        
+        # Second pass: identify orphaned items with enhanced metadata # v001.0017 added [enhanced orphan detection]
         for rel_path, result in comparison_results.items():
             if not rel_path:  # Skip empty paths
                 continue
                 
             # Determine if this item is orphaned on the specified side
             is_orphaned = False
+            orphan_reason = ""  # v001.0017 added [track orphan reason]
             
-            if side == 'left':
+            if side.lower() == LEFT_SIDE_lowercase:  # v001.0017 changed [case insensitive comparison]
                 # Left orphan: exists in left but missing in right
                 is_orphaned = (result.left_item is not None and 
                               result.left_item.exists and
                               (result.right_item is None or not result.right_item.exists))
-            elif side == 'right':
+                if is_orphaned:
+                    orphan_reason = "exists in LEFT but missing in RIGHT"  # v001.0017 added [orphan reason tracking]
+            elif side.lower() == RIGHT_SIDE_lowercase:  # v001.0017 changed [case insensitive comparison]
                 # Right orphan: exists in right but missing in left  
                 is_orphaned = (result.right_item is not None and
                               result.right_item.exists and
                               (result.left_item is None or not result.left_item.exists))
+                if is_orphaned:
+                    orphan_reason = "exists in RIGHT but missing in LEFT"  # v001.0017 added [orphan reason tracking]
             
             if is_orphaned:
                 # Apply filter if active (consistent with main application filtering)
@@ -5718,33 +5345,69 @@ class DeleteOrphansManager_class:
                         
                 orphaned_paths.append(rel_path)
                 
-        logger.info(f"Found {len(orphaned_paths)} orphaned files on {side} side")
+                # v001.0017 added [determine if this is a true orphan or just contains orphans]
+                is_true_orphan = True  # v001.0017 added [assume true orphan initially]
+                contains_orphans = False  # v001.0017 added [track if folder contains orphaned children]
+                
+                # For folders, check if this is a truly orphaned folder or just contains orphans # v001.0017 added [enhanced folder analysis]
+                current_item = result.left_item if side.lower() == LEFT_SIDE_lowercase else result.right_item
+                if current_item and current_item.is_folder:
+                    # This is a folder - check if it's truly orphaned or just contains orphans # v001.0017 added [folder orphan analysis]
+                    if rel_path in folders_on_other_side:
+                        # Folder exists on both sides, so it's not truly orphaned # v001.0017 added [folder exists on both sides]
+                        is_true_orphan = False  # v001.0017 added [not a true orphan]
+                        contains_orphans = True  # v001.0017 added [but contains orphaned children]
+                        orphan_reason += " (folder exists on both sides but contains orphaned children)"  # v001.0017 added [enhanced reason]
+                    else:
+                        # Folder doesn't exist on other side, so it's truly orphaned # v001.0017 added [folder truly orphaned]
+                        is_true_orphan = True  # v001.0017 added [true orphan folder]
+                        contains_orphans = True  # v001.0017 added [orphaned folder contains everything as orphans]
+                        orphan_reason += " (entire folder is orphaned)"  # v001.0017 added [enhanced reason]
+                
+                # Store enhanced metadata for this orphaned item # v001.0017 added [store orphan metadata]
+                orphan_metadata[rel_path] = {
+                    'is_true_orphan': is_true_orphan,  # v001.0017 added [true orphan flag]
+                    'contains_orphans': contains_orphans,  # v001.0017 added [contains orphans flag]
+                    'orphan_reason': orphan_reason,  # v001.0017 added [detailed reason]
+                    'is_folder': current_item.is_folder if current_item else False  # v001.0017 added [item type]
+                }
+                    
+        log_and_flush(logging.INFO, f"Enhanced orphan detection: found {len(orphaned_paths)} orphaned files on {side} side")
         if active_filter:
-            logger.info(f"Orphan detection used active filter: {active_filter}")
+            log_and_flush(logging.INFO, f"Orphan detection used active filter: {active_filter}")
+        
+        # v001.0017 added [log enhanced orphan statistics]
+        true_orphan_folders = sum(1 for meta in orphan_metadata.values() if meta['is_true_orphan'] and meta['is_folder'])
+        contains_orphan_folders = sum(1 for meta in orphan_metadata.values() if not meta['is_true_orphan'] and meta['is_folder'])
+        orphan_files = sum(1 for meta in orphan_metadata.values() if not meta['is_folder'])
+        
+        log_and_flush(logging.DEBUG, f"Enhanced orphan breakdown: {true_orphan_folders} truly orphaned folders, {contains_orphan_folders} folders containing orphans, {orphan_files} orphaned files")
             
-        return sorted(orphaned_paths)  # Return in stable alphabetical order
-
+        return sorted(orphaned_paths), orphan_metadata  # v001.0017 changed [return tuple with enhanced metadata]
+    
     @staticmethod
-    def create_orphan_metadata_dict(comparison_results: Dict, orphaned_paths: List[str], 
-                                   side: str, source_folder: str) -> Dict[str, Dict[str, Any]]:
+    def create_orphan_metadata_dict(comparison_results: dict, orphaned_paths: list[str], 
+                                   side: str, source_folder: str, 
+                                   orphan_detection_metadata: dict[str, dict[str, Any]] = None) -> dict[str, dict[str, Any]]: # v001.0017 changed [added orphan_detection_metadata parameter]
         """
-        Create metadata dictionary for orphaned files with validation status.
+        Create metadata dictionary for orphaned files with validation status and enhanced orphan classification.
         
         Purpose:
         --------
         Builds comprehensive metadata for orphaned files including file information,
-        validation status, and accessibility for the delete orphans dialog.
+        validation status, accessibility, and enhanced orphan classification (true orphan vs contains orphans). # v001.0017 added [enhanced orphan classification]
         
         Args:
         -----
-        comparison_results: Dictionary of comparison results from main application
+        comparison_results: dictionary of comparison results from main application
         orphaned_paths: List of relative paths of orphaned files
-        side: 'left' or 'right' - which side the orphans are on
+        side: LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase - which side the orphans are on
         source_folder: Full path to the source folder
+        orphan_detection_metadata: Enhanced metadata from detect_orphaned_files (optional for backward compatibility) # v001.0017 added [enhanced metadata parameter]
         
         Returns:
         --------
-        Dict[str, Dict]: Dictionary mapping rel_path -> metadata dict with validation
+        dict[str, dict]: dictionary mapping rel_path -> metadata dict with validation and enhanced orphan info # v001.0017 changed [enhanced metadata description]
         """
         orphan_metadata = {}
         
@@ -5754,9 +5417,9 @@ class DeleteOrphansManager_class:
                 continue
                 
             # Get the metadata for the correct side
-            if side == 'left' and result.left_item:
+            if side.lower() == LEFT_SIDE_lowercase and result.left_item:  # v001.0017 changed [case insensitive comparison]
                 file_metadata = result.left_item
-            elif side == 'right' and result.right_item:
+            elif side.lower() == RIGHT_SIDE_lowercase and result.right_item:  # v001.0017 changed [case insensitive comparison]
                 file_metadata = result.right_item
             else:
                 continue  # No metadata available
@@ -5766,6 +5429,16 @@ class DeleteOrphansManager_class:
             
             # Validate file accessibility
             accessible, status_msg, validation_metadata = DeleteOrphansManager_class.validate_orphan_file_access(full_path)
+            
+            # v001.0017 added [get enhanced orphan classification from detection metadata]
+            enhanced_orphan_info = orphan_detection_metadata.get(rel_path, {}) if orphan_detection_metadata else {}
+            is_true_orphan = enhanced_orphan_info.get('is_true_orphan', True)  # v001.0017 added [default to true for backward compatibility]
+            contains_orphans = enhanced_orphan_info.get('contains_orphans', False)  # v001.0017 added [contains orphans flag]
+            orphan_reason = enhanced_orphan_info.get('orphan_reason', 'orphaned item')  # v001.0017 added [orphan reason]
+            
+            # v001.0017 added [determine initial selection based on enhanced orphan classification]
+            # True orphans should be selected by default, non-true orphans (folders that just contain orphans) should not
+            default_selected = is_true_orphan  # v001.0017 added [smart default selection]
             
             # Create comprehensive metadata entry
             metadata_entry = {
@@ -5780,16 +5453,27 @@ class DeleteOrphansManager_class:
                 'accessible': accessible,
                 'status': status_msg,
                 'validation_metadata': validation_metadata,
-                'selected': True,  # Default to selected
+                'selected': default_selected,  # v001.0017 changed [use smart default selection instead of always True]
+                # v001.0017 added [enhanced orphan classification fields]
+                'is_true_orphan': is_true_orphan,  # v001.0017 added [true orphan classification]
+                'contains_orphans': contains_orphans,  # v001.0017 added [contains orphans flag]
+                'orphan_reason': orphan_reason,  # v001.0017 added [detailed orphan reason]
             }
             
             orphan_metadata[rel_path] = metadata_entry
             
-        logger.debug(f"Created metadata for {len(orphan_metadata)} orphaned files")
+        log_and_flush(logging.DEBUG, f"Created enhanced metadata for {len(orphan_metadata)} orphaned files")
+        
+        # v001.0017 added [log enhanced selection statistics]
+        if orphan_detection_metadata:
+            true_orphans_selected = sum(1 for m in orphan_metadata.values() if m['is_true_orphan'] and m['selected'])
+            contains_orphans_not_selected = sum(1 for m in orphan_metadata.values() if not m['is_true_orphan'] and not m['selected'])
+            log_and_flush(logging.DEBUG, f"Enhanced selection: {true_orphans_selected} true orphans auto-selected, {contains_orphans_not_selected} non-true orphans not auto-selected")
+        
         return orphan_metadata
 
     @staticmethod
-    def refresh_orphan_metadata_status(orphan_metadata: Dict[str, Dict[str, Any]]) -> Tuple[int, int]:
+    def refresh_orphan_metadata_status(orphan_metadata: dict[str, dict[str, Any]]) -> tuple[int, int]:
         """
         Refresh the validation status of orphaned files to detect external changes.
         
@@ -5800,11 +5484,11 @@ class DeleteOrphansManager_class:
         
         Args:
         -----
-        orphan_metadata: Dictionary of orphan metadata to refresh
+        orphan_metadata: dictionary of orphan metadata to refresh
         
         Returns:
         --------
-        Tuple[int, int]: (still_accessible_count, changed_count)
+        tuple[int, int]: (still_accessible_count, changed_count)
         """
         still_accessible = 0
         changed_count = 0
@@ -5827,13 +5511,13 @@ class DeleteOrphansManager_class:
                 
             if old_accessible != accessible or old_status != status_msg:
                 changed_count += 1
-                logger.debug(f"Status changed for {rel_path}: {old_status} -> {status_msg}")
+                log_and_flush(logging.DEBUG, f"Status changed for {rel_path}: {old_status} -> {status_msg}")
                 
-        logger.info(f"Refresh complete: {still_accessible} accessible, {changed_count} status changes detected")
+        log_and_flush(logging.INFO, f"Refresh complete: {still_accessible} accessible, {changed_count} status changes detected")
         return still_accessible, changed_count
 
     @staticmethod
-    def build_orphan_tree_structure(orphan_metadata: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    def build_orphan_tree_structure(orphan_metadata: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """
         Build hierarchical tree structure from orphaned file metadata.
         
@@ -5844,11 +5528,11 @@ class DeleteOrphansManager_class:
         
         Args:
         -----
-        orphan_metadata: Dictionary of orphan file metadata
+        orphan_metadata: dictionary of orphan file metadata
         
         Returns:
         --------
-        Dict: Nested dictionary representing folder structure
+        dict: Nested dictionary representing folder structure
         """
         tree_structure = {}
         
@@ -5876,11 +5560,11 @@ class DeleteOrphansManager_class:
                 if isinstance(current_level[part], dict):
                     current_level = current_level[part]
                     
-        logger.debug(f"Built tree structure with {len(orphan_metadata)} orphaned items")
+        log_and_flush(logging.DEBUG, f"Built tree structure with {len(orphan_metadata)} orphaned items")
         return tree_structure
 
     @staticmethod
-    def calculate_orphan_statistics(orphan_metadata: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    def calculate_orphan_statistics(orphan_metadata: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """
         Calculate statistics for orphaned files including totals, sizes, and selection counts.
         
@@ -5891,11 +5575,11 @@ class DeleteOrphansManager_class:
         
         Args:
         -----
-        orphan_metadata: Dictionary of orphan file metadata
+        orphan_metadata: dictionary of orphan file metadata
         
         Returns:
         --------
-        Dict: Statistics including total files, selected files, total size, selected size, etc.
+        dict: Statistics including total files, selected files, total size, selected size, etc.
         """
         stats = {
             'total_files': 0,
@@ -5952,7 +5636,7 @@ class DeleteOrphansManager_class:
         -----
         parent: Parent window for modal dialog
         orphaned_files: List of relative paths of orphaned files
-        side: 'left' or 'right' - which side orphans are on
+        side: LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase - which side orphans are on
         source_folder: Full path to source folder
         dry_run_mode: Whether main app is in dry run mode
         comparison_results: Main app comparison results for metadata
@@ -5960,7 +5644,7 @@ class DeleteOrphansManager_class:
         """
         self.parent = parent
         self.orphaned_files = orphaned_files.copy()  # Create local copy
-        self.side = side
+        self.side = side.upper()
         self.source_folder = source_folder
         self.dry_run_mode = dry_run_mode  # v001.0013 Keep original for reference only
         self.comparison_results = comparison_results
@@ -6043,7 +5727,7 @@ class DeleteOrphansManager_class:
             self.status_log_text.config(state=tk.DISABLED)
             self.status_log_text.see(tk.END)
             
-        logger.debug(f"Delete Orphans Manager STATUS: {message}")
+        log_and_flush(logging.DEBUG, f"Delete Orphans Manager STATUS: {message}")
         
     def initialize_orphan_data(self):
         """Initialize orphan metadata and build tree structure."""
@@ -6071,23 +5755,48 @@ class DeleteOrphansManager_class:
             self._initialize_data_direct()
             
     def _initialize_data_direct(self):
-        """Initialize orphan data directly for small datasets."""
-        # Create metadata with validation
-        self.orphan_metadata = self.create_orphan_metadata_dict(
+        """Initialize orphan data directly for small datasets with enhanced orphan classification."""
+        # v001.0017 changed [use enhanced detect_orphaned_files method]
+        # Get enhanced orphan detection results
+        orphaned_paths, orphan_detection_metadata = DeleteOrphansManager_class.detect_orphaned_files(
+            self.comparison_results, 
+            self.side, 
+            self.active_filter
+        )
+        
+        # Update our orphaned_files list with the detected paths
+        self.orphaned_files = orphaned_paths  # v001.0017 added [update orphaned files list]
+        
+        # v001.0017 changed [pass enhanced metadata to create_orphan_metadata_dict]
+        # Create metadata with validation and enhanced orphan classification
+        self.orphan_metadata = DeleteOrphansManager_class.create_orphan_metadata_dict(
             self.comparison_results, 
             self.orphaned_files, 
             self.side, 
-            self.source_folder
+            self.source_folder,
+            orphan_detection_metadata  # v001.0017 added [pass enhanced detection metadata]
         )
         
         # Build tree structure
-        self.orphan_tree_data = self.build_orphan_tree_structure(self.orphan_metadata)
+        self.orphan_tree_data = DeleteOrphansManager_class.build_orphan_tree_structure(self.orphan_metadata)
         
-        # Select all items by default
-        self.selected_items = set(self.orphaned_files)
+        # v001.0017 changed [smart selection based on enhanced orphan classification]
+        # Select only true orphans by default, not folders that just contain orphans
+        self.selected_items = set()  # v001.0017 changed [start with empty selection]
+        for rel_path, metadata in self.orphan_metadata.items():
+            if metadata.get('selected', False):  # v001.0017 added [respect smart default selection from metadata]
+                self.selected_items.add(rel_path)  # v001.0017 added [add to selection if default selected]
         
-        # Log details about inaccessible files # v001.0013 added [detailed logging for inaccessible files]
-        self.log_inaccessible_files() # v001.0013 added [detailed logging for inaccessible files]
+        # Log details about inaccessible files
+        self.log_inaccessible_files()
+        
+        # v001.0017 added [log enhanced orphan classification results]
+        true_orphans = sum(1 for m in self.orphan_metadata.values() if m.get('is_true_orphan', False))
+        contains_orphans = sum(1 for m in self.orphan_metadata.values() if not m.get('is_true_orphan', True))
+        auto_selected = len(self.selected_items)
+        
+        self.add_status_message(f"Enhanced classification: {true_orphans} true orphans, {contains_orphans} folders containing orphans")
+        self.add_status_message(f"Smart selection: {auto_selected} items auto-selected (true orphans only)")
         
         # Update UI
         self.build_orphan_tree()
@@ -6096,102 +5805,219 @@ class DeleteOrphansManager_class:
         # Log initialization results
         accessible_count = sum(1 for m in self.orphan_metadata.values() if m['accessible'])
         self.add_status_message(f"Initialization complete: {accessible_count} accessible files")
-        
+
     def _initialize_data_with_progress(self, progress):
-        """Initialize orphan data with progress feedback for large datasets."""
+        """Initialize orphan data with progress feedback for large datasets using enhanced orphan classification."""
         try:
-            progress.update_progress(10, "Creating file metadata...")
+            progress.update_progress(10, "Performing enhanced orphan detection...")  # v001.0017 changed [enhanced detection message]
             
-            # Create metadata with validation
-            self.orphan_metadata = self.create_orphan_metadata_dict(
+            # v001.0017 changed [use enhanced detect_orphaned_files method]
+            # Get enhanced orphan detection results
+            orphaned_paths, orphan_detection_metadata = DeleteOrphansManager_class.detect_orphaned_files(
                 self.comparison_results, 
-                self.orphaned_files, 
                 self.side, 
-                self.source_folder
+                self.active_filter
             )
             
-            progress.update_progress(50, "Building tree structure...")
+            # Update our orphaned_files list with the detected paths
+            self.orphaned_files = orphaned_paths  # v001.0017 added [update orphaned files list]
+            
+            progress.update_progress(30, "Creating enhanced file metadata...")  # v001.0017 changed [enhanced metadata message]
+            
+            # v001.0017 changed [pass enhanced metadata to create_orphan_metadata_dict]
+            # Create metadata with validation and enhanced orphan classification
+            self.orphan_metadata = DeleteOrphansManager_class.create_orphan_metadata_dict(
+                self.comparison_results, 
+                self.orphaned_files, 
+                self.side.upper(), 
+                self.source_folder,
+                orphan_detection_metadata  # v001.0017 added [pass enhanced detection metadata]
+            )
+            
+            progress.update_progress(60, "Building tree structure...")
             
             # Build tree structure
-            self.orphan_tree_data = self.build_orphan_tree_structure(self.orphan_metadata)
+            self.orphan_tree_data = DeleteOrphansManager_class.build_orphan_tree_structure(self.orphan_metadata)
             
-            progress.update_progress(80, "Setting up selections...")
+            progress.update_progress(80, "Setting up smart selections...")  # v001.0017 changed [smart selection message]
             
-            # Select all items by default
-            self.selected_items = set(self.orphaned_files)
+            # v001.0017 changed [smart selection based on enhanced orphan classification]
+            # Select only true orphans by default, not folders that just contain orphans
+            self.selected_items = set()  # v001.0017 changed [start with empty selection]
+            for rel_path, metadata in self.orphan_metadata.items():
+                if metadata.get('selected', False):  # v001.0017 added [respect smart default selection from metadata]
+                    self.selected_items.add(rel_path)  # v001.0017 added [add to selection if default selected]
             
             progress.update_progress(90, "Updating display...")
             
             # Update UI in main thread
-            self.dialog.after(0, self._finalize_initialization)
+            self.dialog.after(0, self._finalize_initialization_enhanced)  # v001.0017 changed [use enhanced finalization]
             
             progress.update_progress(100, "Complete")
             
         except Exception as e:
-            logger.error(f"Error during orphan data initialization: {e}")
-            self.dialog.after(0, lambda: self.add_status_message(f"Initialization error: {str(e)}"))
+            log_and_flush(logging.ERROR, f"Error during enhanced orphan data initialization: {e}")  # v001.0017 changed [enhanced error message]
+            self.dialog.after(0, lambda: self.add_status_message(f"Enhanced initialization error: {str(e)}"))  # v001.0017 changed [enhanced error message]
         finally:
             progress.close()
             
-    def _finalize_initialization(self):
-        """Finalize initialization in main thread."""
-        # Log details about inaccessible files # v001.0013 added [detailed logging for inaccessible files in large datasets]
-        self.log_inaccessible_files() # v001.0013 added [detailed logging for inaccessible files in large datasets]
+    def _finalize_initialization_enhanced(self):  # v001.0017 added [enhanced finalization for large datasets]
+        """Finalize enhanced initialization in orphan main thread for large datasets."""
+        # Log details about inaccessible files
+        self.log_inaccessible_files()
+        
+        # v001.0017 added [log enhanced orphan classification results for large datasets]
+        true_orphans = sum(1 for m in self.orphan_metadata.values() if m.get('is_true_orphan', False))
+        contains_orphans = sum(1 for m in self.orphan_metadata.values() if not m.get('is_true_orphan', True))
+        auto_selected = len(self.selected_items)
+        
+        self.add_status_message(f"Enhanced classification: {true_orphans} true orphans, {contains_orphans} folders containing orphans")
+        self.add_status_message(f"Smart selection: {auto_selected} items auto-selected (true orphans only)")
         
         self.build_orphan_tree()
         self.update_statistics()
         
         # Log results
         accessible_count = sum(1 for m in self.orphan_metadata.values() if m['accessible'])
-        self.add_status_message(f"Initialization complete: {accessible_count} accessible files")
+        self.add_status_message(f"Enhanced initialization complete: {accessible_count} accessible files")
+
+    def set_enhanced_detection_metadata(self, orphan_detection_metadata: dict[str, dict[str, Any]]): # v001.0017 added [method to accept enhanced detection metadata]
+        """
+        Set enhanced detection metadata for improved orphan classification.
         
+        Purpose:
+        --------
+        Allows the dialog to receive enhanced orphan classification metadata from the 
+        main application's detect_orphaned_files method for better selection logic.
+        
+        Args:
+        -----
+        orphan_detection_metadata: Enhanced metadata from detect_orphaned_files containing
+                                  is_true_orphan, contains_orphans, and orphan_reason for each item
+        """
+        self.enhanced_detection_metadata = orphan_detection_metadata  # v001.0017 added [store enhanced metadata]
+        
+        # v001.0017 added [update existing orphan metadata with enhanced classification]
+        # If we already have orphan_metadata, enhance it with the new classification data
+        if hasattr(self, 'orphan_metadata') and self.orphan_metadata:
+            for rel_path, enhanced_info in orphan_detection_metadata.items():
+                if rel_path in self.orphan_metadata:
+                    # Update existing metadata with enhanced classification
+                    self.orphan_metadata[rel_path].update({
+                        'is_true_orphan': enhanced_info.get('is_true_orphan', True),
+                        'contains_orphans': enhanced_info.get('contains_orphans', False),
+                        'orphan_reason': enhanced_info.get('orphan_reason', 'orphaned item'),
+                    })
+                    
+                    # v001.0017 added [update selection based on enhanced classification]
+                    # Adjust selection based on true orphan status
+                    if enhanced_info.get('is_true_orphan', True):
+                        # True orphans should be selected if accessible
+                        if self.orphan_metadata[rel_path].get('accessible', False):
+                            self.orphan_metadata[rel_path]['selected'] = True
+                            self.selected_items.add(rel_path)
+                    else:
+                        # Non-true orphans (folders containing orphans) should not be auto-selected
+                        self.orphan_metadata[rel_path]['selected'] = False
+                        self.selected_items.discard(rel_path)
+            
+            # v001.0017 added [log enhanced classification update results]
+            true_orphans_updated = sum(1 for m in self.orphan_metadata.values() if m.get('is_true_orphan', False))
+            contains_orphans_updated = sum(1 for m in self.orphan_metadata.values() if not m.get('is_true_orphan', True))
+            selected_after_update = len(self.selected_items)
+            
+            self.add_status_message(f"Enhanced classification applied: {true_orphans_updated} true orphans, {contains_orphans_updated} folders containing orphans")
+            self.add_status_message(f"Selection updated: {selected_after_update} items selected based on enhanced classification")
+            
+            # v001.0017 added [rebuild tree and update display with enhanced classification]
+            # Rebuild tree display to reflect enhanced classification
+            if hasattr(self, 'tree') and self.tree:
+                self.build_orphan_tree()
+                self.update_statistics()
+        else:
+            # v001.0017 added [store for later use during initialization]
+            self.add_status_message("Enhanced detection metadata received - will be applied during initialization")
+
     def _cleanup_large_data(self):
         """Clean up large data structures based on thresholds."""
+        # v001.0018 added [debug logging before cleanup]
+        log_and_flush(logging.DEBUG, f"_cleanup_large_data starting:")
+        log_and_flush(logging.DEBUG, f"  self.orphaned_files length: {len(self.orphaned_files) if hasattr(self, 'orphaned_files') and self.orphaned_files else 0}")
+        log_and_flush(logging.DEBUG, f"  self.orphan_tree_data length: {len(self.orphan_tree_data) if hasattr(self, 'orphan_tree_data') and self.orphan_tree_data else 0}")
+        log_and_flush(logging.DEBUG, f"  self.orphan_metadata length: {len(self.orphan_metadata) if hasattr(self, 'orphan_metadata') and self.orphan_metadata else 0}")
+        log_and_flush(logging.DEBUG, f"  self.comparison_results length: {len(self.comparison_results) if hasattr(self, 'comparison_results') and self.comparison_results else 0}")
+        
         cleaned_items = []
         
-        if len(self.orphaned_files) > self.LARGE_FILE_LIST_THRESHOLD:
+        if hasattr(self, 'orphaned_files') and len(self.orphaned_files) > self.LARGE_FILE_LIST_THRESHOLD: # v001.0018 changed [add hasattr check]
             self.orphaned_files.clear()
             cleaned_items.append("file list")
             
-        if len(self.orphan_tree_data) > self.LARGE_TREE_DATA_THRESHOLD:
+        if hasattr(self, 'orphan_tree_data') and len(self.orphan_tree_data) > self.LARGE_TREE_DATA_THRESHOLD: # v001.0018 changed [add hasattr check]
             self.orphan_tree_data.clear()
             cleaned_items.append("tree data")
             
-        if len(self.selected_items) > self.LARGE_SELECTION_THRESHOLD:
+        if hasattr(self, 'selected_items') and len(self.selected_items) > self.LARGE_SELECTION_THRESHOLD: # v001.0018 changed [add hasattr check]
             self.selected_items.clear()
             cleaned_items.append("selections")
             
-        if len(self.orphan_metadata) > self.LARGE_FILE_LIST_THRESHOLD:
+        if hasattr(self, 'orphan_metadata') and len(self.orphan_metadata) > self.LARGE_FILE_LIST_THRESHOLD: # v001.0018 changed [add hasattr check]
             self.orphan_metadata.clear()
             cleaned_items.append("metadata")
             
-        if len(self.path_to_item_map) > self.LARGE_TREE_DATA_THRESHOLD:
+        if hasattr(self, 'path_to_item_map') and len(self.path_to_item_map) > self.LARGE_TREE_DATA_THRESHOLD: # v001.0018 changed [add hasattr check]
             self.path_to_item_map.clear()
             cleaned_items.append("path mappings")
             
+        # v001.0018 added [explicitly do NOT clean self.comparison_results as it belongs to parent application]
+        # NOTE: self.comparison_results is passed from parent application and should NOT be modified
+        
         if cleaned_items:
-            logger.debug(f"Cleaned up large data structures: {', '.join(cleaned_items)}")
-            
+            log_and_flush(logging.DEBUG, f"Cleaned up large data structures: {', '.join(cleaned_items)}")
+        else:
+            log_and_flush(logging.DEBUG, f"No large data structures needed cleanup") # v001.0018 added [log when no cleanup needed]
+
     def close_dialog(self):
-        """Close dialog with proper cleanup."""
-        try:
-            # Clean up large data structures
-            self._cleanup_large_data()
-            
-            # Close dialog
-            if self.dialog:
-                self.dialog.grab_release()
-                self.dialog.destroy()
-                
-        except Exception as e:
-            logger.error(f"Error during dialog cleanup: {e}")
-        finally:
-            # Ensure dialog is closed even if cleanup fails
+            """Close dialog with proper cleanup."""
             try:
+                # v001.0018 added [set result to cancelled only if no result was previously set]
+                # This handles all close scenarios: Cancel button, X button, ESC key, etc.
+                if not hasattr(self, 'result') or self.result is None:
+                    self.result = "cancelled".lower()  # Default to cancelled for any non-deletion close
+                    log_and_flush(logging.DEBUG, f"Dialog closed without explicit result - setting to 'cancelled'")
+                else:
+                    log_and_flush(logging.DEBUG, f"Dialog closing with existing result: {self.result}")
+
+                # v001.0018 added [debug logging during dialog cleanup]
+                log_and_flush(logging.DEBUG, f"DeleteOrphansManager close_dialog called")
+                log_and_flush(logging.DEBUG, f"  orphan_metadata length: {len(self.orphan_metadata) if self.orphan_metadata else 0}")
+                log_and_flush(logging.DEBUG, f"  comparison_results is None: {self.comparison_results is None}")
+                log_and_flush(logging.DEBUG, f"  comparison_results length: {len(self.comparison_results) if self.comparison_results else 0}")
+
+                # Clean up large data structures
+                self._cleanup_large_data()
+
+                # v001.0018 added [debug logging after cleanup]
+                log_and_flush(logging.DEBUG, f"After _cleanup_large_data:")
+                log_and_flush(logging.DEBUG, f"  comparison_results is None: {self.comparison_results is None}")
+                log_and_flush(logging.DEBUG, f"  comparison_results length: {len(self.comparison_results) if self.comparison_results else 0}")
+                
+                # Close dialog
                 if self.dialog:
+                    self.dialog.grab_release()
                     self.dialog.destroy()
-            except:
-                pass
+                    
+            except Exception as e:
+                log_and_flush(logging.ERROR, f"Error during dialog cleanup: {e}")
+                # v001.0018 added [additional debug logging for cleanup exceptions]
+                log_and_flush(logging.ERROR, f"Cleanup exception traceback: {traceback.format_exc()}")
+            finally:
+                # Ensure dialog is closed even if cleanup fails
+                try:
+                    if self.dialog:
+                        self.dialog.destroy()
+                except:
+                    pass
 
     # ========================================================================
     # INSTANCE METHODS - UI SETUP AND CONFIGURATION
@@ -6201,51 +6027,89 @@ class DeleteOrphansManager_class:
         """Setup all UI components for the delete orphans dialog."""
         # v001.0014 added [create scaled fonts for delete orphans dialog]
         # Create scaled fonts for this dialog
+        log_and_flush(logging.DEBUG, "ENTERED DeleteOrphansManager_class.setup_ui")
+
         default_font = tkfont.nametofont("TkDefaultFont") # v001.0014 added [create scaled fonts for delete orphans dialog]
         
         self.scaled_label_font = default_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
-        self.scaled_label_font.configure(size=int(LABEL_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for delete orphans dialog]
+        self.scaled_label_font.configure(size=SCALED_LABEL_FONT_SIZE) # v001.0014 added [create scaled fonts for delete orphans dialog]
+        # Create a bold version
+        self.scaled_label_font_bold = self.scaled_label_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
+        self.scaled_label_font_bold.configure(weight="bold")
         
         self.scaled_entry_font = default_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
-        self.scaled_entry_font.configure(size=int(ENTRY_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for delete orphans dialog]
+        self.scaled_entry_font.configure(size=SCALED_ENTRY_FONT_SIZE) # v001.0014 added [create scaled fonts for delete orphans dialog]
         
         self.scaled_checkbox_font = default_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
-        self.scaled_checkbox_font.configure(size=int(CHECKBOX_FONT_SIZE * UI_FONT_SCALE)) # v001.0014 added [create scaled fonts for delete orphans dialog]
+        self.scaled_checkbox_font.configure(size=SCALED_CHECKBOX_FONT_SIZE) # v001.0014 added [create scaled fonts for delete orphans dialog]
+        # Create a bold version
+        self.scaled_checkbox_font_bold = self.scaled_checkbox_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
+        self.scaled_checkbox_font_bold.configure(weight="bold")
         
         self.scaled_button_font = default_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
-        self.scaled_button_font.configure( # v001.0014 added [create scaled fonts for delete orphans dialog]
-            size=int(BUTTON_FONT_SIZE * UI_FONT_SCALE), # v001.0014 added [create scaled fonts for delete orphans dialog]
-            weight="bold" # v001.0014 added [create scaled fonts for delete orphans dialog]
-        ) # v001.0014 added [create scaled fonts for delete orphans dialog]
+        self.scaled_button_font.configure(size=SCALED_BUTTON_FONT_SIZE)
+        # Create a bold version
+        self.scaled_button_font_bold = self.scaled_button_font.copy() # v001.0014 added [create scaled fonts for delete orphans dialog]
+        self.scaled_button_font_bold.configure(weight="bold")
         
         # Configure tree row height for this dialog's treeviews # v001.0015 added [tree row height control for compact display]
         dialog_style = ttk.Style(self.dialog) # v001.0015 added [tree row height control for compact display]
         dialog_style.configure("Treeview", rowheight=TREE_ROW_HEIGHT) # v001.0015 added [tree row height control for compact display]
         
+        # v001.0016 added [create button styles for delete orphans dialog]
+        # Create button styles for this dialog
+        dialog_style.configure("DeleteOrphansDefaultNormal.TButton", font=self.scaled_button_font) # v001.0016 added [create button styles for delete orphans dialog]
+        dialog_style.configure("DeleteOrphansRedBold.TButton", foreground="red", font=self.scaled_button_font_bold) # v001.0014 added [create button style for delete orphans dialog with scaled font]
+        dialog_style.configure("DeleteOrphansBlueBold.TButton", foreground="blue", font=self.scaled_button_font_bold) # v001.0014 added [create button style for delete orphans dialog with scaled font]
+
+        dialog_style.configure("DeleteOrphansCheckbutton.TCheckbutton", font=self.scaled_checkbox_font)
+        dialog_style.configure("DeleteOrphansLabel.TLabel", font=self.scaled_label_font)
+        dialog_style.configure("DeleteOrphansSmallLabel.TLabel", font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")) - 1))
+        dialog_style.configure("DeleteOrphansLabelBold.TLabel", font=self.scaled_label_font_bold)
+        dialog_style.configure("DeleteOrphansEntry.TEntry", font=self.scaled_entry_font)
+
         # Main container
+        log_and_flush(logging.DEBUG, "BEFORE THE CREATE AND PACK main_frame")
         main_frame = ttk.Frame(self.dialog)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8) # v001.0014 changed [tightened padding from padx=10, pady=10 to padx=8, pady=8]
+        log_and_flush(logging.DEBUG, "AFTER THE CREATE AND PACK main_frame")
         
         # Header section with explanation and statistics
+        log_and_flush(logging.DEBUG, "BEFORE setup_header_section")
         self.setup_header_section(main_frame)
+        log_and_flush(logging.DEBUG, "AFTER setup_header_section")
         
         # Local dry run mode section # v001.0013 added [local dry run mode section for delete orphans dialog]
+        log_and_flush(logging.DEBUG, "BEFORE setup_local_dry_run_section")
         self.setup_local_dry_run_section(main_frame) # v001.0013 added [local dry run mode section for delete orphans dialog]
+        log_and_flush(logging.DEBUG, "AFTER setup_local_dry_run_section")
         
         # Deletion method selection
+        log_and_flush(logging.DEBUG, "BEFORE setup_deletion_method_section")
         self.setup_deletion_method_section(main_frame)
+        log_and_flush(logging.DEBUG, "AFTER setup_deletion_method_section")
         
         # Filter controls
+        log_and_flush(logging.DEBUG, "BEFORE setup_filter_section")
         self.setup_filter_section(main_frame)
+        log_and_flush(logging.DEBUG, "AFTER setup_filter_section")
         
         # Main tree area
+        log_and_flush(logging.DEBUG, "BEFORE setup_tree_section")
         self.setup_tree_section(main_frame)
+        log_and_flush(logging.DEBUG, "AFTER setup_tree_section")
         
         # Status log area
+        log_and_flush(logging.DEBUG, "BEFORE setup_status_section")
         self.setup_status_section(main_frame)
+        log_and_flush(logging.DEBUG, "AFTER setup_status_section")
         
         # Bottom buttons
+        log_and_flush(logging.DEBUG, "BEFORE setup_button_section")
         self.setup_button_section(main_frame)
+        log_and_flush(logging.DEBUG, "AFTER setup_button_section")
+
+        log_and_flush(logging.DEBUG, "EXITING DeleteOrphansManager_class.setup_ui")
 
     def setup_header_section(self, parent):
         """Setup header section with explanation and statistics."""
@@ -6254,7 +6118,7 @@ class DeleteOrphansManager_class:
         
         # Explanatory text
         side_text = self.side.upper()
-        opposite_side = "RIGHT" if self.side == "left" else "LEFT"
+        opposite_side = RIGHT_SIDE_uppercase if self.side.lower() == LEFT_SIDE_lowercase else LEFT_SIDE_uppercase
         
         explanation = (
             f"The following orphaned files exist in {side_text} but are missing in {opposite_side}.\n"
@@ -6265,7 +6129,7 @@ class DeleteOrphansManager_class:
             header_frame, 
             text=explanation, 
             justify=tk.CENTER,
-            font=self.scaled_label_font # v001.0014 changed [use scaled label font instead of hardcoded font]
+            style="DeleteOrphansLabel.TLabel"  # ✅ Use style instead of font parameter
         )
         explanation_label.pack(pady=(0, 8)) # v001.0014 changed [tightened padding from pady=(0, 10) to pady=(0, 8)]
         
@@ -6274,45 +6138,55 @@ class DeleteOrphansManager_class:
         statistics_label = ttk.Label(
             header_frame,
             textvariable=self.statistics_var,
-            font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")), "bold"), # v001.0014 changed [use scaled label font with bold weight instead of hardcoded font]
-            foreground="blue"
+            foreground="blue",
+            style="DeleteOrphansLabelBold.TLabel"  # ✅ Use bold style
         )
         statistics_label.pack(pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
-        # Note: Removed original dry run notice here since we now have a dedicated section for local dry run control # v001.0013 changed [removed main app dry run notice from header]
 
     def setup_local_dry_run_section(self, parent): # v001.0013 added [local dry run mode section for delete orphans dialog]
         """Setup local dry run mode section with checkbox.""" # v001.0013 added [local dry run mode section for delete orphans dialog]
+        log_and_flush(logging.DEBUG, "1. ENTERED DeleteOrphansManager_class.setup_local_dry_run_section")
+
+        log_and_flush(logging.DEBUG, "2. BEFORE create and pack dry_run_frame")
         dry_run_frame = ttk.LabelFrame(parent, text="Local Operation Mode", padding=8) # v001.0014 changed [tightened padding from padding=10 to padding=8]
         dry_run_frame.pack(fill=tk.X, pady=(0, 8)) # v001.0014 changed [tightened padding from pady=(0, 10) to pady=(0, 8)]
+        log_and_flush(logging.DEBUG, "3. AFTER create and pack dry_run_frame")
         
         # Checkbox for local dry run mode # v001.0013 added [local dry run mode section for delete orphans dialog]
+        log_and_flush(logging.DEBUG, "4. BEFORE create and pack dry_run_cb checkbutton create")
         dry_run_cb = ttk.Checkbutton( # v001.0013 added [local dry run mode section for delete orphans dialog]
             dry_run_frame, # v001.0013 added [local dry run mode section for delete orphans dialog]
             text="DRY RUN Only (simulate deletion without actually removing files)", # v001.0013 added [local dry run mode section for delete orphans dialog]
             variable=self.local_dry_run_mode, # v001.0013 added [local dry run mode section for delete orphans dialog]
             command=self.on_local_dry_run_changed, # v001.0013 added [local dry run mode section for delete orphans dialog]
-            font=self.scaled_checkbox_font # v001.0014 changed [use scaled checkbox font instead of default]
+            style="DeleteOrphansCheckbutton.TCheckbutton" # v001.0014 changed [use scaled checkbox font instead of default]
         ) # v001.0013 added [local dry run mode section for delete orphans dialog]
         dry_run_cb.pack(side=tk.LEFT, padx=(0, 10)) # v001.0013 added [local dry run mode section for delete orphans dialog]
+        log_and_flush(logging.DEBUG, "5. AFTER create and pack dry_run_cb checkbutton create")
         
         # Status indicator showing main app setting # v001.0013 added [local dry run mode section for delete orphans dialog]
+        log_and_flush(logging.DEBUG, "6. BEFORE create and pack main_app_text create")
         main_app_text = f"(Main app DRY RUN mode: {'ON' if self.dry_run_mode else 'OFF'})" # v001.0013 added [local dry run mode section for delete orphans dialog]
         main_app_label = ttk.Label( # v001.0013 added [local dry run mode section for delete orphans dialog]
             dry_run_frame, # v001.0013 added [local dry run mode section for delete orphans dialog]
             text=main_app_text, # v001.0013 added [local dry run mode section for delete orphans dialog]
             foreground="gray", # v001.0013 added [local dry run mode section for delete orphans dialog]
-            font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")) - 1) # v001.0014 changed [use scaled label font -1 size instead of hardcoded size 8]
+            style="DeleteOrphansSmallLabel.TLabel"
         ) # v001.0013 added [local dry run mode section for delete orphans dialog]
         main_app_label.pack(side=tk.LEFT) # v001.0013 added [local dry run mode section for delete orphans dialog]
+        log_and_flush(logging.DEBUG, "7. AFTER create and pack main_app_text create")
         
         # Explanation text # v001.0013 added [local dry run mode section for delete orphans dialog]
+        log_and_flush(logging.DEBUG, "8. BEFORE create and pack explanation_label create")
         explanation_label = ttk.Label( # v001.0013 added [local dry run mode section for delete orphans dialog]
             dry_run_frame, # v001.0013 added [local dry run mode section for delete orphans dialog]
             text="This setting is local to this dialog and overrides the main app setting", # v001.0013 added [local dry run mode section for delete orphans dialog]
             foreground="blue", # v001.0013 added [local dry run mode section for delete orphans dialog]
-            font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")) - 1, "italic") # v001.0014 changed [use scaled label font -1 size with italic instead of hardcoded size 8]
+            style="DeleteOrphansSmallLabel.TLabel"
         ) # v001.0013 added [local dry run mode section for delete orphans dialog]
         explanation_label.pack(pady=(3, 0)) # v001.0014 changed [tightened padding from pady=(5, 0) to pady=(3, 0)]
+        log_and_flush(logging.DEBUG, "9. AFTER create and pack explanation_label create")
+        log_and_flush(logging.DEBUG, "10. EXITING DeleteOrphansManager_class.setup_local_dry_run_section")
 
     def setup_deletion_method_section(self, parent):
         """Setup deletion method selection with radio buttons."""
@@ -6329,17 +6203,17 @@ class DeleteOrphansManager_class:
             text="Move to Recycle Bin (recommended)",
             variable=self.deletion_method,
             value="recycle_bin",
-            font=self.scaled_checkbox_font # v001.0014 changed [use scaled checkbox font instead of default]
+            style="DeleteOrphansCheckbutton.TCheckbutton"  # ✅ Reuse checkbox style for radio buttons        
         )
         recycle_rb.pack(side=tk.LEFT, padx=(0, 20))
-        
+
         # Permanent deletion option
         permanent_rb = ttk.Radiobutton(
             radio_frame,
             text="Permanent Deletion (cannot be undone)",
             variable=self.deletion_method,
             value="permanent",
-            font=self.scaled_checkbox_font # v001.0014 changed [use scaled checkbox font instead of default]
+            style="DeleteOrphansCheckbutton.TCheckbutton"  # ✅ Reuse checkbox style for radio buttons
         )
         permanent_rb.pack(side=tk.LEFT)
         
@@ -6348,7 +6222,7 @@ class DeleteOrphansManager_class:
             method_frame,
             text="⚠ Permanent deletion cannot be undone - files will be lost forever",
             foreground="red",
-            font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")) - 1) # v001.0014 changed [use scaled label font -1 size instead of hardcoded size 8]
+            style="DeleteOrphansSmallLabel.TLabel"  # ✅ Use style instead of font tuple
         )
         warning_label.pack(pady=(3, 0)) # v001.0014 changed [tightened padding from pady=(5, 0) to pady=(3, 0)]
         
@@ -6358,15 +6232,14 @@ class DeleteOrphansManager_class:
         filter_frame.pack(fill=tk.X, pady=(0, 8)) # v001.0014 changed [tightened padding from pady=(0, 10) to pady=(0, 8)]
         
         # Filter label and entry
-        ttk.Label(filter_frame, text="Filter Files:", font=self.scaled_label_font).pack(side=tk.LEFT, padx=(0, 5)) # v001.0014 changed [use scaled label font instead of default]
-        
-        filter_entry = ttk.Entry(filter_frame, textvariable=self.dialog_filter, width=20, font=self.scaled_entry_font) # v001.0014 changed [use scaled entry font instead of default]
+        ttk.Label(filter_frame, text="Filter Files:", style="DeleteOrphansLabel.TLabel").pack(side=tk.LEFT, padx=(0, 5))
+        filter_entry = ttk.Entry(filter_frame, textvariable=self.dialog_filter, width=20, style="DeleteOrphansEntry.TEntry")
         filter_entry.pack(side=tk.LEFT, padx=(0, 5))
         filter_entry.bind('<Return>', lambda e: self.apply_filter())
         
         # Filter buttons
-        ttk.Button(filter_frame, text="Apply Filter", command=self.apply_filter).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(filter_frame, text="Clear Filter", command=self.clear_filter).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(filter_frame, text="Apply Filter", command=self.apply_filter, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use delete orphans button style]
+        ttk.Button(filter_frame, text="Clear Filter", command=self.clear_filter, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0016 changed [use delete orphans button style]
         
         # Filter status
         self.filter_status_var = tk.StringVar()
@@ -6375,8 +6248,8 @@ class DeleteOrphansManager_class:
         else:
             self.filter_status_var.set("")
             
-        filter_status_label = ttk.Label(filter_frame, textvariable=self.filter_status_var, 
-                                       foreground="gray", font=(self.scaled_label_font.cget("family"), int(self.scaled_label_font.cget("size")) - 1)) # v001.0014 changed [use scaled label font -1 size instead of hardcoded size 8]
+        filter_status_label = ttk.Label(filter_frame, textvariable=self.filter_status_var,
+                                       foreground="gray", style="DeleteOrphansSmallLabel.TLabel")
         filter_status_label.pack(side=tk.LEFT)
         
     def setup_tree_section(self, parent):
@@ -6431,8 +6304,8 @@ class DeleteOrphansManager_class:
         status_header.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         
         ttk.Label(status_header, text=f"Operation History ({DELETE_ORPHANS_STATUS_MAX_HISTORY:,} lines max):", 
-                 font=self.scaled_label_font).pack(side=tk.LEFT) # v001.0014 changed [use scaled label font instead of hardcoded font]
-        ttk.Button(status_header, text="Export Log", command=self.export_status_log).pack(side=tk.RIGHT)
+                 style="DeleteOrphansLabel.TLabel").pack(side=tk.LEFT)
+        ttk.Button(status_header, text="Export Log", command=self.export_status_log, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.RIGHT)
         
         # Status log text area
         status_container = ttk.Frame(status_frame)
@@ -6443,7 +6316,7 @@ class DeleteOrphansManager_class:
             height=DELETE_ORPHANS_STATUS_LINES,
             wrap=tk.WORD,
             state=tk.DISABLED,
-            font=("Courier", 9), # Keep monospace font unchanged for status log
+            font=("Courier", SCALED_STATUS_MESSAGE_FONT_SIZE),  # tk.Text supports font parameter
             bg="#f8f8f8",
             fg="#333333"
         )
@@ -6453,7 +6326,7 @@ class DeleteOrphansManager_class:
         
         self.status_log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         status_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        
+
     def setup_button_section(self, parent):
         """Setup bottom button section."""
         button_frame = ttk.Frame(parent)
@@ -6463,25 +6336,19 @@ class DeleteOrphansManager_class:
         left_buttons = ttk.Frame(button_frame)
         left_buttons.pack(side=tk.LEFT)
         
-        ttk.Button(left_buttons, text="Select All", command=self.select_all_items).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(left_buttons, text="Clear All", command=self.clear_all_items).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(left_buttons, text="Refresh Orphans Tree", command=self.refresh_orphans_tree).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(left_buttons, text="Select All", command=self.select_all_items, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use delete orphans button style]
+        ttk.Button(left_buttons, text="Clear All", command=self.clear_all_items, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use delete orphans button style]
+        ttk.Button(left_buttons, text="Refresh Orphans Tree", command=self.refresh_orphans_tree, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use delete orphans button style]
         
         # Right side action buttons
         right_buttons = ttk.Frame(button_frame)
         right_buttons.pack(side=tk.RIGHT)
         
-        ttk.Button(right_buttons, text="Cancel", command=self.close_dialog).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(right_buttons, text="Cancel", command=self.close_dialog, style="DeleteOrphansDefaultNormal.TButton").pack(side=tk.RIGHT, padx=(5, 0)) # v001.0016 changed [use delete orphans button style]
         
         # Delete button with conditional text based on local dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         is_local_dry_run = self.local_dry_run_mode.get() # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         delete_text = "SIMULATE DELETION" if is_local_dry_run else "DELETE SELECTED ORPHANED FILES" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
-        
-        # v001.0014 added [create button style for delete orphans dialog with scaled font]
-        # Create a local style for this dialog's buttons with scaled font
-        button_style = ttk.Style(self.dialog) # v001.0014 added [create button style for delete orphans dialog with scaled font]
-        button_style.configure("DeleteOrphansRedBold.TButton", foreground="red", font=self.scaled_button_font) # v001.0014 added [create button style for delete orphans dialog with scaled font]
-        button_style.configure("DeleteOrphansBlueBold.TButton", foreground="blue", font=self.scaled_button_font) # v001.0014 added [create button style for delete orphans dialog with scaled font]
         
         self.delete_button = ttk.Button( # v001.0013 changed [store button reference for dynamic updates]
             right_buttons, 
@@ -6497,7 +6364,7 @@ class DeleteOrphansManager_class:
         else:
             # Use red style for actual deletion
             self.delete_button.configure(style="DeleteOrphansRedBold.TButton") # v001.0014 changed [use local scaled button style instead of main app style]
-            
+                                                                                                          
     def export_status_log(self):
         """Export status log to clipboard and optionally to file."""
         if not self.status_log_lines:
@@ -6520,7 +6387,7 @@ class DeleteOrphansManager_class:
             
             if response is True:  # Yes - save to file
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                default_filename = f"foldercomparesync_delete_{self.side}_{timestamp}.log"
+                default_filename = f"foldercomparesync_delete_{self.side.upper()}_{timestamp}.log"
                 
                 file_path = filedialog.asksaveasfilename(
                     title="Save Delete Orphans Log",
@@ -6577,7 +6444,14 @@ class DeleteOrphansManager_class:
         self.add_status_message(f"Tree built with {len(self.orphan_metadata)} items")
         
     def populate_orphan_tree(self, tree, structure, parent_id, current_path):
-        """Recursively populate tree with orphan file structure."""
+        """
+        Recursively populate tree with orphan file structure using enhanced orphan classification.
+        
+        Purpose:
+        --------
+        Creates tree display that respects true orphan status vs folders that just contain orphaned files. # v001.0017 changed [enhanced orphan-aware tree population]
+        Only truly orphaned folders are auto-ticked, while folders that just contain orphaned files are not.
+        """
         if not structure:
             return
             
@@ -6598,8 +6472,13 @@ class DeleteOrphansManager_class:
                 date_modified_str = format_timestamp(metadata['date_modified'])
                 status_str = metadata['status']
                 
-                # Create item text with checkbox
+                # v001.0017 changed [enhanced file checkbox logic based on true orphan status]
+                # Create item text with checkbox based on selection and accessibility
                 if metadata['accessible']:
+                    # v001.0017 added [show enhanced orphan reason in status for debugging]
+                    if hasattr(metadata, 'orphan_reason') and __debug__:
+                        status_str += f" ({metadata.get('orphan_reason', 'orphaned')})"
+                    
                     checkbox = "☑" if metadata['rel_path'] in self.selected_items else "☐"
                     item_text = f"{checkbox} {name}"
                     tags = ()
@@ -6622,14 +6501,56 @@ class DeleteOrphansManager_class:
                 
             else:
                 # This is a folder - create folder entry and recurse
-                folder_checkbox = "☑" if self.is_folder_selected(item_rel_path) else "☐"
-                folder_text = f"{folder_checkbox} {name}/"
+                # v001.0017 changed [enhanced folder checkbox logic based on true orphan classification]
+                
+                # Check if this folder has metadata (is an orphaned folder)
+                folder_metadata = self.orphan_metadata.get(item_rel_path)
+                
+                if folder_metadata:
+                    # This folder is in our orphan metadata
+                    if folder_metadata.get('is_true_orphan', False):
+                        # Truly orphaned folder - should be ticked if selected and accessible
+                        if folder_metadata.get('accessible', False) and folder_metadata.get('selected', False):
+                            folder_checkbox = "☑"
+                        elif folder_metadata.get('accessible', False):
+                            folder_checkbox = "☐"
+                        else:
+                            folder_checkbox = ""  # Inaccessible folder
+                            
+                        # v001.0017 added [show enhanced status for truly orphaned folders]
+                        folder_status = f"True Orphan Folder"
+                        if __debug__ and folder_metadata.get('orphan_reason'):
+                            folder_status += f" ({folder_metadata['orphan_reason']})"
+                    else:
+                        # Folder exists on both sides but contains orphaned files - should NOT be auto-ticked
+                        if folder_metadata.get('accessible', False):
+                            # Check manual selection state
+                            folder_checkbox = "☑" if folder_metadata.get('selected', False) else "☐"
+                        else:
+                            folder_checkbox = ""  # Inaccessible folder
+                            
+                        # v001.0017 added [show enhanced status for folders containing orphans]
+                        folder_status = f"Contains Orphans"
+                        if __debug__ and folder_metadata.get('orphan_reason'):
+                            folder_status += f" ({folder_metadata['orphan_reason']})"
+                            
+                    # v001.0017 changed [enhanced folder text with better status indication]
+                    if folder_checkbox:
+                        folder_text = f"{folder_checkbox} {name}/"
+                    else:
+                        folder_text = f"{name}/ (inaccessible)"
+                        
+                else:
+                    # Folder not in orphan metadata - use old logic as fallback
+                    folder_checkbox = "☑" if self.is_folder_selected(item_rel_path) else "☐"
+                    folder_text = f"{folder_checkbox} {name}/"
+                    folder_status = "Folder"  # v001.0017 changed [simplified status for non-orphan folders]
                 
                 folder_id = tree.insert(
                     parent_id,
                     tk.END,
                     text=folder_text,
-                    values=("", "", "", "Folder"),
+                    values=("", "", "", folder_status),  # v001.0017 changed [use enhanced folder status]
                     open=True  # Expand by default
                 )
                 
@@ -6638,12 +6559,48 @@ class DeleteOrphansManager_class:
                     self.populate_orphan_tree(tree, content, folder_id, item_rel_path)
                     
     def is_folder_selected(self, folder_path):
-        """Check if a folder should be considered selected based on its children."""
-        # A folder is selected if any of its children are selected
-        for rel_path in self.selected_items:
+        """
+        Check if a folder should be considered selected based on enhanced orphan classification.
+        
+        Purpose:
+        --------
+        Determines folder checkbox state based on true orphan status rather than just containing orphaned files. # v001.0017 changed [enhanced folder selection logic]
+        Only truly orphaned folders should appear as selected, not folders that just contain orphaned files.
+        """
+        # v001.0017 changed [enhanced logic for true orphan vs contains orphans]
+        # Check if this folder itself is a true orphan
+        folder_metadata = self.orphan_metadata.get(folder_path)
+        if folder_metadata:
+            # If this folder is in our metadata, check its true orphan status
+            if folder_metadata.get('is_true_orphan', False):
+                # This is a truly orphaned folder - should be selected if accessible
+                return folder_metadata.get('selected', False) and folder_metadata.get('accessible', False)
+            else:
+                # This folder exists on both sides but contains orphaned files - should NOT be auto-selected
+                # However, it could still be manually selected by user
+                return folder_metadata.get('selected', False) and folder_metadata.get('accessible', False)
+        
+        # v001.0017 changed [fallback logic for folders not directly in metadata]
+        # For folders not directly in our orphan metadata (parent folders), check if they should be selected
+        # based on their children's selection status
+        selected_children = 0
+        total_accessible_children = 0
+        
+        for rel_path, metadata in self.orphan_metadata.items():
             if rel_path.startswith(folder_path + '/') or rel_path == folder_path:
-                return True
-        return False
+                if metadata.get('accessible', False):
+                    total_accessible_children += 1
+                    if metadata.get('selected', False):
+                        selected_children += 1
+        
+        # v001.0017 changed [only show folder as selected if it's a true orphan or manually selected]
+        # Don't auto-select folders just because they contain orphaned files
+        if total_accessible_children == 0:
+            return False  # No accessible children
+        
+        # For folders that aren't true orphans, only show as selected if user manually selected them
+        # This prevents auto-ticking of folders that just contain orphaned files
+        return selected_children > 0 and selected_children == total_accessible_children  # v001.0017 changed [stricter selection criteria]
         
     def expand_all_tree_items(self):
         """Expand all tree items by default."""
@@ -6825,14 +6782,14 @@ class DeleteOrphansManager_class:
             self.statistics_var.set("No orphaned files")
             return
             
-        stats = self.calculate_orphan_statistics(self.orphan_metadata)
+        stats = DeleteOrphansManager_class.calculate_orphan_statistics(self.orphan_metadata)
         
         # Update selection flags in metadata
         for rel_path, metadata in self.orphan_metadata.items():
             metadata['selected'] = rel_path in self.selected_items
             
         # Recalculate with updated selections
-        stats = self.calculate_orphan_statistics(self.orphan_metadata)
+        stats = DeleteOrphansManager_class.calculate_orphan_statistics(self.orphan_metadata)
         
         # Format statistics message
         total_items = stats['total_files'] + stats['total_folders']
@@ -6907,7 +6864,7 @@ class DeleteOrphansManager_class:
         # Rebuild tree with filtered data
         original_count = len(self.orphan_metadata)
         self.orphan_metadata = filtered_metadata
-        self.orphan_tree_data = self.build_orphan_tree_structure(self.orphan_metadata)
+        self.orphan_tree_data = DeleteOrphansManager_class.build_orphan_tree_structure(self.orphan_metadata)
         
         # Update selected items to only include filtered items
         self.selected_items = self.selected_items.intersection(set(filtered_metadata.keys()))
@@ -6930,15 +6887,15 @@ class DeleteOrphansManager_class:
         self.add_status_message("Clearing filter - restoring full orphan list...")
         
         # Rebuild full metadata
-        self.orphan_metadata = self.create_orphan_metadata_dict(
+        self.orphan_metadata = DeleteOrphansManager_class.create_orphan_metadata_dict(
             self.comparison_results,
             self.orphaned_files,
-            self.side,
+            self.side.upper(),
             self.source_folder
         )
         
         # Rebuild tree structure
-        self.orphan_tree_data = self.build_orphan_tree_structure(self.orphan_metadata)
+        self.orphan_tree_data = DeleteOrphansManager_class.build_orphan_tree_structure(self.orphan_metadata)
         
         # Rebuild tree display
         self.build_orphan_tree()
@@ -6986,7 +6943,7 @@ class DeleteOrphansManager_class:
         self.add_status_message("Refreshing orphan file status...")
         
         # Re-validate all orphan metadata
-        accessible_count, changed_count = self.refresh_orphan_metadata_status(self.orphan_metadata)
+        accessible_count, changed_count = DeleteOrphansManager_class.refresh_orphan_metadata_status(self.orphan_metadata)
         
         # Log details about currently inaccessible files after refresh # v001.0013 added [detailed logging for inaccessible files after refresh]
         self.add_status_message("Post-refresh inaccessible file analysis:") # v001.0013 added [detailed logging for inaccessible files after refresh]
@@ -7031,8 +6988,8 @@ class DeleteOrphansManager_class:
             if not self.orphan_metadata[path]['is_folder']
         )
         
-        deletion_method = self.deletion_method.get()
-        method_text = "Move to Recycle Bin" if deletion_method == "recycle_bin" else "Permanently Delete"
+        deletion_method = self.deletion_method.get().lower()
+        method_text = "Move to Recycle Bin" if deletion_method.lower() == "recycle_bin".lower() else "Permanently Delete"
         
         # Use local dry run mode instead of main app dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         is_local_dry_run = self.local_dry_run_mode.get() # v001.0013 changed [use local dry run mode instead of main app dry run mode]
@@ -7048,7 +7005,7 @@ class DeleteOrphansManager_class:
         
         if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
             confirmation_message += "*** DRY RUN MODE - No files will be actually deleted ***\n\n"
-        elif deletion_method == "permanent":
+        elif deletion_method.lower() == "permanent".lower():
             confirmation_message += "⚠ WARNING: Permanent deletion cannot be undone! ⚠\n\n"
         else:
             confirmation_message += "Files will be moved to Recycle Bin where they can be recovered.\n\n"
@@ -7078,7 +7035,7 @@ class DeleteOrphansManager_class:
         self.add_status_message(f"Starting deletion process: {len(selected_accessible)} files")
         
         # Close dialog and start deletion in background
-        deletion_method_final = deletion_method
+        deletion_method_final = deletion_method.lower()
         selected_files_final = selected_accessible.copy()
         
         # Start deletion process in background thread
@@ -7089,7 +7046,7 @@ class DeleteOrphansManager_class:
         ).start()
         
         # Set result and close dialog
-        self.result = "deleted"
+        self.result = "deleted".lower()
         self.close_dialog()
         
     def perform_deletion(self, selected_paths, deletion_method):
@@ -7105,17 +7062,17 @@ class DeleteOrphansManager_class:
         
         # Log operation start
         dry_run_text = " (DRY RUN)" if is_local_dry_run else "" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
-        method_text = "Recycle Bin" if deletion_method == "recycle_bin" else "Permanent"
+        method_text = "Recycle Bin" if deletion_method.lower() == "recycle_bin".lower() else "Permanent"
         
-        deletion_logger.info("=" * 80)
-        deletion_logger.info(f"DELETE ORPHANS OPERATION STARTED{dry_run_text}")
-        deletion_logger.info(f"Operation ID: {operation_id}")
-        deletion_logger.info(f"Side: {self.side.upper()}")
-        deletion_logger.info(f"Source Folder: {self.source_folder}")
-        deletion_logger.info(f"Deletion Method: {method_text}")
-        deletion_logger.info(f"Files to delete: {len(selected_paths)}")
-        deletion_logger.info(f"Local Dry Run Mode: {is_local_dry_run}") # v001.0013 changed [log local dry run mode instead of main app dry run mode]
-        deletion_logger.info("=" * 80)
+        log_and_flush(logging.INFO, "=" * 80)
+        log_and_flush(logging.INFO, f"DELETE ORPHANS OPERATION STARTED{dry_run_text}")
+        log_and_flush(logging.INFO, f"Operation ID: {operation_id}")
+        log_and_flush(logging.INFO, f"Side: {self.side.upper()}")
+        log_and_flush(logging.INFO, f"Source Folder: {self.source_folder}")
+        log_and_flush(logging.INFO, f"Deletion Method: {method_text}")
+        log_and_flush(logging.INFO, f"Files to delete: {len(selected_paths)}")
+        log_and_flush(logging.INFO, f"Local Dry Run Mode: {is_local_dry_run}") # v001.0013 changed [log local dry run mode instead of main app dry run mode]
+        log_and_flush(logging.INFO, "=" * 80)
         
         # Create progress dialog
         progress_title = f"{'Simulating' if is_local_dry_run else 'Deleting'} Orphaned Files" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
@@ -7145,7 +7102,7 @@ class DeleteOrphansManager_class:
                     # Skip if file doesn't exist
                     if not os.path.exists(full_path):
                         skipped_count += 1
-                        deletion_logger.warning(f"File not found, skipping: {full_path}")
+                        log_and_flush(logging.WARNING, f"File not found, skipping: {full_path}")
                         continue
                         
                     # Get file size for statistics
@@ -7159,46 +7116,46 @@ class DeleteOrphansManager_class:
                     # Perform deletion
                     if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
                         # Simulate deletion
-                        deletion_logger.info(f"DRY RUN: Would {method_text.lower()} delete: {full_path}")
+                        log_and_flush(logging.INFO, f"DRY RUN: Would {method_text.lower()} delete: {full_path}")
                         success_count += 1
                     else:
                         # Actual deletion
-                        if deletion_method == "recycle_bin":
-                            success, error_msg = self.delete_file_to_recycle_bin(full_path, show_progress=False)
+                        if deletion_method.lower() == "recycle_bin".lower():
+                            success, error_msg = DeleteOrphansManager_class.delete_file_to_recycle_bin(full_path, show_progress=False)
                         else:
-                            success, error_msg = self.delete_file_permanently(full_path)
+                            success, error_msg = DeleteOrphansManager_class.delete_file_permanently(full_path)
                             
                         if success:
                             success_count += 1
-                            deletion_logger.info(f"Successfully {method_text.lower()} deleted: {full_path}")
+                            log_and_flush(logging.INFO, f"Successfully {method_text.lower()} deleted: {full_path}")
                         else:
                             error_count += 1
-                            deletion_logger.error(f"Failed to delete {full_path}: {error_msg}")
+                            log_and_flush(logging.ERROR, f"Failed to delete {full_path}: {error_msg}")
                             
                 except Exception as e:
                     error_count += 1
-                    deletion_logger.error(f"Exception deleting {rel_path}: {str(e)}")
+                    log_and_flush(logging.ERROR, f"Exception deleting {rel_path}: {str(e)}")
                     continue
                     
         except Exception as e:
-            deletion_logger.error(f"Critical error during deletion operation: {str(e)}")
+            log_and_flush(logging.ERROR, f"Critical error during deletion operation: {str(e)}")
             
         finally:
             progress.close()
             
             # Log operation completion
             elapsed_time = time.time() - operation_start_time
-            deletion_logger.info("=" * 80)
-            deletion_logger.info(f"DELETE ORPHANS OPERATION COMPLETED{dry_run_text}")
-            deletion_logger.info(f"Operation ID: {operation_id}")
-            deletion_logger.info(f"Files processed successfully: {success_count}")
-            deletion_logger.info(f"Files failed: {error_count}")
-            deletion_logger.info(f"Files skipped: {skipped_count}")
-            deletion_logger.info(f"Total bytes processed: {total_bytes_processed:,}")
-            deletion_logger.info(f"Duration: {elapsed_time:.2f} seconds")
+            log_and_flush(logging.INFO, "=" * 80)
+            log_and_flush(logging.INFO, f"DELETE ORPHANS OPERATION COMPLETED{dry_run_text}")
+            log_and_flush(logging.INFO, f"Operation ID: {operation_id}")
+            log_and_flush(logging.INFO, f"Files processed successfully: {success_count}")
+            log_and_flush(logging.INFO, f"Files failed: {error_count}")
+            log_and_flush(logging.INFO, f"Files skipped: {skipped_count}")
+            log_and_flush(logging.INFO, f"Total bytes processed: {total_bytes_processed:,}")
+            log_and_flush(logging.INFO, f"Duration: {elapsed_time:.2f} seconds")
             if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
-                deletion_logger.info("NOTE: This was a DRY RUN simulation - no actual files were modified")
-            deletion_logger.info("=" * 80)
+                log_and_flush(logging.INFO, "NOTE: This was a DRY RUN simulation - no actual files were modified")
+            log_and_flush(logging.INFO, "=" * 80)
             
             # Show completion dialog
             completion_message = self.format_completion_message(
@@ -7219,7 +7176,7 @@ class DeleteOrphansManager_class:
     def create_deletion_logger(self, operation_id):
         """Create dedicated logger for deletion operation."""
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        log_filename = f"foldercomparesync_delete_{self.side}_{timestamp}_{operation_id}.log"
+        log_filename = f"foldercomparesync_delete_{self.side.upper()}_{timestamp}_{operation_id}.log"
         log_filepath = os.path.join(os.path.dirname(__file__), log_filename)
         
         operation_logger = logging.getLogger(f"delete_orphans_{operation_id}")
@@ -7262,7 +7219,7 @@ class DeleteOrphansManager_class:
         
         # Log file reference
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        log_filename = f"foldercomparesync_delete_{self.side}_{timestamp}_{operation_id}.log"
+        log_filename = f"foldercomparesync_delete_{self.side.upper()}_{timestamp}_{operation_id}.log"
         message += f"Detailed log saved to:\n{log_filename}\n\n"
         
         if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
@@ -7322,7 +7279,7 @@ class DeleteOrphansManager_class:
         
         if not inaccessible_files: # v001.0013 added [detailed logging for inaccessible files]
             self.add_status_message("All orphaned files are accessible for deletion") # v001.0013 added [detailed logging for inaccessible files]
-            logger.info(f"All {len(self.orphan_metadata)} orphaned files on {self.side} side are accessible") # v001.0013 added [detailed logging for inaccessible files]
+            log_and_flush(logging.INFO, f"All {len(self.orphan_metadata)} orphaned files on {self.side.upper()} side are accessible") # v001.0013 added [detailed logging for inaccessible files]
             return # v001.0013 added [detailed logging for inaccessible files]
         
         # Log summary # v001.0013 added [detailed logging for inaccessible files]
@@ -7331,7 +7288,7 @@ class DeleteOrphansManager_class:
         accessible_count = total_count - inaccessible_count # v001.0013 added [detailed logging for inaccessible files]
         
         self.add_status_message(f"INACCESSIBLE FILES: {inaccessible_count} of {total_count} files cannot be deleted") # v001.0013 added [detailed logging for inaccessible files]
-        logger.warning(f"Found {inaccessible_count} inaccessible orphaned files on {self.side} side out of {total_count} total") # v001.0013 added [detailed logging for inaccessible files]
+        log_and_flush(logging.WARNING, f"Found {inaccessible_count} inaccessible orphaned files on {self.side.upper()} side out of {total_count} total") # v001.0013 added [detailed logging for inaccessible files]
         
         # Group by reason for better reporting # v001.0013 added [detailed logging for inaccessible files]
         reasons = {} # v001.0013 added [detailed logging for inaccessible files]
@@ -7345,20 +7302,20 @@ class DeleteOrphansManager_class:
         for reason, files_with_reason in reasons.items(): # v001.0013 added [detailed logging for inaccessible files]
             count = len(files_with_reason) # v001.0013 added [detailed logging for inaccessible files]
             self.add_status_message(f"  {reason}: {count} files") # v001.0013 added [detailed logging for inaccessible files]
-            logger.warning(f"Inaccessible files due to '{reason}': {count} files") # v001.0013 added [detailed logging for inaccessible files]
+            log_and_flush(logging.WARNING, f"Inaccessible files due to '{reason}': {count} files") # v001.0013 added [detailed logging for inaccessible files]
             
             # Log first few file paths for each reason (avoid spam) # v001.0013 added [detailed logging for inaccessible files]
             max_examples = 5  # Show max 5 examples per reason # v001.0013 added [detailed logging for inaccessible files]
             for i, file_info in enumerate(files_with_reason[:max_examples]): # v001.0013 added [detailed logging for inaccessible files]
                 file_type = "folder" if file_info['is_folder'] else "file" # v001.0013 added [detailed logging for inaccessible files]
                 self.add_status_message(f"    {file_type}: {file_info['full_path']}") # v001.0013 added [detailed logging for inaccessible files]
-                logger.warning(f"  Inaccessible {file_type}: {file_info['full_path']} (reason: {reason})") # v001.0013 added [detailed logging for inaccessible files]
+                log_and_flush(logging.WARNING, f"  Inaccessible {file_type}: {file_info['full_path']} (reason: {reason})") # v001.0013 added [detailed logging for inaccessible files]
             
             # If there are more files, show count # v001.0013 added [detailed logging for inaccessible files]
             if len(files_with_reason) > max_examples: # v001.0013 added [detailed logging for inaccessible files]
                 remaining = len(files_with_reason) - max_examples # v001.0013 added [detailed logging for inaccessible files]
                 self.add_status_message(f"    ... and {remaining} more files with same reason") # v001.0013 added [detailed logging for inaccessible files]
-                logger.warning(f"  ... and {remaining} more inaccessible files with reason '{reason}'") # v001.0013 added [detailed logging for inaccessible files]
+                log_and_flush(logging.WARNING, f"  ... and {remaining} more inaccessible files with reason '{reason}'") # v001.0013 added [detailed logging for inaccessible files]
         
         # Add helpful message about what to do # v001.0013 added [detailed logging for inaccessible files]
         self.add_status_message("TIP: Inaccessible files will be skipped during deletion") # v001.0013 added [detailed logging for inaccessible files]
@@ -7374,30 +7331,30 @@ def main():
     Application startup function that initializes logging, detects system
     configuration, and starts the main application with proper error handling.
     """
-    logger.info("=== FolderCompareSync Startup ===")
+    log_and_flush(logging.INFO, "=== FolderCompareSync Startup ===")
     if __debug__:
-        logger.debug("Working directory : " + os.getcwd())
-        logger.debug("Python version    : " + sys.version)
-        logger.debug("Computer name     : " + platform.node())
-        logger.debug("Platform          : " + sys.platform)
-        logger.debug("Architecture      : " + platform.architecture()[0])
-        logger.debug("Machine           : " + platform.machine())
-        logger.debug("Processor         : " + platform.processor())
+        log_and_flush(logging.DEBUG, "Working directory : " + os.getcwd())
+        log_and_flush(logging.DEBUG, "Python version    : " + sys.version)
+        log_and_flush(logging.DEBUG, "Computer name     : " + platform.node())
+        log_and_flush(logging.DEBUG, "Platform          : " + sys.platform)
+        log_and_flush(logging.DEBUG, "Architecture      : " + platform.architecture()[0])
+        log_and_flush(logging.DEBUG, "Machine           : " + platform.machine())
+        log_and_flush(logging.DEBUG, "Processor         : " + platform.processor())
 
     # Detailed Windows information
     if sys.platform == "win32":
         try:
             win_ver = platform.win32_ver()
-            logger.debug(f"Windows version   : {win_ver[0]}")
-            logger.debug(f"Windows build     : {win_ver[1]}")
+            log_and_flush(logging.DEBUG, f"Windows version   : {win_ver[0]}")
+            log_and_flush(logging.DEBUG, f"Windows build     : {win_ver[1]}")
             if win_ver[2]:  # Service pack
-                logger.debug(f"Service pack      : {win_ver[2]}")
-            logger.debug(f"Windows type      : {win_ver[3]}")
+                log_and_flush(logging.DEBUG, f"Service pack      : {win_ver[2]}")
+            log_and_flush(logging.DEBUG, f"Windows type      : {win_ver[3]}")
             # Try to get Windows edition
             try:
                 edition = platform.win32_edition()
                 if edition:
-                    logger.debug(f"Windows edition   : {edition}")
+                    log_and_flush(logging.DEBUG, f"Windows edition   : {edition}")
             except:
                 pass
             # Extract build number from version string like "10.0.26100"
@@ -7418,31 +7375,31 @@ def main():
                 "27100": "25H2 (anticipated)"
             }
             if build_num in win_versions:
-                logger.debug(f"Windows 11 version: {win_versions[build_num]} (build {build_num})")
+                log_and_flush(logging.DEBUG, f"Windows 11 version: {win_versions[build_num]} (build {build_num})")
             elif build_num.startswith("27") or build_num.startswith("28"):
-                logger.debug(f"Windows version   : Future windows build {build_num}")
+                log_and_flush(logging.DEBUG, f"Windows version   : Future windows build {build_num}")
             elif build_num.startswith("26") or build_num.startswith("22"):
-                logger.debug(f"Windows 11 version: Unknown windows build {build_num}")
+                log_and_flush(logging.DEBUG, f"Windows 11 version: Unknown windows build {build_num}")
             elif build_num.startswith("19"):
-                logger.debug(f"Windows 10 build  : {build_num}")
+                log_and_flush(logging.DEBUG, f"Windows 10 build  : {build_num}")
             else:
-                logger.debug(f"Windows version   : Unknown windows build {build_num}")
+                log_and_flush(logging.DEBUG, f"Windows version   : Unknown windows build {build_num}")
         except Exception as e:
-            logger.debug(f"Error getting Windows details: {e}")
+            log_and_flush(logging.DEBUG, f"Error getting Windows details: {e}")
 
     # Log  configuration including new limits and features
-    logger.debug("FolderCompareSync Configuration:")
-    logger.debug(f"  Max files/folders: {MAX_FILES_FOLDERS:,}")
-    logger.debug(f"  Status log history: {STATUS_LOG_MAX_HISTORY:,} lines")
-    logger.debug(f"  Copy strategy threshold: {COPY_STRATEGY_THRESHOLD / (1024*1024):.1f} MB")
-    logger.debug(f"  SHA512 status threshold: {SHA512_STATUS_MESSAGE_THRESHOLD / (1024*1024):.1f} MB")
-    logger.debug(f"  Simple verification enabled: {COPY_VERIFICATION_ENABLED}")
-    logger.debug(f"  Retry count: {COPY_RETRY_COUNT}")
-    logger.debug(f"  Network timeout: {COPY_NETWORK_TIMEOUT}s")
-    logger.debug(f"  Dry run support: Enabled")
-    logger.debug(f"  Status log export: Enabled")
-    logger.debug(f"  Error details dialog: Enabled")
-    logger.debug(f"  Path handling: Standardized on pathlib")
+    log_and_flush(logging.DEBUG, "FolderCompareSync Configuration:")
+    log_and_flush(logging.DEBUG, f"  Max files/folders: {MAX_FILES_FOLDERS:,}")
+    log_and_flush(logging.DEBUG, f"  Status log history: {STATUS_LOG_MAX_HISTORY:,} lines")
+    log_and_flush(logging.DEBUG, f"  Copy strategy threshold: {COPY_STRATEGY_THRESHOLD / (1024*1024):.1f} MB")
+    log_and_flush(logging.DEBUG, f"  SHA512 status threshold: {SHA512_STATUS_MESSAGE_THRESHOLD / (1024*1024):.1f} MB")
+    log_and_flush(logging.DEBUG, f"  Simple verification enabled: {COPY_VERIFICATION_ENABLED}")
+    log_and_flush(logging.DEBUG, f"  Retry count: {COPY_RETRY_COUNT}")
+    log_and_flush(logging.DEBUG, f"  Network timeout: {COPY_NETWORK_TIMEOUT}s")
+    log_and_flush(logging.DEBUG, f"  Dry run support: Enabled")
+    log_and_flush(logging.DEBUG, f"  Status log export: Enabled")
+    log_and_flush(logging.DEBUG, f"  Error details dialog: Enabled")
+    log_and_flush(logging.DEBUG, f"  Path handling: Standardized on pathlib")
     
     try:
         FolderCompareSync_class_app = FolderCompareSync_class()
@@ -7451,14 +7408,13 @@ def main():
 
         FolderCompareSync_class_app.run()    # start the application GUI event loop
     except Exception as e:
-        logger.error(f"Fatal error: {type(e).__name__}: {str(e)}")
+        log_and_flush(logging.ERROR, f"Fatal error: {type(e).__name__}: {str(e)}")
         if __debug__:
-            import traceback
-            logger.debug("Fatal error traceback:")
-            logger.debug(traceback.format_exc())
+            log_and_flush(logging.DEBUG, "Fatal error traceback:")
+            log_and_flush(logging.DEBUG, traceback.format_exc())
         raise
     finally:
-        logger.info("=== FolderCompareSync Shutdown ===")
+        log_and_flush(logging.INFO, "=== FolderCompareSync Shutdown ===")
 
 
 if __name__ == "__main__":
