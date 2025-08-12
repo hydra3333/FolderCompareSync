@@ -484,7 +484,7 @@ import argparse
 import tempfile
 import shutil
 from pathlib import Path
-from typing import tuple, Optional, Union
+from typing import Optional, Any, Union
 
 # ==========================================================================================================
 # WINDOWS FILETIME STRUCTURE AND API SETUP
