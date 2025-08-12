@@ -2,7 +2,9 @@
 """
 FolderCompareSync - A Folder Comparison & Synchronization Tool
 
-Version  v001.0017 - enhance delete orphans logic to distinguish true orphans from folders containing orphans
+Version  v001.0018 - fix delete orphans dialog cancel button error by adding None check for manager result,
+                     fix static method calling syntax in delete orphans functionality 
+         v001.0017 - enhance delete orphans logic to distinguish true orphans from folders containing orphans
          v001.0016 - fix button and status message font scaling to use global constants consistently
          v001.0015 - add configurable tree row height control for compact folder display
          v001.0014 - add configurable font scaling system for improved UI text readability
@@ -72,6 +74,7 @@ from tkinter import ttk, filedialog, messagebox
 import tkinter.font as tkfont
 import threading
 import logging
+import traceback
 import gc # for python garbage collection of unused structures etc
 
 # ============================================================================
@@ -120,9 +123,9 @@ MEMORY_EFFICIENT_THRESHOLD = 10000  # Switch to memory-efficient mode above N it
 
 # Tree column configuration (default widths)
 LEFT_SIDE_lowercase = 'left'.lower()
-LEFT_SIDE_uppercase = 'left'.upper()
+LEFT_SIDE_uppercase = LEFT_SIDE_lowercase.upper()
 RIGHT_SIDE_lowercase = 'right'.lower()
-RIGHT_SIDE_uppercase = 'right'.upper()
+RIGHT_SIDE_uppercase = RIGHT_SIDE_lowercase.upper()
 #
 TREE_STRUCTURE_WIDTH = 350         # Default structure column width
 TREE_STRUCTURE_MIN_WIDTH = 120     # Minimum structure column width
@@ -155,7 +158,7 @@ UI_FONT_SCALE = 1                  # v001.0014 added [font scaling system for UI
                                    # Font scaling infrastructure preserved for future use if needed
 
 # Specific font sizes # v001.0014 added [font scaling system for UI text size control]
-BUTTON_FONT_SIZE = 11               # Button text size (default ~9, so +2) # v001.0014 added [font scaling system for UI text size control]
+BUTTON_FONT_SIZE = 10               # Button text size (default ~9, so +2) # v001.0014 added [font scaling system for UI text size control]
 LABEL_FONT_SIZE = 11                # Label text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
 ENTRY_FONT_SIZE = 11                # Entry field text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
 CHECKBOX_FONT_SIZE = 11             # Checkbox text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
@@ -2549,7 +2552,8 @@ class FolderCompareSync_class:
             self.root.wait_window(manager.dialog)
             
             # Check if files were actually deleted (not dry run)
-            if hasattr(manager, 'result') and manager.result.lower() == 'deleted'.lower() and not self.dry_run_mode.get():
+            #if hasattr(manager, 'result') and manager.result.lower() == 'deleted'.lower() and not self.dry_run_mode.get(): # v001.0018 superseded, [add None check for manager.result before calling .lower()]
+            if hasattr(manager, 'result') and manager.result and manager.result.lower() == 'deleted'.lower():   # v001.0018 changed [add None check for manager.result before calling .lower()]
                 self.add_status_message("Enhanced delete operation completed - refreshing folder comparison...")
                 # Refresh comparison to show updated state
                 self.refresh_after_copy_operation()
@@ -3649,7 +3653,6 @@ class FolderCompareSync_class:
         except Exception as e:
             log_and_flush(logging.ERROR, f"Comparison failed with exception: {type(e).__name__}: {str(e)}")
             if __debug__:
-                import traceback
                 log_and_flush(logging.DEBUG, "Full exception traceback:")
                 log_and_flush(logging.DEBUG, traceback.format_exc())
             
@@ -3799,7 +3802,6 @@ class FolderCompareSync_class:
         except Exception as e:
             log_and_flush(logging.ERROR, f"Error scanning directory {root_path}: {e}")
             if __debug__:
-                import traceback
                 log_and_flush(logging.DEBUG, traceback.format_exc())
             
         log_and_flush(logging.INFO, f"Scanned {root_path}: {file_count} files, {dir_count} directories, {error_count} errors")
@@ -5002,7 +5004,6 @@ class FolderCompareSync_class:
         except Exception as e:
             log_and_flush(logging.ERROR, f"Application crashed: {type(e).__name__}: {str(e)}")
             if __debug__:
-                import traceback
                 log_and_flush(logging.DEBUG, "Crash traceback:")
                 log_and_flush(logging.DEBUG, traceback.format_exc())
             raise
@@ -5650,7 +5651,7 @@ class DeleteOrphansManager_class:
         self.active_filter = active_filter
         
         # Dialog state variables
-        self.deletion_method = tk.StringVar(value="recycle_bin".lower())  # Default to safer option
+        self.deletion_method = tk.StringVar(value="recycle_bin")  # Default to safer option
         self.local_dry_run_mode = tk.BooleanVar(value=dry_run_mode)  # v001.0013 added [local dry run mode for delete orphans dialog]
         self.dialog_filter = tk.StringVar()  # Dialog-specific filter
         self.result = None  # Result of dialog operation
@@ -5757,7 +5758,7 @@ class DeleteOrphansManager_class:
         """Initialize orphan data directly for small datasets with enhanced orphan classification."""
         # v001.0017 changed [use enhanced detect_orphaned_files method]
         # Get enhanced orphan detection results
-        orphaned_paths, orphan_detection_metadata = self.detect_orphaned_files(
+        orphaned_paths, orphan_detection_metadata = DeleteOrphansManager_class.detect_orphaned_files(
             self.comparison_results, 
             self.side, 
             self.active_filter
@@ -5768,7 +5769,7 @@ class DeleteOrphansManager_class:
         
         # v001.0017 changed [pass enhanced metadata to create_orphan_metadata_dict]
         # Create metadata with validation and enhanced orphan classification
-        self.orphan_metadata = self.create_orphan_metadata_dict(
+        self.orphan_metadata = DeleteOrphansManager_class.create_orphan_metadata_dict(
             self.comparison_results, 
             self.orphaned_files, 
             self.side, 
@@ -5777,7 +5778,7 @@ class DeleteOrphansManager_class:
         )
         
         # Build tree structure
-        self.orphan_tree_data = self.build_orphan_tree_structure(self.orphan_metadata)
+        self.orphan_tree_data = DeleteOrphansManager_class.build_orphan_tree_structure(self.orphan_metadata)
         
         # v001.0017 changed [smart selection based on enhanced orphan classification]
         # Select only true orphans by default, not folders that just contain orphans
@@ -5812,7 +5813,7 @@ class DeleteOrphansManager_class:
             
             # v001.0017 changed [use enhanced detect_orphaned_files method]
             # Get enhanced orphan detection results
-            orphaned_paths, orphan_detection_metadata = self.detect_orphaned_files(
+            orphaned_paths, orphan_detection_metadata = DeleteOrphansManager_class.detect_orphaned_files(
                 self.comparison_results, 
                 self.side, 
                 self.active_filter
@@ -5825,7 +5826,7 @@ class DeleteOrphansManager_class:
             
             # v001.0017 changed [pass enhanced metadata to create_orphan_metadata_dict]
             # Create metadata with validation and enhanced orphan classification
-            self.orphan_metadata = self.create_orphan_metadata_dict(
+            self.orphan_metadata = DeleteOrphansManager_class.create_orphan_metadata_dict(
                 self.comparison_results, 
                 self.orphaned_files, 
                 self.side.upper(), 
@@ -5836,7 +5837,7 @@ class DeleteOrphansManager_class:
             progress.update_progress(60, "Building tree structure...")
             
             # Build tree structure
-            self.orphan_tree_data = self.build_orphan_tree_structure(self.orphan_metadata)
+            self.orphan_tree_data = DeleteOrphansManager_class.build_orphan_tree_structure(self.orphan_metadata)
             
             progress.update_progress(80, "Setting up smart selections...")  # v001.0017 changed [smart selection message]
             
@@ -5939,51 +5940,84 @@ class DeleteOrphansManager_class:
 
     def _cleanup_large_data(self):
         """Clean up large data structures based on thresholds."""
+        # v001.0018 added [debug logging before cleanup]
+        log_and_flush(logging.DEBUG, f"_cleanup_large_data starting:")
+        log_and_flush(logging.DEBUG, f"  self.orphaned_files length: {len(self.orphaned_files) if hasattr(self, 'orphaned_files') and self.orphaned_files else 0}")
+        log_and_flush(logging.DEBUG, f"  self.orphan_tree_data length: {len(self.orphan_tree_data) if hasattr(self, 'orphan_tree_data') and self.orphan_tree_data else 0}")
+        log_and_flush(logging.DEBUG, f"  self.orphan_metadata length: {len(self.orphan_metadata) if hasattr(self, 'orphan_metadata') and self.orphan_metadata else 0}")
+        log_and_flush(logging.DEBUG, f"  self.comparison_results length: {len(self.comparison_results) if hasattr(self, 'comparison_results') and self.comparison_results else 0}")
+        
         cleaned_items = []
         
-        if len(self.orphaned_files) > self.LARGE_FILE_LIST_THRESHOLD:
+        if hasattr(self, 'orphaned_files') and len(self.orphaned_files) > self.LARGE_FILE_LIST_THRESHOLD: # v001.0018 changed [add hasattr check]
             self.orphaned_files.clear()
             cleaned_items.append("file list")
             
-        if len(self.orphan_tree_data) > self.LARGE_TREE_DATA_THRESHOLD:
+        if hasattr(self, 'orphan_tree_data') and len(self.orphan_tree_data) > self.LARGE_TREE_DATA_THRESHOLD: # v001.0018 changed [add hasattr check]
             self.orphan_tree_data.clear()
             cleaned_items.append("tree data")
             
-        if len(self.selected_items) > self.LARGE_SELECTION_THRESHOLD:
+        if hasattr(self, 'selected_items') and len(self.selected_items) > self.LARGE_SELECTION_THRESHOLD: # v001.0018 changed [add hasattr check]
             self.selected_items.clear()
             cleaned_items.append("selections")
             
-        if len(self.orphan_metadata) > self.LARGE_FILE_LIST_THRESHOLD:
+        if hasattr(self, 'orphan_metadata') and len(self.orphan_metadata) > self.LARGE_FILE_LIST_THRESHOLD: # v001.0018 changed [add hasattr check]
             self.orphan_metadata.clear()
             cleaned_items.append("metadata")
             
-        if len(self.path_to_item_map) > self.LARGE_TREE_DATA_THRESHOLD:
+        if hasattr(self, 'path_to_item_map') and len(self.path_to_item_map) > self.LARGE_TREE_DATA_THRESHOLD: # v001.0018 changed [add hasattr check]
             self.path_to_item_map.clear()
             cleaned_items.append("path mappings")
             
+        # v001.0018 added [explicitly do NOT clean self.comparison_results as it belongs to parent application]
+        # NOTE: self.comparison_results is passed from parent application and should NOT be modified
+        
         if cleaned_items:
             log_and_flush(logging.DEBUG, f"Cleaned up large data structures: {', '.join(cleaned_items)}")
-            
+        else:
+            log_and_flush(logging.DEBUG, f"No large data structures needed cleanup") # v001.0018 added [log when no cleanup needed]
+
     def close_dialog(self):
-        """Close dialog with proper cleanup."""
-        try:
-            # Clean up large data structures
-            self._cleanup_large_data()
-            
-            # Close dialog
-            if self.dialog:
-                self.dialog.grab_release()
-                self.dialog.destroy()
-                
-        except Exception as e:
-            log_and_flush(logging.ERROR, f"Error during dialog cleanup: {e}")
-        finally:
-            # Ensure dialog is closed even if cleanup fails
+            """Close dialog with proper cleanup."""
             try:
+                # v001.0018 added [set result to cancelled only if no result was previously set]
+                # This handles all close scenarios: Cancel button, X button, ESC key, etc.
+                if not hasattr(self, 'result') or self.result is None:
+                    self.result = "cancelled".lower()  # Default to cancelled for any non-deletion close
+                    log_and_flush(logging.DEBUG, f"Dialog closed without explicit result - setting to 'cancelled'")
+                else:
+                    log_and_flush(logging.DEBUG, f"Dialog closing with existing result: {self.result}")
+
+                # v001.0018 added [debug logging during dialog cleanup]
+                log_and_flush(logging.DEBUG, f"DeleteOrphansManager close_dialog called")
+                log_and_flush(logging.DEBUG, f"  orphan_metadata length: {len(self.orphan_metadata) if self.orphan_metadata else 0}")
+                log_and_flush(logging.DEBUG, f"  comparison_results is None: {self.comparison_results is None}")
+                log_and_flush(logging.DEBUG, f"  comparison_results length: {len(self.comparison_results) if self.comparison_results else 0}")
+
+                # Clean up large data structures
+                self._cleanup_large_data()
+
+                # v001.0018 added [debug logging after cleanup]
+                log_and_flush(logging.DEBUG, f"After _cleanup_large_data:")
+                log_and_flush(logging.DEBUG, f"  comparison_results is None: {self.comparison_results is None}")
+                log_and_flush(logging.DEBUG, f"  comparison_results length: {len(self.comparison_results) if self.comparison_results else 0}")
+                
+                # Close dialog
                 if self.dialog:
+                    self.dialog.grab_release()
                     self.dialog.destroy()
-            except:
-                pass
+                    
+            except Exception as e:
+                log_and_flush(logging.ERROR, f"Error during dialog cleanup: {e}")
+                # v001.0018 added [additional debug logging for cleanup exceptions]
+                log_and_flush(logging.ERROR, f"Cleanup exception traceback: {traceback.format_exc()}")
+            finally:
+                # Ensure dialog is closed even if cleanup fails
+                try:
+                    if self.dialog:
+                        self.dialog.destroy()
+                except:
+                    pass
 
     # ========================================================================
     # INSTANCE METHODS - UI SETUP AND CONFIGURATION
@@ -6167,7 +6201,7 @@ class DeleteOrphansManager_class:
         recycle_rb = ttk.Radiobutton(
             radio_frame,
             text="Move to Recycle Bin (recommended)",
-            variable=self.deletion_method.lower(),
+            variable=self.deletion_method,
             value="recycle_bin",
             style="DeleteOrphansCheckbutton.TCheckbutton"  # ✅ Reuse checkbox style for radio buttons        
         )
@@ -6177,7 +6211,7 @@ class DeleteOrphansManager_class:
         permanent_rb = ttk.Radiobutton(
             radio_frame,
             text="Permanent Deletion (cannot be undone)",
-            variable=self.deletion_method.lower(),
+            variable=self.deletion_method,
             value="permanent",
             style="DeleteOrphansCheckbutton.TCheckbutton"  # ✅ Reuse checkbox style for radio buttons
         )
@@ -6748,14 +6782,14 @@ class DeleteOrphansManager_class:
             self.statistics_var.set("No orphaned files")
             return
             
-        stats = self.calculate_orphan_statistics(self.orphan_metadata)
+        stats = DeleteOrphansManager_class.calculate_orphan_statistics(self.orphan_metadata)
         
         # Update selection flags in metadata
         for rel_path, metadata in self.orphan_metadata.items():
             metadata['selected'] = rel_path in self.selected_items
             
         # Recalculate with updated selections
-        stats = self.calculate_orphan_statistics(self.orphan_metadata)
+        stats = DeleteOrphansManager_class.calculate_orphan_statistics(self.orphan_metadata)
         
         # Format statistics message
         total_items = stats['total_files'] + stats['total_folders']
@@ -6830,7 +6864,7 @@ class DeleteOrphansManager_class:
         # Rebuild tree with filtered data
         original_count = len(self.orphan_metadata)
         self.orphan_metadata = filtered_metadata
-        self.orphan_tree_data = self.build_orphan_tree_structure(self.orphan_metadata)
+        self.orphan_tree_data = DeleteOrphansManager_class.build_orphan_tree_structure(self.orphan_metadata)
         
         # Update selected items to only include filtered items
         self.selected_items = self.selected_items.intersection(set(filtered_metadata.keys()))
@@ -6853,7 +6887,7 @@ class DeleteOrphansManager_class:
         self.add_status_message("Clearing filter - restoring full orphan list...")
         
         # Rebuild full metadata
-        self.orphan_metadata = self.create_orphan_metadata_dict(
+        self.orphan_metadata = DeleteOrphansManager_class.create_orphan_metadata_dict(
             self.comparison_results,
             self.orphaned_files,
             self.side.upper(),
@@ -6861,7 +6895,7 @@ class DeleteOrphansManager_class:
         )
         
         # Rebuild tree structure
-        self.orphan_tree_data = self.build_orphan_tree_structure(self.orphan_metadata)
+        self.orphan_tree_data = DeleteOrphansManager_class.build_orphan_tree_structure(self.orphan_metadata)
         
         # Rebuild tree display
         self.build_orphan_tree()
@@ -6909,7 +6943,7 @@ class DeleteOrphansManager_class:
         self.add_status_message("Refreshing orphan file status...")
         
         # Re-validate all orphan metadata
-        accessible_count, changed_count = self.refresh_orphan_metadata_status(self.orphan_metadata)
+        accessible_count, changed_count = DeleteOrphansManager_class.refresh_orphan_metadata_status(self.orphan_metadata)
         
         # Log details about currently inaccessible files after refresh # v001.0013 added [detailed logging for inaccessible files after refresh]
         self.add_status_message("Post-refresh inaccessible file analysis:") # v001.0013 added [detailed logging for inaccessible files after refresh]
@@ -7087,9 +7121,9 @@ class DeleteOrphansManager_class:
                     else:
                         # Actual deletion
                         if deletion_method.lower() == "recycle_bin".lower():
-                            success, error_msg = self.delete_file_to_recycle_bin(full_path, show_progress=False)
+                            success, error_msg = DeleteOrphansManager_class.delete_file_to_recycle_bin(full_path, show_progress=False)
                         else:
-                            success, error_msg = self.delete_file_permanently(full_path)
+                            success, error_msg = DeleteOrphansManager_class.delete_file_permanently(full_path)
                             
                         if success:
                             success_count += 1
@@ -7376,7 +7410,6 @@ def main():
     except Exception as e:
         log_and_flush(logging.ERROR, f"Fatal error: {type(e).__name__}: {str(e)}")
         if __debug__:
-            import traceback
             log_and_flush(logging.DEBUG, "Fatal error traceback:")
             log_and_flush(logging.DEBUG, traceback.format_exc())
         raise
