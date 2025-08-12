@@ -29,8 +29,8 @@ echo Full version:            '%PYTHON_VERSION%'
 echo *** Ensuring latest timezone data is available to python by Running: pip install tzdata python-dateutil
 REM pip install --upgrade --retries 10 tzdata python-dateutil
 
-echo *** Running: python FolderCompareSync_0014_0015.py
-python FolderCompareSync_0014_0015.py
+echo *** Running: python FolderCompareSync_0017.py
+python FolderCompareSync_0017.py
 
 pause
 goto :eof
