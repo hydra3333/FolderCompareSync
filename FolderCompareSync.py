@@ -338,6 +338,8 @@ from dateutil.tz import tzwinlocal
 
 # ============================================================================
 # v001.0019 - add DebugGlobalEditor_class integration 
+# ============================================================================
+#=== START OF class DebugGlobalEditor_class ==============================================================================================================
 
 class DebugGlobalEditor_class:
     """
@@ -354,6 +356,64 @@ class DebugGlobalEditor_class:
     - All helpers are nested as inner classes or static methods.
     - Hard guard: only top-level assignments are discovered & recomputed.
     - Supports JSON save/load, revert to defaults, dependency inspector.
+
+    DEPENDENCIES: 
+    =============
+    1.  MANDATORY: "logger" MUST be setup in the main program BEFOREHAND 
+        with "log_and_flush" as well (see below) ...
+        Usage like :
+            log_and_flush(logging.DEBUG, "Dep-graph cache hit for %s", self._module_key)
+
+        # ============================================================================
+        # Setup logging loglevel based on __debug__ flag
+        # using "-O" on the python commandline turns __debug__ off:  python -O FolderCompareSync.py
+        if __debug__:
+            log_level = logging.DEBUG
+            log_format = '%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+        else:
+            log_level = logging.INFO
+            log_format = '%(asctime)s - %(levelname)s - %(message)s'
+        
+        # Create handlers list with UTF-8 encoding support:
+        # Add a handler for file logging, since that is always enabled
+        handlers = [
+            logging.FileHandler(
+                os.path.join(os.path.dirname(__file__), 'foldercomparesync.log'), 
+                mode='w', 
+                encoding='utf-8'  # Ensure UTF-8 encoding for file output
+            )
+        ]
+        # When in debug mode, when __debug__ is True, add a handler for console logging, only 
+        #    ... i.e. when -O is missing from the python commandline
+        if __debug__:
+            # Create console handler with UTF-8 encoding to handle Unicode filenames
+            console_handler = logging.StreamHandler()
+            console_handler.setStream(sys.stdout)  # Explicitly use stdout
+            # Set UTF-8 encoding if possible (for Windows Unicode support)
+            if hasattr(sys.stdout, 'reconfigure'):
+                try:
+                    sys.stdout.reconfigure(encoding='utf-8')
+                except Exception:
+                    pass  # If reconfigure fails, continue with default encoding
+            handlers.append(console_handler)
+        logging.basicConfig(
+            level=log_level,
+            format=log_format,
+            handlers=handlers
+        )
+        logger = logging.getLogger(__name__)
+        def log_and_flush(level, msg, *args, **kwargs):
+            # If you want to guarantee that a log line is on disk (or shown in the console) before the next line runs,
+            # even if the program crashes, you can explicitly flush the handler(s) right after the log call.
+            # Example Usage:
+            #     log_and_flush(logging.INFO, "About to process file: %s", file_path)
+            #
+            logger.log(level, msg, *args, **kwargs)
+            for h in logger.handlers:
+                try:
+                    h.flush()
+                except Exception:
+                    pass  # Ignore handlers that don't support flush
     """
     # --- Config / Whitelists ---
     SIMPLE_TYPES = (str, int, float, bool)
@@ -431,13 +491,25 @@ class DebugGlobalEditor_class:
                  min_size: tuple[int, int] = (1000, 600),
                  allow_recompute: bool = True,
                  locale_floats: bool = True,
-                 on_apply = None):
+                 on_apply = None,
+                 force_main: bool = True,
+                 abort_on_missing_source: bool = True):     # <-- added toggle
+
         if not __debug__:
             raise RuntimeError("DebugGlobalEditor_class is debug-only and requires __debug__ == True.")
         self.root = root
-        self.module = module or self._get_caller_module()
-        if self.module is None:
-            raise RuntimeError("Unable to resolve caller module.")
+        # NEW: behavior toggle saved
+        self.abort_on_missing_source = abort_on_missing_source
+        # UPDATED: lock onto the real main program unless the caller opts out
+        if force_main:
+            main_mod = sys.modules.get("__main__")
+            if not isinstance(main_mod, ModuleType):
+                raise RuntimeError("No __main__ module found; cannot target main program.")
+            self.module = main_mod
+        else:
+            self.module = module or self._get_caller_module()
+            if self.module is None:
+                raise RuntimeError("Unable to resolve caller module.")
         self.title = title
         self.column_widths = column_widths or (300, 80, 300, 90, 90)
         self.min_size = min_size
@@ -462,7 +534,33 @@ class DebugGlobalEditor_class:
         if DebugGlobalEditor_class._DEFAULTS_SNAPSHOT is None:
             DebugGlobalEditor_class._DEFAULTS_SNAPSHOT = self._current_simple_globals_snapshot()
 
-        self._module_key = getattr(self.module, "__file__", repr(self.module))
+        # NEW: stable cache key tied to the chosen module    
+        self._module_key = self._stable_module_key(self.module)
+
+    @staticmethod
+    def _stable_module_key(mod: ModuleType) -> str:
+        """
+        Return a stable, process-local key for caching analysis of `mod`.
+        Prefers a real file path; otherwise falls back to import metadata/name.
+        """
+        path = getattr(mod, "__file__", None)
+        if path:
+            try:
+                return os.path.realpath(path)
+            except Exception:
+                return path
+    
+        spec = getattr(mod, "__spec__", None)
+        spec_name = getattr(spec, "name", None) if spec else None
+        if spec_name:
+            return spec_name
+    
+        name = getattr(mod, "__name__", None)
+        if name:
+            return name
+    
+        # Last resort: stable within the process lifetime
+        return f"<module@{id(mod)}>"
 
     # ---------------- Public API ----------------
 
@@ -535,28 +633,74 @@ class DebugGlobalEditor_class:
         return order
 
     def _build_dep_graph(self):
+        """
+        Build and cache the dependency graph of simple top-level assignments
+        in the chosen target module (default: __main__).
+    
+        Logging/Abort behavior for file-less contexts (e.g., REPL, PyInstaller):
+            - If __file__ is missing and source cannot be retrieved via inspect,
+              we log a warning with diagnostic details.
+            - If self.abort_on_missing_source is True, raise RuntimeError to
+              stop the editor (useful in debug/packaging). Otherwise, we cache
+              an empty graph, which disables AST-driven recompute.
+        """
         cached = DebugGlobalEditor_class._DEP_CACHE.get(self._module_key)
         if cached:
+            log_and_flush(logging.DEBUG, "Dep-graph cache hit for %s", self._module_key)
             return cached
-
+    
         info_by_name: dict[str, DebugGlobalEditor_class._DepInfo] = {}
         deps: dict[str, set[str]] = {}
-
-        filename = getattr(self.module, "__file__", None)
-        if filename:
-            try:
+    
+        target_mod = self.module  # __main__ when force_main=True
+        filename = getattr(target_mod, "__file__", None)
+        source = None
+    
+        try:
+            if filename:
+                log_and_flush(logging.DEBUG, "Reading module source from file: %s", filename)
                 with open(filename, "r", encoding="utf-8") as f:
                     source = f.read()
-                tree = ast.parse(source, filename=filename)
-                for tgt, rhs in self._top_level_assignments(tree):
-                    visitor = self._DepVisitor(set(self.SAFE_BUILTINS.keys()), set(self.SAFE_MODULES.keys()))
-                    visitor.visit(rhs)
-                    expr_str = self._unparse(rhs)
-                    info_by_name[tgt] = self._DepInfo(expr_str, set(visitor.names), visitor.eligible, visitor.reason, rhs)
-                    deps.setdefault(tgt, set()).update(info_by_name[tgt].depends_on)
-            except Exception:
-                pass  # leave empty
-
+            else:
+                log_and_flush(logging.CRITICAL, "__file__ missing for %s; trying inspect.getsource()", getattr(target_mod, "__name__", target_mod))
+                source = inspect.getsource(target_mod)
+                filename = getattr(target_mod, "__name__", "<module>")
+        except Exception as e:
+            log_and_flush(logging.CRITICAL, "Unable to obtain source for %s (key=%s). err=%r",
+                           getattr(target_mod, "__name__", target_mod), self._module_key, e)
+            source = None
+    
+        if not source:
+            # Provide rich diagnostics about why we couldn't get source
+            spec = getattr(target_mod, "__spec__", None)
+            loader = getattr(spec, "loader", None) if spec else None
+            log_and_flush(logging.CRITICAL, 
+                "No readable source for module '%s'. __file__=%r, spec=%r, loader=%r. "
+                "AST recompute will be disabled.",
+                getattr(target_mod, "__name__", target_mod), filename, spec, loader
+            )
+            if self.abort_on_missing_source:
+                raise RuntimeError("DebugGlobalEditor: no readable source for target module; aborting per configuration.")
+            DebugGlobalEditor_class._DEP_CACHE[self._module_key] = (info_by_name, deps)
+            return info_by_name, deps
+    
+        # Parse & collect top-level assignment dependencies
+        try:
+            tree = ast.parse(source, filename=filename)
+            for tgt, rhs in self._top_level_assignments(tree):
+                visitor = self._DepVisitor(set(self.SAFE_BUILTINS.keys()), set(self.SAFE_MODULES.keys()))
+                visitor.visit(rhs)
+                expr_str = self._unparse(rhs)
+                info_by_name[tgt] = self._DepInfo(expr_str, set(visitor.names), visitor.eligible, visitor.reason, rhs)
+                deps.setdefault(tgt, set()).update(info_by_name[tgt].depends_on)
+            log_and_flush(logging.DEBUG, "Built dep-graph with %d nodes for %s", len(info_by_name), self._module_key)
+        except Exception as e:
+            log_and_flush(logging.CRITICAL, "AST parse failed for %s (key=%s). err=%r. Recompute disabled.",
+                           filename, self._module_key, e)
+            if self.abort_on_missing_source:
+                raise RuntimeError("AST parse failed for %s (key=%s). err=%r. Recompute disabled.",
+                           filename, self._module_key, e)
+    
         DebugGlobalEditor_class._DEP_CACHE[self._module_key] = (info_by_name, deps)
         return info_by_name, deps
 
@@ -927,7 +1071,7 @@ class DebugGlobalEditor_class:
         ok = all(r["valid"] for r in self._rows)
         self._apply_btn.state(["!disabled"] if ok else ["disabled"])
 
-# ============================================================================
+#=== END OF class DebugGlobalEditor_class ==============================================================================================================
 
 # ============================================================================
 # TOP-LEVEL UTILITY FUNCTION - Place this near the top of the program
@@ -5646,7 +5790,7 @@ class FolderCompareSync_class:
             # Create and open the debug editor
             editor = DebugGlobalEditor_class(
                 self.root,
-                module=sys.modules[__name__],  # v001.0019 changed [explicitly pass current module]
+                module=sys.modules[__name__],  # v001.0019 changed [explicitly pass FolderCompareSync module instead of auto-detection]
                 title="FolderCompareSync - Debug Global Variables",
                 allow_recompute=True,
                 on_apply=lambda changes: self._handle_debug_changes_applied(changes, captured_state)
