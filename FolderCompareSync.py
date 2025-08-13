@@ -2,7 +2,9 @@
 """
 FolderCompareSync - A Folder Comparison & Synchronization Tool
 
-Version  v001.0018 - fix delete orphans dialog cancel button error by adding None check for manager result,
+
+Version  v001.0019 - add DebugGlobalEditor_class integration with destroy/recreate UI refresh pattern
+         v001.0018 - fix delete orphans dialog cancel button error by adding None check for manager result,
                      fix static method calling syntax in delete orphans functionality 
          v001.0017 - enhance delete orphans logic to distinguish true orphans from folders containing orphans
          v001.0016 - fix button and status message font scaling to use global constants consistently
@@ -76,6 +78,14 @@ import threading
 import logging
 import traceback
 import gc # for python garbage collection of unused structures etc
+
+from __future__ import annotations # v001.0019 added [DebugGlobalEditor_class integration imports]
+import ast                         # v001.0019 added [DebugGlobalEditor_class integration imports]
+import inspect                     # v001.0019 added [DebugGlobalEditor_class integration imports]
+import json                        # v001.0019 added [DebugGlobalEditor_class integration imports]
+import locale                      # v001.0019 added [DebugGlobalEditor_class integration imports]
+import math                        # v001.0019 added [DebugGlobalEditor_class integration imports]
+from types import ModuleType       # v001.0019 added [DebugGlobalEditor_class integration imports]
 
 # ============================================================================
 # GLOBAL CONFIGURATION CONSTANTS
