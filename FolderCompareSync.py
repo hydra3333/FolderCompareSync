@@ -339,21 +339,6 @@ from dateutil.tz import tzwinlocal
 # ============================================================================
 # v001.0019 - add DebugGlobalEditor_class integration 
 # ============================================================================
-#=================================================================================================================
-# NOTE: MOVE THESE TO THE TOP OF THE PROGRAM
-from __future__ import annotations
-import ast
-import inspect
-import json
-import locale
-import math
-import sys
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
-from types import ModuleType
-#=================================================================================================================
-
-
 #=== START OF class DebugGlobalEditor_class ==============================================================================================================
 
 class DebugGlobalEditor_class:
