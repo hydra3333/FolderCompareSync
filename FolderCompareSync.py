@@ -339,6 +339,21 @@ from dateutil.tz import tzwinlocal
 # ============================================================================
 # v001.0019 - add DebugGlobalEditor_class integration 
 # ============================================================================
+#=================================================================================================================
+# NOTE: MOVE THESE TO THE TOP OF THE PROGRAM
+from __future__ import annotations
+import ast
+import inspect
+import json
+import locale
+import math
+import sys
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
+from types import ModuleType
+#=================================================================================================================
+
+
 #=== START OF class DebugGlobalEditor_class ==============================================================================================================
 
 class DebugGlobalEditor_class:
@@ -434,6 +449,11 @@ class DebugGlobalEditor_class:
             self._safe_modules = safe_modules
 
         def visit_Name(self, node: ast.Name):
+            # NEW: debug log each identifier discovered
+            try:
+                log_and_flush(logging.DEBUG, "DepVisitor: saw name '%s'", node.id)
+            except Exception:
+                pass
             self.names.add(node.id)
 
         def visit_Call(self, node: ast.Call):
@@ -493,14 +513,17 @@ class DebugGlobalEditor_class:
                  locale_floats: bool = True,
                  on_apply = None,
                  force_main: bool = True,
-                 abort_on_missing_source: bool = True):     # <-- added toggle
-
+                 abort_on_missing_source: bool = True):
+        """
+        Changes in this artifact:
+          • "Recompute Derived" defaults to CHECKED at startup.
+          • (No other behavior changed here.)
+        """
         if not __debug__:
             raise RuntimeError("DebugGlobalEditor_class is debug-only and requires __debug__ == True.")
         self.root = root
-        # NEW: behavior toggle saved
         self.abort_on_missing_source = abort_on_missing_source
-        # UPDATED: lock onto the real main program unless the caller opts out
+    
         if force_main:
             main_mod = sys.modules.get("__main__")
             if not isinstance(main_mod, ModuleType):
@@ -510,32 +533,34 @@ class DebugGlobalEditor_class:
             self.module = module or self._get_caller_module()
             if self.module is None:
                 raise RuntimeError("Unable to resolve caller module.")
+    
         self.title = title
         self.column_widths = column_widths or (300, 80, 300, 90, 90)
         self.min_size = min_size
         self.allow_recompute = allow_recompute
         self.locale_floats = locale_floats
         self.on_apply = on_apply
-
+    
         # UI state
         self._win: tk.Toplevel | None = None
         self._rows: list[dict] = []
         self._apply_btn: ttk.Button | None = None
-        self._recompute_var = tk.BooleanVar(value=False) if allow_recompute else None
+        # DEFAULT CHANGED: start checked
+        self._recompute_var = tk.BooleanVar(value=True) if allow_recompute else None
         self._message_var = tk.StringVar(value="")
-
+    
         # Inspector state
         self._inspected_name: str | None = None
         self._inspector_expr = tk.StringVar(value="")
         self._inspector_deps = tk.StringVar(value="")
         self._inspector_elig = tk.StringVar(value="")
         self._inspector_preview = tk.StringVar(value="")
-
+    
         if DebugGlobalEditor_class._DEFAULTS_SNAPSHOT is None:
             DebugGlobalEditor_class._DEFAULTS_SNAPSHOT = self._current_simple_globals_snapshot()
-
-        # NEW: stable cache key tied to the chosen module    
+    
         self._module_key = self._stable_module_key(self.module)
+
 
     @staticmethod
     def _stable_module_key(mod: ModuleType) -> str:
@@ -608,6 +633,13 @@ class DebugGlobalEditor_class:
             elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
                 if node.value is not None:
                     out.append((node.target.id, node.value))
+        # NEW: one-line summary of the discovered assignments
+        try:
+            summary = ", ".join(f"{name}:{type(rhs).__name__}" for name, rhs in out[:50])
+            more = f" (+{len(out)-50} more)" if len(out) > 50 else ""
+            log_and_flush(logging.DEBUG, "Top-level assigns: %s%s", summary, more)
+        except Exception:
+            pass
         return out
 
     @classmethod
@@ -708,20 +740,35 @@ class DebugGlobalEditor_class:
 
     def _create_window(self):
         win = tk.Toplevel(self.root)
-        self._win = win
         win.title(self.title)
+        self._win = win
+        style = ttk.Style(win)
+        style.configure("Computed.TCheckbutton", foreground="gray50")
+    
+        # Keep the larger default size (~90% width x 93% height)
+        try:
+            sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+            width = max(self.min_size[0], int(sw * 0.90))
+            height = max(self.min_size[1], int(sh * 0.93))
+            win.geometry(f"{width}x{height}")
+        except Exception:
+            pass
+    
         win.minsize(*self.min_size)
         win.transient(self.root)
         win.grab_set()
-
-        top = ttk.Frame(win); top.pack(fill="x", padx=8, pady=6)
+    
+        top = ttk.Frame(win)
+        top.pack(fill="x", padx=8, pady=6)
         ttk.Label(top, text=self.title, font=("TkDefaultFont", 11, "bold")).pack(side="left")
         if self.allow_recompute:
+            self._recompute_var.set(True)  # ensure checked by default
             ttk.Checkbutton(top, text="Recompute Derived", variable=self._recompute_var).pack(side="right")
         ttk.Label(win, textvariable=self._message_var, foreground="red").pack(fill="x", padx=8)
-
+    
         # Scrollable grid
-        container = ttk.Frame(win); container.pack(fill="both", expand=True, padx=8, pady=6)
+        container = ttk.Frame(win)
+        container.pack(fill="both", expand=True, padx=8, pady=6)
         canvas = tk.Canvas(container, borderwidth=0, highlightthickness=0)
         vscroll = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
         body = ttk.Frame(canvas)
@@ -730,12 +777,23 @@ class DebugGlobalEditor_class:
         canvas.configure(yscrollcommand=vscroll.set)
         canvas.pack(side="left", fill="both", expand=True)
         vscroll.pack(side="right", fill="y")
-
-        headers = ["Name", "Type", "Value", "Changed", "Apply?"]
+    
+        # Columns (adds Expr & Depends)
+        headers = ["Name", "Type", "Value", "Changed", "Apply?", "Expr", "Depends"]
+        col_widths = [300, 80, 300, 90, 90, 360, 260]
         for i, h in enumerate(headers):
-            ttk.Label(body, text=h, font=("TkDefaultFont", 9, "bold")).grid(row=0, column=i, sticky="w", padx=4, pady=(0,4))
-            body.grid_columnconfigure(i, minsize=self.column_widths[i])
-
+            ttk.Label(body, text=h, font=("TkDefaultFont", 9, "bold")).grid(
+                row=0, column=i, sticky="w", padx=4, pady=(0, 4)
+            )
+            body.grid_columnconfigure(i, minsize=col_widths[i])
+    
+        # Build dep-graph once for the grid
+        try:
+            info_by_name, _deps = self._build_dep_graph()
+        except Exception as e:
+            info_by_name = {}
+            self._message_var.set(str(e))
+    
         # Rows
         snapshot = self._current_simple_globals_snapshot()
         row_idx = 1
@@ -743,6 +801,13 @@ class DebugGlobalEditor_class:
             if name not in snapshot:
                 continue
             vtype = type(val)
+    
+            # Lookup dep info early so we can decide read-only state
+            info = info_by_name.get(name)
+            expr_text = info.expr_str if (info and info.expr_str) else ""
+            deps_text = ", ".join(sorted(info.depends_on)) if (info and info.depends_on) else ""
+            is_computed = bool(expr_text)
+    
             rec = {
                 "name": name,
                 "type": vtype,
@@ -755,41 +820,71 @@ class DebugGlobalEditor_class:
                 "valid": True,
                 "widgets": {},
             }
+    
             # Name
             w_name = ttk.Label(body, text=name)
             w_name.grid(row=row_idx, column=0, sticky="w", padx=4, pady=2)
-            w_name.bind("<Button-1>", lambda e, nm=name: self._select_row(nm))
             rec["widgets"]["name"] = w_name
+    
             # Type
             w_type = ttk.Label(body, text=vtype.__name__)
             w_type.grid(row=row_idx, column=1, sticky="w", padx=4, pady=2)
             rec["widgets"]["type"] = w_type
-            # Value
+    
+            # Value (READ-ONLY for computed globals)
             if vtype is bool:
                 w_val = ttk.Checkbutton(body, variable=rec["boolvar"])
+                if is_computed:
+                    w_val.state(["disabled"])
+                    w_val.configure(style="Computed.TCheckbutton")
+                else:
+                    w_val.bind("<ButtonRelease-1>", lambda e, nm=name: self._on_value_changed(nm))
                 w_val.grid(row=row_idx, column=2, sticky="w", padx=4, pady=2)
-                w_val.bind("<ButtonRelease-1>", lambda e, nm=name: self._on_value_changed(nm))
             else:
                 w_val = ttk.Entry(body, textvariable=rec["candidate"])
+                if is_computed:
+                    w_val.state(["readonly"])
+                    w_val.configure(foreground="gray50")
+                else:
+                    w_val.bind("<KeyRelease>", lambda e, nm=name: self._on_value_changed(nm))
+                    w_val.bind("<FocusOut>", lambda e, nm=name: self._on_value_changed(nm))
                 w_val.grid(row=row_idx, column=2, sticky="ew", padx=4, pady=2)
-                w_val.bind("<KeyRelease>", lambda e, nm=name: self._on_value_changed(nm))
-                w_val.bind("<FocusOut>", lambda e, nm=name: self._on_value_changed(nm))
+
             rec["widgets"]["value"] = w_val
-            # Changed (ro)
-            w_changed = ttk.Checkbutton(body, variable=rec["changed"]); w_changed.state(["disabled"])
+    
+            # Changed (read-only)
+            w_changed = ttk.Checkbutton(body, variable=rec["changed"])
+            w_changed.state(["disabled"])
             w_changed.grid(row=row_idx, column=3, sticky="w", padx=4, pady=2)
             rec["widgets"]["changed"] = w_changed
+    
             # Apply?
             w_apply = ttk.Checkbutton(body, variable=rec["apply"], command=lambda nm=name: self._on_apply_toggled(nm))
             w_apply.grid(row=row_idx, column=4, sticky="w", padx=4, pady=2)
             rec["widgets"]["apply"] = w_apply
-
+    
+            # Expr (readonly text)
+            w_expr = ttk.Entry(body)
+            w_expr.insert(0, expr_text)
+            if expr_text:
+                w_expr.state(["readonly"])
+            w_expr.grid(row=row_idx, column=5, sticky="ew", padx=4, pady=2)
+    
+            # Depends (readonly text)
+            w_deps = ttk.Entry(body)
+            w_deps.insert(0, deps_text)
+            if deps_text:
+                w_deps.state(["readonly"])
+            w_deps.grid(row=row_idx, column=6, sticky="ew", padx=4, pady=2)
+    
             self._rows.append(rec)
             row_idx += 1
-
+    
         # Inspector
-        insp = ttk.LabelFrame(win, text="Dependency Inspector"); insp.pack(fill="x", padx=8, pady=(0,6))
-        frm = ttk.Frame(insp); frm.pack(fill="x", padx=6, pady=6)
+        insp = ttk.LabelFrame(win, text="Dependency Inspector")
+        insp.pack(fill="x", padx=8, pady=(0, 6))
+        frm = ttk.Frame(insp)
+        frm.pack(fill="x", padx=6, pady=6)
         ttk.Label(frm, text="Expression:").grid(row=0, column=0, sticky="nw")
         ttk.Label(frm, textvariable=self._inspector_expr, justify="left", wraplength=900).grid(row=0, column=1, sticky="w", padx=8)
         ttk.Label(frm, text="Depends on:").grid(row=1, column=0, sticky="nw")
@@ -798,18 +893,20 @@ class DebugGlobalEditor_class:
         ttk.Label(frm, textvariable=self._inspector_elig, justify="left").grid(row=2, column=1, sticky="w", padx=8)
         ttk.Label(frm, text="Recompute Preview:").grid(row=3, column=0, sticky="nw")
         ttk.Label(frm, textvariable=self._inspector_preview, justify="left", wraplength=900).grid(row=3, column=1, sticky="w", padx=8)
-
+    
         # Bottom bar
-        bottom = ttk.Frame(win); bottom.pack(fill="x", padx=8, pady=8)
-        self._apply_btn = ttk.Button(bottom, text="Apply", command=self._on_apply); self._apply_btn.pack(side="right", padx=(6,0))
-        ttk.Button(bottom, text="Quit", command=self._on_quit).pack(side="right", padx=(6,0))
-        ttk.Button(bottom, text="Revert to Defaults", command=self._on_revert_defaults).pack(side="left", padx=(0,6))
-        ttk.Button(bottom, text="Save JSON", command=self._on_save_json).pack(side="left", padx=(0,6))
-        ttk.Button(bottom, text="Load JSON", command=self._on_load_json).pack(side="left", padx=(0,6))
-
+        bottom = ttk.Frame(win)
+        bottom.pack(fill="x", padx=8, pady=8)
+        self._apply_btn = ttk.Button(bottom, text="Apply", command=self._on_apply)
+        self._apply_btn.pack(side="right", padx=(6, 0))
+        ttk.Button(bottom, text="Quit", command=self._on_quit).pack(side="right", padx=(6, 0))
+        ttk.Button(bottom, text="Revert to Defaults", command=self._on_revert_defaults).pack(side="left", padx=(0, 6))
+        ttk.Button(bottom, text="Save JSON", command=self._on_save_json).pack(side="left", padx=(0, 6))
+        ttk.Button(bottom, text="Load JSON", command=self._on_load_json).pack(side="left", padx=(0, 6))
+    
         if self._rows:
             self._select_row(self._rows[0]["name"])
-
+    
         self._refresh_apply_enabled()
 
     # ---------------- Value handling ----------------
@@ -1030,19 +1127,31 @@ class DebugGlobalEditor_class:
     def _update_inspector(self, name: str):
         info_by_name, _ = self._build_dep_graph()
         info = info_by_name.get(name)
+    
+        # Debug logging for inspector state
+        try:
+            rhs_kind = type(info.rhs_ast).__name__ if (info and info.rhs_ast) else None
+        except Exception:
+            rhs_kind = None
+        deps_list = sorted(info.depends_on) if (info and info.depends_on) else []
+        try:
+            log_and_flush(logging.DEBUG, "Inspector: name=%s rhs_kind=%s expr_present=%s deps=%s",
+                          name, rhs_kind, bool(info and info.expr_str), ", ".join(deps_list))
+        except Exception:
+            pass
+    
         expr = info.expr_str if info and info.expr_str else "(no simple expression)"
         self._inspector_expr.set(expr)
-
-        deps = sorted(info.depends_on) if info else []
-        self._inspector_deps.set(", ".join(deps) if deps else "(none)")
-
+    
+        self._inspector_deps.set(", ".join(deps_list) if deps_list else "(none)")
+    
         elig = "Yes" if (info and info.eligible) else "No"
         reason = "" if not info or info.eligible else f" – {info.reason}"
         self._inspector_elig.set(elig + reason)
-
+    
         if not info or not info.eligible:
             self._inspector_preview.set("N/A"); return
-
+    
         # Build candidate environment (using current candidate edits)
         cand_env = {}
         for row in self._rows:
@@ -1055,9 +1164,17 @@ class DebugGlobalEditor_class:
         for k, m in self.SAFE_MODULES.items():
             cand_env[k] = m
         cand_env["__builtins__"] = self.SAFE_BUILTINS
-
+    
         try:
-            code = compile(info.rhs_ast, filename="<ast>", mode="eval")
+            # FIX: compile(mode="eval") requires an ast.Expression root, not a bare BinOp/etc.
+            rhs = info.rhs_ast
+            if isinstance(rhs, ast.Expression):
+                expr_node = rhs
+            else:
+                expr_node = ast.Expression(body=rhs)  # wrap the RHS
+                expr_node = ast.fix_missing_locations(expr_node)
+    
+            code = compile(expr_node, filename="<ast>", mode="eval")
             new_val = eval(code, cand_env, {})
             old_val = getattr(self.module, name, None)
             self._inspector_preview.set(f"{old_val!r} → {new_val!r}")
