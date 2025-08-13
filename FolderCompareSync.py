@@ -534,12 +534,8 @@ class DebugGlobalEditor_class:
         self._recompute_var = tk.BooleanVar(value=True) if allow_recompute else None
         self._message_var = tk.StringVar(value="")
     
-        # Inspector state
+        # Inspector state removed (no inspector pane)
         self._inspected_name: str | None = None
-        self._inspector_expr = tk.StringVar(value="")
-        self._inspector_deps = tk.StringVar(value="")
-        self._inspector_elig = tk.StringVar(value="")
-        self._inspector_preview = tk.StringVar(value="")
     
         if DebugGlobalEditor_class._DEFAULTS_SNAPSHOT is None:
             DebugGlobalEditor_class._DEFAULTS_SNAPSHOT = self._current_simple_globals_snapshot()
@@ -727,10 +723,12 @@ class DebugGlobalEditor_class:
         win = tk.Toplevel(self.root)
         win.title(self.title)
         self._win = win
+    
+        # Style for grey computed checkbuttons; entries use foreground
         style = ttk.Style(win)
         style.configure("Computed.TCheckbutton", foreground="gray50")
     
-        # Keep the larger default size (~90% width x 93% height)
+        # ~90% width x 93% height
         try:
             sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
             width = max(self.min_size[0], int(sw * 0.90))
@@ -738,13 +736,11 @@ class DebugGlobalEditor_class:
             win.geometry(f"{width}x{height}")
         except Exception:
             pass
-    
         win.minsize(*self.min_size)
         win.transient(self.root)
         win.grab_set()
     
-        top = ttk.Frame(win)
-        top.pack(fill="x", padx=8, pady=6)
+        top = ttk.Frame(win); top.pack(fill="x", padx=8, pady=6)
         ttk.Label(top, text=self.title, font=("TkDefaultFont", 11, "bold")).pack(side="left")
         if self.allow_recompute:
             self._recompute_var.set(True)  # ensure checked by default
@@ -752,8 +748,7 @@ class DebugGlobalEditor_class:
         ttk.Label(win, textvariable=self._message_var, foreground="red").pack(fill="x", padx=8)
     
         # Scrollable grid
-        container = ttk.Frame(win)
-        container.pack(fill="both", expand=True, padx=8, pady=6)
+        container = ttk.Frame(win); container.pack(fill="both", expand=True, padx=8, pady=6)
         canvas = tk.Canvas(container, borderwidth=0, highlightthickness=0)
         vscroll = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
         body = ttk.Frame(canvas)
@@ -763,9 +758,9 @@ class DebugGlobalEditor_class:
         canvas.pack(side="left", fill="both", expand=True)
         vscroll.pack(side="right", fill="y")
     
-        # Columns (adds Expr & Depends)
+        # Columns (Expr/Depends are 50% wider)
         headers = ["Name", "Type", "Value", "Changed", "Apply?", "Expr", "Depends"]
-        col_widths = [300, 80, 300, 90, 90, 360, 260]
+        col_widths = [300, 80, 300, 90, 90, 540, 390]
         for i, h in enumerate(headers):
             ttk.Label(body, text=h, font=("TkDefaultFont", 9, "bold")).grid(
                 row=0, column=i, sticky="w", padx=4, pady=(0, 4)
@@ -787,12 +782,11 @@ class DebugGlobalEditor_class:
                 continue
             vtype = type(val)
     
-            # Lookup dep info early so we can decide read-only state
             info = info_by_name.get(name)
             expr_text = info.expr_str if (info and info.expr_str) else ""
             deps_text = ", ".join(sorted(info.depends_on)) if (info and info.depends_on) else ""
-            is_computed = self._is_computed(info)   # ← refined heuristic covers int(1.0), "x".lower(), 1.0*0.95, etc.
-
+            is_computed = self._is_computed(info)
+    
             rec = {
                 "name": name,
                 "type": vtype,
@@ -816,25 +810,26 @@ class DebugGlobalEditor_class:
             w_type.grid(row=row_idx, column=1, sticky="w", padx=4, pady=2)
             rec["widgets"]["type"] = w_type
     
-            # Value (READ-ONLY for computed globals)
+            # Value (READ-ONLY & grey only for computed globals)
             if vtype is bool:
-                w_val = ttk.Checkbutton(body, variable=rec["boolvar"])
+                w_val = ttk.Checkbutton(body, variable=rec["boolvar"],
+                                        command=lambda nm=name: self._on_value_changed(nm))
                 if is_computed:
                     w_val.state(["disabled"])
                     w_val.configure(style="Computed.TCheckbutton")
-                else:
-                    w_val.bind("<ButtonRelease-1>", lambda e, nm=name: self._on_value_changed(nm))
                 w_val.grid(row=row_idx, column=2, sticky="w", padx=4, pady=2)
             else:
                 w_val = ttk.Entry(body, textvariable=rec["candidate"])
                 if is_computed:
                     w_val.state(["readonly"])
-                    w_val.configure(foreground="gray50")
+                    try:
+                        w_val.configure(foreground="gray50")
+                    except Exception:
+                        pass
                 else:
                     w_val.bind("<KeyRelease>", lambda e, nm=name: self._on_value_changed(nm))
                     w_val.bind("<FocusOut>", lambda e, nm=name: self._on_value_changed(nm))
                 w_val.grid(row=row_idx, column=2, sticky="ew", padx=4, pady=2)
-
             rec["widgets"]["value"] = w_val
     
             # Changed (read-only)
@@ -848,42 +843,32 @@ class DebugGlobalEditor_class:
             w_apply.grid(row=row_idx, column=4, sticky="w", padx=4, pady=2)
             rec["widgets"]["apply"] = w_apply
     
-            # Expr (readonly text)
+            # Expr (always readonly; grey)
             w_expr = ttk.Entry(body)
             w_expr.insert(0, expr_text)
-            if expr_text:
-                w_expr.state(["readonly"])
+            w_expr.state(["readonly"])
+            try:
+                w_expr.configure(foreground="gray50")
+            except Exception:
+                pass
             w_expr.grid(row=row_idx, column=5, sticky="ew", padx=4, pady=2)
     
-            # Depends (readonly text)
+            # Depends (always readonly; grey)
             w_deps = ttk.Entry(body)
             w_deps.insert(0, deps_text)
-            if deps_text:
-                w_deps.state(["readonly"])
+            w_deps.state(["readonly"])
+            try:
+                w_deps.configure(foreground="gray50")
+            except Exception:
+                pass
             w_deps.grid(row=row_idx, column=6, sticky="ew", padx=4, pady=2)
     
             self._rows.append(rec)
             row_idx += 1
     
-        # Inspector
-        insp = ttk.LabelFrame(win, text="Dependency Inspector")
-        insp.pack(fill="x", padx=8, pady=(0, 6))
-        frm = ttk.Frame(insp)
-        frm.pack(fill="x", padx=6, pady=6)
-        ttk.Label(frm, text="Expression:").grid(row=0, column=0, sticky="nw")
-        ttk.Label(frm, textvariable=self._inspector_expr, justify="left", wraplength=900).grid(row=0, column=1, sticky="w", padx=8)
-        ttk.Label(frm, text="Depends on:").grid(row=1, column=0, sticky="nw")
-        ttk.Label(frm, textvariable=self._inspector_deps, justify="left", wraplength=900).grid(row=1, column=1, sticky="w", padx=8)
-        ttk.Label(frm, text="Eligible:").grid(row=2, column=0, sticky="nw")
-        ttk.Label(frm, textvariable=self._inspector_elig, justify="left").grid(row=2, column=1, sticky="w", padx=8)
-        ttk.Label(frm, text="Recompute Preview:").grid(row=3, column=0, sticky="nw")
-        ttk.Label(frm, textvariable=self._inspector_preview, justify="left", wraplength=900).grid(row=3, column=1, sticky="w", padx=8)
-    
-        # Bottom bar
-        bottom = ttk.Frame(win)
-        bottom.pack(fill="x", padx=8, pady=8)
-        self._apply_btn = ttk.Button(bottom, text="Apply", command=self._on_apply)
-        self._apply_btn.pack(side="right", padx=(6, 0))
+        # Bottom bar (inspector removed)
+        bottom = ttk.Frame(win); bottom.pack(fill="x", padx=8, pady=8)
+        self._apply_btn = ttk.Button(bottom, text="Apply", command=self._on_apply); self._apply_btn.pack(side="right", padx=(6, 0))
         ttk.Button(bottom, text="Quit", command=self._on_quit).pack(side="right", padx=(6, 0))
         ttk.Button(bottom, text="Revert to Defaults", command=self._on_revert_defaults).pack(side="left", padx=(0, 6))
         ttk.Button(bottom, text="Save JSON", command=self._on_save_json).pack(side="left", padx=(0, 6))
@@ -992,9 +977,6 @@ class DebugGlobalEditor_class:
             row["changed"].set(False)
             if not row["apply_overridden"]:
                 row["apply"].set(False)
-
-        if self._inspected_name == name:
-            self._update_inspector(name)
 
         self._refresh_apply_enabled()
 
@@ -1185,66 +1167,12 @@ class DebugGlobalEditor_class:
 
     # ---------------- Inspector ----------------
 
-    def _select_row(self, name: str):
+    def _select_row(self, name: str | None):
+        """Select a row in the grid. No inspector updates (inspector removed)."""
         self._inspected_name = name
-        self._update_inspector(name)
-
-    def _update_inspector(self, name: str):
-        info_by_name, _ = self._build_dep_graph()
-        info = info_by_name.get(name)
-    
-        # Debug logging for inspector state
-        try:
-            rhs_kind = type(info.rhs_ast).__name__ if (info and info.rhs_ast) else None
-        except Exception:
-            rhs_kind = None
-        deps_list = sorted(info.depends_on) if (info and info.depends_on) else []
-        try:
-            log_and_flush(logging.DEBUG, "Inspector: name=%s rhs_kind=%s expr_present=%s deps=%s",
-                          name, rhs_kind, bool(info and info.expr_str), ", ".join(deps_list))
-        except Exception:
-            pass
-    
-        expr = info.expr_str if info and info.expr_str else "(no simple expression)"
-        self._inspector_expr.set(expr)
-    
-        self._inspector_deps.set(", ".join(deps_list) if deps_list else "(none)")
-    
-        elig = "Yes" if (info and info.eligible) else "No"
-        reason = "" if not info or info.eligible else f" – {info.reason}"
-        self._inspector_elig.set(elig + reason)
-    
-        if not info or not info.eligible:
-            self._inspector_preview.set("N/A"); return
-    
-        # Build candidate environment (using current candidate edits)
-        cand_env = {}
-        for row in self._rows:
-            n, vtype = row["name"], row["type"]
-            try:
-                val = row["boolvar"].get() if vtype is bool else self._parse(row["candidate"].get(), vtype)
-            except Exception:
-                val = row["orig"]
-            cand_env[n] = val
-        for k, m in self.SAFE_MODULES.items():
-            cand_env[k] = m
-        cand_env["__builtins__"] = self.SAFE_BUILTINS
-    
-        try:
-            # FIX: compile(mode="eval") requires an ast.Expression root, not a bare BinOp/etc.
-            rhs = info.rhs_ast
-            if isinstance(rhs, ast.Expression):
-                expr_node = rhs
-            else:
-                expr_node = ast.Expression(body=rhs)  # wrap the RHS
-                expr_node = ast.fix_missing_locations(expr_node)
-    
-            code = compile(expr_node, filename="<ast>", mode="eval")
-            new_val = eval(code, cand_env, {})
-            old_val = getattr(self.module, name, None)
-            self._inspector_preview.set(f"{old_val!r} → {new_val!r}")
-        except Exception as ex:
-            self._inspector_preview.set(f"error: {ex!r}")
+        # If you had visual highlight logic, keep it; otherwise, no-op is fine.
+        # Example (optional): ensure Apply button state recalculates for UX.
+        self._refresh_apply_enabled()
 
     # ---------------- Misc ----------------
 
