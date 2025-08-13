@@ -791,8 +791,8 @@ class DebugGlobalEditor_class:
             info = info_by_name.get(name)
             expr_text = info.expr_str if (info and info.expr_str) else ""
             deps_text = ", ".join(sorted(info.depends_on)) if (info and info.depends_on) else ""
-            is_computed = bool(expr_text)
-    
+            is_computed = self._is_computed(info)   # ← refined heuristic covers int(1.0), "x".lower(), 1.0*0.95, etc.
+
             rec = {
                 "name": name,
                 "type": vtype,
@@ -893,6 +893,52 @@ class DebugGlobalEditor_class:
             self._select_row(self._rows[0]["name"])
     
         self._refresh_apply_enabled()
+
+    def _is_computed(self, info) -> bool:
+        """
+        Return True if the variable should be treated as 'computed' (read-only in UI).
+    
+        Heuristic:
+          • If it depends on any other names, it is computed.
+          • Otherwise, if the RHS AST contains operations/calls/attribute access,
+            treat it as computed even if it has no Name dependencies.
+          • Pure literals (ast.Constant) are NOT computed.
+    
+        Examples treated as computed (locked):
+          - int(1.0)                  -> Call
+          - "string".lower()          -> Attribute + Call
+          - (1.0 * 0.95)              -> BinOp
+          - f"{1+2}"                  -> JoinedStr / FormattedValue
+          - (A + 1)                   -> depends_on -> True
+    
+        Examples treated as NOT computed (editable):
+          - 10, 3.14, "hello", True   -> Constant
+        """
+        if not info:
+            return False
+    
+        # Any dependency on names makes it computed
+        if getattr(info, "depends_on", None):
+            return True
+    
+        node = getattr(info, "rhs_ast", None)
+        if node is None:
+            return False
+    
+        # Pure literal is not computed
+        if isinstance(node, ast.Constant):
+            return False
+    
+        # Any of these shapes means "computed" even with no names
+        computed_node_types = (
+            ast.Call, ast.BinOp, ast.UnaryOp, ast.BoolOp, ast.Compare, ast.IfExp,
+            ast.Attribute, ast.Subscript, ast.JoinedStr, ast.FormattedValue,
+        )
+        if isinstance(node, computed_node_types):
+            return True
+    
+        # Names would have been caught by depends_on; other rare node types—err on the safe side.
+        return False
 
     # ---------------- Value handling ----------------
 
@@ -1060,15 +1106,31 @@ class DebugGlobalEditor_class:
 
     def _on_save_json(self):
         path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON", "*.json")])
-        if not path: return
+        if not path:
+            return
+    
+        # Build dep info so we can skip computed variables
+        try:
+            info_by_name, _ = self._build_dep_graph()
+        except Exception:
+            info_by_name = {}
+    
         data = {}
         for row in self._rows:
             name, vtype = row["name"], row["type"]
+            info = info_by_name.get(name)
+            is_computed = bool(info and info.depends_on)
+            if is_computed:
+                continue  # skip computed values
+    
             if vtype is bool:
                 data[name] = bool(row["boolvar"].get())
             else:
-                try: data[name] = self._parse(row["candidate"].get(), vtype)
-                except Exception: pass
+                try:
+                    data[name] = self._parse(row["candidate"].get(), vtype)
+                except Exception:
+                    pass
+    
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -1078,15 +1140,31 @@ class DebugGlobalEditor_class:
 
     def _on_load_json(self):
         path = filedialog.askopenfilename(filetypes=[("JSON", "*.json"), ("All Files", "*.*")])
-        if not path: return
+        if not path:
+            return
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except Exception as ex:
-            messagebox.showerror("Load JSON failed", str(ex)); return
+            messagebox.showerror("Load JSON failed", str(ex))
+            return
+    
+        # Build dep info so we can skip computed variables
+        try:
+            info_by_name, _ = self._build_dep_graph()
+        except Exception:
+            info_by_name = {}
+    
         for row in self._rows:
             name, vtype = row["name"], row["type"]
-            if name not in data: continue
+            if name not in data:
+                continue
+    
+            info = info_by_name.get(name)
+            is_computed = bool(info and info.depends_on)
+            if is_computed:
+                continue  # never load into computed variables
+    
             val = data[name]
             # simple type check
             if vtype is bool:
@@ -1099,8 +1177,10 @@ class DebugGlobalEditor_class:
                 row["candidate"].set(val)
             else:
                 continue
+    
             row["apply_overridden"] = False
             self._on_value_changed(name)
+    
         self._message_var.set(f"Loaded from {path}")
 
     # ---------------- Inspector ----------------
