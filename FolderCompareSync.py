@@ -53,6 +53,7 @@ This application uses Python's built-in __debug__ flag and logging for debugging
         self.set_debug_loglevel(False)  # Turn off debug logging
 """
 
+from __future__ import annotations # v001.0019 added [DebugGlobalEditor_class] # from __future__ imports MUST occur at the beginning of the file
 import platform
 import os
 import sys
@@ -79,7 +80,6 @@ import logging
 import traceback
 import gc # for python garbage collection of unused structures etc
 
-from __future__ import annotations # v001.0019 added [DebugGlobalEditor_class integration imports]
 import ast                         # v001.0019 added [DebugGlobalEditor_class integration imports]
 import inspect                     # v001.0019 added [DebugGlobalEditor_class integration imports]
 import json                        # v001.0019 added [DebugGlobalEditor_class integration imports]
@@ -5646,6 +5646,7 @@ class FolderCompareSync_class:
             # Create and open the debug editor
             editor = DebugGlobalEditor_class(
                 self.root,
+                module=sys.modules[__name__],  # v001.0019 changed [explicitly pass current module]
                 title="FolderCompareSync - Debug Global Variables",
                 allow_recompute=True,
                 on_apply=lambda changes: self._handle_debug_changes_applied(changes, captured_state)
