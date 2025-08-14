@@ -508,6 +508,10 @@ class DebugGlobalEditor_class:
         """
         if not __debug__:
             raise RuntimeError("DebugGlobalEditor_class is debug-only and requires __debug__ == True.")
+
+        if __debug__:
+            log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, __init__")
+
         self.root = root
         self.abort_on_missing_source = abort_on_missing_source
     
@@ -989,18 +993,29 @@ class DebugGlobalEditor_class:
             self._refresh_apply_enabled()
 
     def _on_quit(self):
+        if __debug__:
+            log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, _on_quit")
         self._result = {"applied": False}
+        if __debug__:
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: validly destroying self with applied:False ...")
         self._win.destroy()
 
     def _on_apply(self):
+        if __debug__:
+            log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, _on_apply")
+
         # Validate all rows
+        if __debug__:
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Validating all rows")
         for row in self._rows:
             if not row["valid"]:
                 messagebox.showerror("Invalid value", f"Invalid value for {row['name']} ({row['type'].__name__})")
                 return
 
-        changes = {}
         # Apply base changes
+        if __debug__:
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Applying base changes")
+        changes = {}
         for row in self._rows:
             if not row["apply"].get():
                 continue
@@ -1015,6 +1030,8 @@ class DebugGlobalEditor_class:
         # Optional recompute
         recompute_report = []
         if self.allow_recompute and self._recompute_var.get():
+            if __debug__:
+                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: performing Optional recompute")
             info_by_name, deps = self._build_dep_graph()
             if info_by_name:
                 reverse = {}
@@ -1053,25 +1070,52 @@ class DebugGlobalEditor_class:
                                     safe_globals[name] = new_val
                                     if name not in changes or changes[name]["new"] != new_val:
                                         changes[name] = {"old": old_val, "new": new_val}
+                                        if __debug__:
+                                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: changes[{name}]: old: {old_val}, new: {new_val}")
+                                    else:
+                                        if __debug__:
+                                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: skipped changes[{name}]")
                                 else:
                                     recompute_report.append(f"{name}: type mismatch; skipped")
+                                    if __debug__:
+                                        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: {name}: type mismatch; skipped")
                         except Exception as ex:
                             recompute_report.append(f"{name}: {ex!r}")
+                            if __debug__:
+                                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: {name}: {ex!r}")
 
         if changes and self.on_apply:
-            try: self.on_apply(changes)
-            except Exception: pass
+            try: 
+                if __debug__:
+                    log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: about to self.on_apply(changes) where changes={changes}")
+                self.on_apply(changes)
+            except Exception: 
+                if __debug__:
+                    log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception on self.on_apply(changes) where changes={changes}")
+                    log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception {ex!r}")
 
         self.last_changes = changes
-        try: self.root.event_generate("<<DebugGlobalsApplied>>", when="tail")
-        except Exception: pass
+        try: 
+            if __debug__:
+                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: about to self.root.event_generate(...)")
+            self.root.event_generate("<<DebugGlobalsApplied>>", when="tail")
+        except Exception: 
+            if __debug__:
+                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception on self.root.event_generate(...)")
+                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception {ex!r}")
 
         if recompute_report:
+            if __debug__:
+                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: recompute_report:\n{recompute_report}")
             self._message_var.set("; ".join(recompute_report))
         else:
+            if __debug__:
+                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Applied.")
             self._message_var.set("Applied.")
 
         self._result = {"applied": True, "changes": changes}
+        if __debug__:
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: validly destroying self with applied:True changes:{changes} ...")
         self._win.destroy()
 
     def _on_revert_defaults(self):
