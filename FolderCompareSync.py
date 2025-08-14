@@ -507,10 +507,10 @@ class DebugGlobalEditor_class:
           • (No other behavior changed here.)
         """
         if not __debug__:
+            log_and_flush("DebugGlobalEditor_class is debug-only and requires __debug__ == True.")
             raise RuntimeError("DebugGlobalEditor_class is debug-only and requires __debug__ == True.")
 
-        if __debug__:
-            log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, __init__")
+        log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, __init__")
 
         self.root = root
         self.abort_on_missing_source = abort_on_missing_source
@@ -663,6 +663,8 @@ class DebugGlobalEditor_class:
               stop the editor (useful in debug/packaging). Otherwise, we cache
               an empty graph, which disables AST-driven recompute.
         """
+        log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, _build_dep_graph")
+
         cached = DebugGlobalEditor_class._DEP_CACHE.get(self._module_key)
         if cached:
             log_and_flush(logging.DEBUG, "Dep-graph cache hit for %s", self._module_key)
@@ -721,6 +723,8 @@ class DebugGlobalEditor_class:
                            filename, self._module_key, e)
     
         DebugGlobalEditor_class._DEP_CACHE[self._module_key] = (info_by_name, deps)
+
+        log_and_flush(logging.DEBUG, f"Exiting DebugGlobalEditor_class, _build_dep_graph ay end of def with info_by_name=\n{info_by_name}\ndeps=\n{deps}")
         return info_by_name, deps
 
     # ---------------- UI Build ----------------
@@ -791,7 +795,9 @@ class DebugGlobalEditor_class:
             info = info_by_name.get(name)
             expr_text = info.expr_str if (info and info.expr_str) else ""
             deps_text = ", ".join(sorted(info.depends_on)) if (info and info.depends_on) else ""
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _create_window: calling        _is_computed: for name='{name}' '{vtype}' val='{val}' expr_text='{expr_text}' deps_text='{deps_text}'")
             is_computed = self._is_computed(info)
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _create_window: returned from  _is_computed: for name='{name}' '{vtype}' val='{val}' with is_computed='{is_computed}'")
     
             rec = {
                 "name": name,
@@ -906,18 +912,22 @@ class DebugGlobalEditor_class:
           - 10, 3.14, "hello", True   -> Constant
         """
         if not info:
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' caught by 'if not info' so returning False")
             return False
     
         # Any dependency on names makes it computed
         if getattr(info, "depends_on", None):
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' 'depends_on' so returning True")
             return True
     
         node = getattr(info, "rhs_ast", None)
         if node is None:
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' 'rhs_ast' None so returning False")
             return False
     
         # Pure literal is not computed
         if isinstance(node, ast.Constant):
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' 'ast.Constant' so returning False")
             return False
     
         # Any of these shapes means "computed" even with no names
@@ -926,9 +936,11 @@ class DebugGlobalEditor_class:
             ast.Attribute, ast.Subscript, ast.JoinedStr, ast.FormattedValue,
         )
         if isinstance(node, computed_node_types):
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' is instance of 'computed_node_types' so returning True")
             return True
     
         # Names would have been caught by depends_on; other rare node types—err on the safe side.
+        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' not caught by prior if-tests so finally returning False")
         return False
 
     # ---------------- Value handling ----------------
@@ -993,28 +1005,23 @@ class DebugGlobalEditor_class:
             self._refresh_apply_enabled()
 
     def _on_quit(self):
-        if __debug__:
-            log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, _on_quit")
+        log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, _on_quit")
         self._result = {"applied": False}
-        if __debug__:
-            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: validly destroying self with applied:False ...")
+        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: validly destroying self with applied:False ...")
         self._win.destroy()
 
     def _on_apply(self):
-        if __debug__:
-            log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, _on_apply")
+        log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, _on_apply")
 
         # Validate all rows
-        if __debug__:
-            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Validating all rows")
+        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Validating all rows")
         for row in self._rows:
             if not row["valid"]:
                 messagebox.showerror("Invalid value", f"Invalid value for {row['name']} ({row['type'].__name__})")
                 return
 
         # Apply base changes
-        if __debug__:
-            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Applying base changes")
+        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Applying base changes")
         changes = {}
         for row in self._rows:
             if not row["apply"].get():
@@ -1030,8 +1037,7 @@ class DebugGlobalEditor_class:
         # Optional recompute
         recompute_report = []
         if self.allow_recompute and self._recompute_var.get():
-            if __debug__:
-                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: performing Optional recompute")
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: performing Optional recompute")
             info_by_name, deps = self._build_dep_graph()
             if info_by_name:
                 reverse = {}
@@ -1070,52 +1076,41 @@ class DebugGlobalEditor_class:
                                     safe_globals[name] = new_val
                                     if name not in changes or changes[name]["new"] != new_val:
                                         changes[name] = {"old": old_val, "new": new_val}
-                                        if __debug__:
-                                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: changes[{name}]: old: {old_val}, new: {new_val}")
+                                        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: changes[{name}]: old: {old_val}, new: {new_val}")
                                     else:
-                                        if __debug__:
-                                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: skipped changes[{name}]")
+                                        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: skipped changes[{name}]")
                                 else:
                                     recompute_report.append(f"{name}: type mismatch; skipped")
-                                    if __debug__:
-                                        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: {name}: type mismatch; skipped")
+                                    log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: {name}: type mismatch; skipped")
                         except Exception as ex:
                             recompute_report.append(f"{name}: {ex!r}")
-                            if __debug__:
-                                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: {name}: {ex!r}")
+                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: {name}: {ex!r}")
 
         if changes and self.on_apply:
             try: 
-                if __debug__:
-                    log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: about to self.on_apply(changes) where changes={changes}")
+                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: about to self.on_apply(changes) where changes={changes}")
                 self.on_apply(changes)
             except Exception: 
-                if __debug__:
-                    log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception on self.on_apply(changes) where changes={changes}")
-                    log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception {ex!r}")
+                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception on self.on_apply(changes) where changes={changes}")
+                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception {ex!r}")
 
         self.last_changes = changes
         try: 
-            if __debug__:
-                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: about to self.root.event_generate(...)")
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: about to self.root.event_generate(...)")
             self.root.event_generate("<<DebugGlobalsApplied>>", when="tail")
         except Exception: 
-            if __debug__:
-                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception on self.root.event_generate(...)")
-                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception {ex!r}")
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception on self.root.event_generate(...)")
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception {ex!r}")
 
         if recompute_report:
-            if __debug__:
-                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: recompute_report:\n{recompute_report}")
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: recompute_report:\n{recompute_report}")
             self._message_var.set("; ".join(recompute_report))
         else:
-            if __debug__:
-                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Applied.")
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Applied.")
             self._message_var.set("Applied.")
 
         self._result = {"applied": True, "changes": changes}
-        if __debug__:
-            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: validly destroying self with applied:True changes:{changes} ...")
+        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: validly destroying self with applied:True changes:{changes} ...")
         self._win.destroy()
 
     def _on_revert_defaults(self):
