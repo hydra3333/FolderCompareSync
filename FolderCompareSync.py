@@ -724,7 +724,7 @@ class DebugGlobalEditor_class:
     
         DebugGlobalEditor_class._DEP_CACHE[self._module_key] = (info_by_name, deps)
 
-        log_and_flush(logging.DEBUG, f"Exiting DebugGlobalEditor_class, _build_dep_graph ay end of def with info_by_name=\n{info_by_name}\ndeps=\n{deps}")
+        log_and_flush(logging.DEBUG, f"Exiting DebugGlobalEditor_class, _build_dep_graph at end of def with info_by_name=\n{info_by_name}\ndeps=\n{deps}")
         return info_by_name, deps
 
     # ---------------- UI Build ----------------
@@ -795,9 +795,9 @@ class DebugGlobalEditor_class:
             info = info_by_name.get(name)
             expr_text = info.expr_str if (info and info.expr_str) else ""
             deps_text = ", ".join(sorted(info.depends_on)) if (info and info.depends_on) else ""
-            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _create_window: calling        _is_computed: for name='{name}' '{vtype}' val='{val}' expr_text='{expr_text}' deps_text='{deps_text}'")
+            #log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _create_window: calling        _is_computed: for name='{name}' '{vtype}' val='{val}' expr_text='{expr_text}' deps_text='{deps_text}'")
             is_computed = self._is_computed(info)
-            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _create_window: returned from  _is_computed: for name='{name}' '{vtype}' val='{val}' with is_computed='{is_computed}'")
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _create_window: returned from  _is_computed: for name='{name}' '{vtype}' val='{val}' expr_text='{expr_text}' deps_text='{deps_text}' with is_computed='{is_computed}'")
     
             rec = {
                 "name": name,
@@ -912,22 +912,22 @@ class DebugGlobalEditor_class:
           - 10, 3.14, "hello", True   -> Constant
         """
         if not info:
-            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' caught by 'if not info' so returning False")
+            #log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' caught by 'if not info' so returning False")
             return False
     
         # Any dependency on names makes it computed
         if getattr(info, "depends_on", None):
-            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' 'depends_on' so returning True")
+            #log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' 'depends_on' so returning True")
             return True
     
         node = getattr(info, "rhs_ast", None)
         if node is None:
-            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' 'rhs_ast' None so returning False")
+            #log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' 'rhs_ast' None so returning False")
             return False
     
         # Pure literal is not computed
         if isinstance(node, ast.Constant):
-            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' 'ast.Constant' so returning False")
+            #log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' 'ast.Constant' so returning False")
             return False
     
         # Any of these shapes means "computed" even with no names
@@ -936,11 +936,11 @@ class DebugGlobalEditor_class:
             ast.Attribute, ast.Subscript, ast.JoinedStr, ast.FormattedValue,
         )
         if isinstance(node, computed_node_types):
-            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' is instance of 'computed_node_types' so returning True")
+            #log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' is instance of 'computed_node_types' so returning True")
             return True
     
         # Names would have been caught by depends_on; other rare node types—err on the safe side.
-        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' not caught by prior if-tests so finally returning False")
+        #log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' not caught by prior if-tests so finally returning False")
         return False
 
     # ---------------- Value handling ----------------
@@ -1066,8 +1066,12 @@ class DebugGlobalEditor_class:
                         if not info or not info.eligible:
                             continue
                         try:
+                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' about to get code using 'compile' ...")
                             code = compile(info.rhs_ast, filename="<ast>", mode="eval")
+                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' got code='{code}' using 'compile'")
+                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' about to get new_val using 'eval' ...")
                             new_val = eval(code, safe_globals, {})
+                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' code='{code}' got new_val='{new_val}' using 'eval'")
                             if name in self.module.__dict__:
                                 old_val = getattr(self.module, name)
                                 # type compatibility check (keep simple)
