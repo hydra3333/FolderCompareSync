@@ -2,7 +2,10 @@
 """
 FolderCompareSync - A Folder Comparison & Synchronization Tool
 
-Version  v001.0018 - fix delete orphans dialog cancel button error by adding None check for manager result,
+
+Version  v001.0020 - fix threading conflict and UI recreation timing in debug global editor
+         v001.0019 - add DebugGlobalEditor_class integration with destroy/recreate UI refresh pattern
+         v001.0018 - fix delete orphans dialog cancel button error by adding None check for manager result,
                      fix static method calling syntax in delete orphans functionality 
          v001.0017 - enhance delete orphans logic to distinguish true orphans from folders containing orphans
          v001.0016 - fix button and status message font scaling to use global constants consistently
@@ -51,6 +54,7 @@ This application uses Python's built-in __debug__ flag and logging for debugging
         self.set_debug_loglevel(False)  # Turn off debug logging
 """
 
+from __future__ import annotations # v001.0019 added [DebugGlobalEditor_class] # from __future__ imports MUST occur at the beginning of the file
 import platform
 import os
 import sys
@@ -76,6 +80,13 @@ import threading
 import logging
 import traceback
 import gc # for python garbage collection of unused structures etc
+
+import ast                         # v001.0019 added [DebugGlobalEditor_class integration imports]
+import inspect                     # v001.0019 added [DebugGlobalEditor_class integration imports]
+import json                        # v001.0019 added [DebugGlobalEditor_class integration imports]
+import locale                      # v001.0019 added [DebugGlobalEditor_class integration imports]
+import math                        # v001.0019 added [DebugGlobalEditor_class integration imports]
+from types import ModuleType       # v001.0019 added [DebugGlobalEditor_class integration imports]
 
 # ============================================================================
 # GLOBAL CONFIGURATION CONSTANTS
@@ -292,7 +303,7 @@ def log_and_flush(level, msg, *args, **kwargs):
         except Exception:
             pass  # Ignore handlers that don't support flush
 
-# ************** At program startup **************
+# ************** Start at program startup **************
 def check_dependencies(deps):
     missing = []
     for pkg_name, import_name in deps:
@@ -324,7 +335,854 @@ check_dependencies([
 from zoneinfo import ZoneInfo
 import zoneinfo
 from dateutil.tz import tzwinlocal
-# ************** At program startup **************
+# ************** Finish at program startup **************
+
+# ============================================================================
+# v001.0019 - add DebugGlobalEditor_class integration 
+# ============================================================================
+#=== START OF class DebugGlobalEditor_class ==============================================================================================================
+
+class DebugGlobalEditor_class:
+    """
+    DebugGlobalEditor_class.py
+    Single-class, drop-in Tkinter dialog to view/edit top-level simple globals and optionally
+    recompute derived globals via AST. Python 3.13.5+. No external deps.
+    
+    Usage (example):
+        if __debug__:
+            editor = DebugGlobalEditor_class(root)  # root is your Tk() or Toplevel
+            result = editor.open()
+
+    Single-class implementation:
+    - All helpers are nested as inner classes or static methods.
+    - Hard guard: only top-level assignments are discovered & recomputed.
+    - Supports JSON save/load, revert to defaults, dependency inspector.
+
+    DEPENDENCIES: 
+    =============
+    1.  MANDATORY: "logger" MUST be setup in the main program BEFOREHAND 
+        with "log_and_flush" as well (see below) ...
+        Usage like :
+            log_and_flush(logging.DEBUG, "Dep-graph cache hit for %s", self._module_key)
+
+        # ============================================================================
+        # Setup logging loglevel based on __debug__ flag
+        # using "-O" on the python commandline turns __debug__ off:  python -O FolderCompareSync.py
+        if __debug__:
+            log_level = logging.DEBUG
+            log_format = '%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+        else:
+            log_level = logging.INFO
+            log_format = '%(asctime)s - %(levelname)s - %(message)s'
+        
+        # Create handlers list with UTF-8 encoding support:
+        # Add a handler for file logging, since that is always enabled
+        handlers = [
+            logging.FileHandler(
+                os.path.join(os.path.dirname(__file__), 'foldercomparesync.log'), 
+                mode='w', 
+                encoding='utf-8'  # Ensure UTF-8 encoding for file output
+            )
+        ]
+        # When in debug mode, when __debug__ is True, add a handler for console logging, only 
+        #    ... i.e. when -O is missing from the python commandline
+        if __debug__:
+            # Create console handler with UTF-8 encoding to handle Unicode filenames
+            console_handler = logging.StreamHandler()
+            console_handler.setStream(sys.stdout)  # Explicitly use stdout
+            # Set UTF-8 encoding if possible (for Windows Unicode support)
+            if hasattr(sys.stdout, 'reconfigure'):
+                try:
+                    sys.stdout.reconfigure(encoding='utf-8')
+                except Exception:
+                    pass  # If reconfigure fails, continue with default encoding
+            handlers.append(console_handler)
+        logging.basicConfig(
+            level=log_level,
+            format=log_format,
+            handlers=handlers
+        )
+        logger = logging.getLogger(__name__)
+        def log_and_flush(level, msg, *args, **kwargs):
+            # If you want to guarantee that a log line is on disk (or shown in the console) before the next line runs,
+            # even if the program crashes, you can explicitly flush the handler(s) right after the log call.
+            # Example Usage:
+            #     log_and_flush(logging.INFO, "About to process file: %s", file_path)
+            #
+            logger.log(level, msg, *args, **kwargs)
+            for h in logger.handlers:
+                try:
+                    h.flush()
+                except Exception:
+                    pass  # Ignore handlers that don't support flush
+    """
+    # --- Config / Whitelists ---
+    SIMPLE_TYPES = (str, int, float, bool)
+    SAFE_BUILTINS = {"abs": abs, "round": round, "min": min, "max": max}
+    SAFE_MODULES = {"math": math}
+
+    # Global defaults and dep-graph cache (per process)
+    _DEFAULTS_SNAPSHOT: dict[str, object] | None = None
+    _DEP_CACHE: dict[str, tuple[dict[str, "DebugGlobalEditor_class._DepInfo"], dict[str, set[str]]]] = {}
+
+    class _DepVisitor(ast.NodeVisitor):
+        """Collect names and determine if expression is eligible for safe recompute."""
+        def __init__(self, safe_builtins: set[str], safe_modules: set[str]):
+            self.names: set[str] = set()
+            self.eligible: bool = True
+            self.reason: str | None = None
+            self._safe_builtins = safe_builtins
+            self._safe_modules = safe_modules
+
+        def visit_Name(self, node: ast.Name):
+            # NEW: debug log each identifier discovered
+            try:
+                log_and_flush(logging.DEBUG, "DepVisitor: saw name '%s'", node.id)
+            except Exception:
+                pass
+            self.names.add(node.id)
+
+        def visit_Call(self, node: ast.Call):
+            # Allow calls to math.* or whitelisted builtins
+            ok = False
+            if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+                if node.func.value.id in self._safe_modules:
+                    ok = True
+            elif isinstance(node.func, ast.Name):
+                if node.func.id in self._safe_builtins:
+                    ok = True
+            if not ok:
+                self.eligible = False
+                self.reason = "contains non-whitelisted function call"
+                return
+            self.generic_visit(node)
+
+        def visit_Attribute(self, node: ast.Attribute):
+            # Only allow attribute access on whitelisted modules
+            if isinstance(node.value, ast.Name):
+                if node.value.id not in self._safe_modules:
+                    self.eligible = False
+                    self.reason = "attribute access on non-whitelisted object"
+                    return
+            self.generic_visit(node)
+
+        def visit_Import(self, node):  # pragma: no cover
+            self.eligible = False
+            self.reason = "import not allowed"
+
+        def visit_ImportFrom(self, node):  # pragma: no cover
+            self.eligible = False
+            self.reason = "import not allowed"
+
+        def visit_Lambda(self, node):  # pragma: no cover
+            self.eligible = False
+            self.reason = "lambda not allowed"
+
+        def visit_Await(self, node):  # pragma: no cover
+            self.eligible = False
+            self.reason = "await not allowed"
+
+    class _DepInfo:
+        __slots__ = ("expr_str", "depends_on", "eligible", "reason", "rhs_ast")
+        def __init__(self, expr_str: str | None, depends_on: set[str], eligible: bool, reason: str | None, rhs_ast: ast.AST):
+            self.expr_str = expr_str
+            self.depends_on = depends_on
+            self.eligible = eligible
+            self.reason = reason
+            self.rhs_ast = rhs_ast
+
+    def __init__(self, root: tk.Misc, module: ModuleType | None = None, *,
+                 title: str = "Debug Globals",
+                 column_widths: tuple[int, int, int, int, int] | None = None,
+                 min_size: tuple[int, int] = (1000, 600),
+                 allow_recompute: bool = True,
+                 locale_floats: bool = True,
+                 on_apply = None,
+                 force_main: bool = True,
+                 abort_on_missing_source: bool = True):
+        """
+        Changes in this artifact:
+          • "Recompute Derived" defaults to CHECKED at startup.
+          • (No other behavior changed here.)
+        """
+        if not __debug__:
+            raise RuntimeError("DebugGlobalEditor_class is debug-only and requires __debug__ == True.")
+        self.root = root
+        self.abort_on_missing_source = abort_on_missing_source
+    
+        if force_main:
+            main_mod = sys.modules.get("__main__")
+            if not isinstance(main_mod, ModuleType):
+                raise RuntimeError("No __main__ module found; cannot target main program.")
+            self.module = main_mod
+        else:
+            self.module = module or self._get_caller_module()
+            if self.module is None:
+                raise RuntimeError("Unable to resolve caller module.")
+    
+        self.title = title
+        self.column_widths = column_widths or (300, 80, 300, 90, 90)
+        self.min_size = min_size
+        self.allow_recompute = allow_recompute
+        self.locale_floats = locale_floats
+        self.on_apply = on_apply
+    
+        # UI state
+        self._win: tk.Toplevel | None = None
+        self._rows: list[dict] = []
+        self._apply_btn: ttk.Button | None = None
+        # DEFAULT CHANGED: start checked
+        self._recompute_var = tk.BooleanVar(value=True) if allow_recompute else None
+        self._message_var = tk.StringVar(value="")
+    
+        # Inspector state removed (no inspector pane)
+        self._inspected_name: str | None = None
+    
+        if DebugGlobalEditor_class._DEFAULTS_SNAPSHOT is None:
+            DebugGlobalEditor_class._DEFAULTS_SNAPSHOT = self._current_simple_globals_snapshot()
+    
+        self._module_key = self._stable_module_key(self.module)
+
+
+    @staticmethod
+    def _stable_module_key(mod: ModuleType) -> str:
+        """
+        Return a stable, process-local key for caching analysis of `mod`.
+        Prefers a real file path; otherwise falls back to import metadata/name.
+        """
+        path = getattr(mod, "__file__", None)
+        if path:
+            try:
+                return os.path.realpath(path)
+            except Exception:
+                return path
+    
+        spec = getattr(mod, "__spec__", None)
+        spec_name = getattr(spec, "name", None) if spec else None
+        if spec_name:
+            return spec_name
+    
+        name = getattr(mod, "__name__", None)
+        if name:
+            return name
+    
+        # Last resort: stable within the process lifetime
+        return f"<module@{id(mod)}>"
+
+    # ---------------- Public API ----------------
+
+    def open(self) -> dict:
+        """Open the modal dialog and return {'applied': bool, 'changes': {...}}"""
+        self._create_window()
+        self._win.wait_window()
+        return getattr(self, "_result", {"applied": False})
+
+    # ---------------- Helpers ----------------
+
+    @staticmethod
+    def _get_caller_module() -> ModuleType | None:
+        for frameinfo in inspect.stack():
+            mod = inspect.getmodule(frameinfo.frame)
+            if mod and mod is not sys.modules[__name__]:
+                return mod
+        return sys.modules.get("__main__", None)
+
+    def _current_simple_globals_snapshot(self) -> dict[str, object]:
+        out = {}
+        for name, val in self.module.__dict__.items():
+            if name.startswith("_"):
+                continue
+            if isinstance(val, self.SIMPLE_TYPES):
+                out[name] = val
+        return out
+
+    @staticmethod
+    def _unparse(node: ast.AST) -> str | None:
+        try:
+            return ast.unparse(node)
+        except Exception:
+            return None
+
+    @classmethod
+    def _top_level_assignments(cls, tree: ast.AST) -> list[tuple[str, ast.AST]]:
+        """Return list of (name, rhs_expr_ast) for top-level Assign/AnnAssign simple targets only."""
+        out: list[tuple[str, ast.AST]] = []
+        if not isinstance(tree, ast.Module):
+            return out
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                out.append((node.targets[0].id, node.value))
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                if node.value is not None:
+                    out.append((node.target.id, node.value))
+        # NEW: one-line summary of the discovered assignments
+        try:
+            summary = ", ".join(f"{name}:{type(rhs).__name__}" for name, rhs in out[:50])
+            more = f" (+{len(out)-50} more)" if len(out) > 50 else ""
+            log_and_flush(logging.DEBUG, "Top-level assigns: %s%s", summary, more)
+        except Exception:
+            pass
+        return out
+
+    @classmethod
+    def _topo_sort(cls, deps: dict[str, set[str]]) -> list[str]:
+        """deps: name -> set of names it depends on; return order with deps first."""
+        visited: dict[str, int] = {}
+        order: list[str] = []
+
+        def visit(n: str):
+            state = visited.get(n, 0)
+            if state == 1:
+                return  # cycle ignored
+            if state == 2:
+                return
+            visited[n] = 1
+            for m in deps.get(n, ()):
+                visit(m)
+            visited[n] = 2
+            order.append(n)
+
+        for k in deps:
+            visit(k)
+        return order
+
+    def _build_dep_graph(self):
+        """
+        Build and cache the dependency graph of simple top-level assignments
+        in the chosen target module (default: __main__).
+    
+        Logging/Abort behavior for file-less contexts (e.g., REPL, PyInstaller):
+            - If __file__ is missing and source cannot be retrieved via inspect,
+              we log a warning with diagnostic details.
+            - If self.abort_on_missing_source is True, raise RuntimeError to
+              stop the editor (useful in debug/packaging). Otherwise, we cache
+              an empty graph, which disables AST-driven recompute.
+        """
+        cached = DebugGlobalEditor_class._DEP_CACHE.get(self._module_key)
+        if cached:
+            log_and_flush(logging.DEBUG, "Dep-graph cache hit for %s", self._module_key)
+            return cached
+    
+        info_by_name: dict[str, DebugGlobalEditor_class._DepInfo] = {}
+        deps: dict[str, set[str]] = {}
+    
+        target_mod = self.module  # __main__ when force_main=True
+        filename = getattr(target_mod, "__file__", None)
+        source = None
+    
+        try:
+            if filename:
+                log_and_flush(logging.DEBUG, "Reading module source from file: %s", filename)
+                with open(filename, "r", encoding="utf-8") as f:
+                    source = f.read()
+            else:
+                log_and_flush(logging.CRITICAL, "__file__ missing for %s; trying inspect.getsource()", getattr(target_mod, "__name__", target_mod))
+                source = inspect.getsource(target_mod)
+                filename = getattr(target_mod, "__name__", "<module>")
+        except Exception as e:
+            log_and_flush(logging.CRITICAL, "Unable to obtain source for %s (key=%s). err=%r",
+                           getattr(target_mod, "__name__", target_mod), self._module_key, e)
+            source = None
+    
+        if not source:
+            # Provide rich diagnostics about why we couldn't get source
+            spec = getattr(target_mod, "__spec__", None)
+            loader = getattr(spec, "loader", None) if spec else None
+            log_and_flush(logging.CRITICAL, 
+                "No readable source for module '%s'. __file__=%r, spec=%r, loader=%r. "
+                "AST recompute will be disabled.",
+                getattr(target_mod, "__name__", target_mod), filename, spec, loader
+            )
+            if self.abort_on_missing_source:
+                raise RuntimeError("DebugGlobalEditor: no readable source for target module; aborting per configuration.")
+            DebugGlobalEditor_class._DEP_CACHE[self._module_key] = (info_by_name, deps)
+            return info_by_name, deps
+    
+        # Parse & collect top-level assignment dependencies
+        try:
+            tree = ast.parse(source, filename=filename)
+            for tgt, rhs in self._top_level_assignments(tree):
+                visitor = self._DepVisitor(set(self.SAFE_BUILTINS.keys()), set(self.SAFE_MODULES.keys()))
+                visitor.visit(rhs)
+                expr_str = self._unparse(rhs)
+                info_by_name[tgt] = self._DepInfo(expr_str, set(visitor.names), visitor.eligible, visitor.reason, rhs)
+                deps.setdefault(tgt, set()).update(info_by_name[tgt].depends_on)
+            log_and_flush(logging.DEBUG, "Built dep-graph with %d nodes for %s", len(info_by_name), self._module_key)
+        except Exception as e:
+            log_and_flush(logging.CRITICAL, "AST parse failed for %s (key=%s). err=%r. Recompute disabled.",
+                           filename, self._module_key, e)
+            if self.abort_on_missing_source:
+                raise RuntimeError("AST parse failed for %s (key=%s). err=%r. Recompute disabled.",
+                           filename, self._module_key, e)
+    
+        DebugGlobalEditor_class._DEP_CACHE[self._module_key] = (info_by_name, deps)
+        return info_by_name, deps
+
+    # ---------------- UI Build ----------------
+
+    def _create_window(self):
+        win = tk.Toplevel(self.root)
+        win.title(self.title)
+        self._win = win
+    
+        # Style for grey computed checkbuttons; entries use foreground
+        style = ttk.Style(win)
+        style.configure("Computed.TCheckbutton", foreground="gray50")
+    
+        # ~90% width x 93% height
+        try:
+            sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+            width = max(self.min_size[0], int(sw * 0.90))
+            height = max(self.min_size[1], int(sh * 0.93))
+            win.geometry(f"{width}x{height}")
+        except Exception:
+            pass
+        win.minsize(*self.min_size)
+        win.transient(self.root)
+        win.grab_set()
+    
+        top = ttk.Frame(win); top.pack(fill="x", padx=8, pady=6)
+        ttk.Label(top, text=self.title, font=("TkDefaultFont", 11, "bold")).pack(side="left")
+        if self.allow_recompute:
+            self._recompute_var.set(True)  # ensure checked by default
+            ttk.Checkbutton(top, text="Recompute Derived", variable=self._recompute_var).pack(side="right")
+        ttk.Label(win, textvariable=self._message_var, foreground="red").pack(fill="x", padx=8)
+    
+        # Scrollable grid
+        container = ttk.Frame(win); container.pack(fill="both", expand=True, padx=8, pady=6)
+        canvas = tk.Canvas(container, borderwidth=0, highlightthickness=0)
+        vscroll = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        body = ttk.Frame(canvas)
+        body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=body, anchor="nw")
+        canvas.configure(yscrollcommand=vscroll.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        vscroll.pack(side="right", fill="y")
+    
+        # Columns (Expr/Depends are 50% wider)
+        headers = ["Name", "Type", "Value", "Changed", "Apply?", "Expr", "Depends"]
+        col_widths = [300, 80, 300, 90, 90, 540, 390]
+        for i, h in enumerate(headers):
+            ttk.Label(body, text=h, font=("TkDefaultFont", 9, "bold")).grid(
+                row=0, column=i, sticky="w", padx=4, pady=(0, 4)
+            )
+            body.grid_columnconfigure(i, minsize=col_widths[i])
+    
+        # Build dep-graph once for the grid
+        try:
+            info_by_name, _deps = self._build_dep_graph()
+        except Exception as e:
+            info_by_name = {}
+            self._message_var.set(str(e))
+    
+        # Rows
+        snapshot = self._current_simple_globals_snapshot()
+        row_idx = 1
+        for name, val in self.module.__dict__.items():
+            if name not in snapshot:
+                continue
+            vtype = type(val)
+    
+            info = info_by_name.get(name)
+            expr_text = info.expr_str if (info and info.expr_str) else ""
+            deps_text = ", ".join(sorted(info.depends_on)) if (info and info.depends_on) else ""
+            is_computed = self._is_computed(info)
+    
+            rec = {
+                "name": name,
+                "type": vtype,
+                "orig": val,
+                "candidate": tk.StringVar(value=self._fmt(val, vtype)),
+                "boolvar": tk.BooleanVar(value=bool(val)) if vtype is bool else None,
+                "changed": tk.BooleanVar(value=False),
+                "apply": tk.BooleanVar(value=False),
+                "apply_overridden": False,
+                "valid": True,
+                "widgets": {},
+            }
+    
+            # Name
+            w_name = ttk.Label(body, text=name)
+            w_name.grid(row=row_idx, column=0, sticky="w", padx=4, pady=2)
+            rec["widgets"]["name"] = w_name
+    
+            # Type
+            w_type = ttk.Label(body, text=vtype.__name__)
+            w_type.grid(row=row_idx, column=1, sticky="w", padx=4, pady=2)
+            rec["widgets"]["type"] = w_type
+    
+            # Value (READ-ONLY & grey only for computed globals)
+            if vtype is bool:
+                w_val = ttk.Checkbutton(body, variable=rec["boolvar"],
+                                        command=lambda nm=name: self._on_value_changed(nm))
+                if is_computed:
+                    w_val.state(["disabled"])
+                    w_val.configure(style="Computed.TCheckbutton")
+                w_val.grid(row=row_idx, column=2, sticky="w", padx=4, pady=2)
+            else:
+                w_val = ttk.Entry(body, textvariable=rec["candidate"])
+                if is_computed:
+                    w_val.state(["readonly"])
+                    try:
+                        w_val.configure(foreground="gray50")
+                    except Exception:
+                        pass
+                else:
+                    w_val.bind("<KeyRelease>", lambda e, nm=name: self._on_value_changed(nm))
+                    w_val.bind("<FocusOut>", lambda e, nm=name: self._on_value_changed(nm))
+                w_val.grid(row=row_idx, column=2, sticky="ew", padx=4, pady=2)
+            rec["widgets"]["value"] = w_val
+    
+            # Changed (read-only)
+            w_changed = ttk.Checkbutton(body, variable=rec["changed"])
+            w_changed.state(["disabled"])
+            w_changed.grid(row=row_idx, column=3, sticky="w", padx=4, pady=2)
+            rec["widgets"]["changed"] = w_changed
+    
+            # Apply?
+            w_apply = ttk.Checkbutton(body, variable=rec["apply"], command=lambda nm=name: self._on_apply_toggled(nm))
+            w_apply.grid(row=row_idx, column=4, sticky="w", padx=4, pady=2)
+            rec["widgets"]["apply"] = w_apply
+    
+            # Expr (always readonly; grey)
+            w_expr = ttk.Entry(body)
+            w_expr.insert(0, expr_text)
+            w_expr.state(["readonly"])
+            try:
+                w_expr.configure(foreground="gray50")
+            except Exception:
+                pass
+            w_expr.grid(row=row_idx, column=5, sticky="ew", padx=4, pady=2)
+    
+            # Depends (always readonly; grey)
+            w_deps = ttk.Entry(body)
+            w_deps.insert(0, deps_text)
+            w_deps.state(["readonly"])
+            try:
+                w_deps.configure(foreground="gray50")
+            except Exception:
+                pass
+            w_deps.grid(row=row_idx, column=6, sticky="ew", padx=4, pady=2)
+    
+            self._rows.append(rec)
+            row_idx += 1
+    
+        # Bottom bar (inspector removed)
+        bottom = ttk.Frame(win); bottom.pack(fill="x", padx=8, pady=8)
+        self._apply_btn = ttk.Button(bottom, text="Apply", command=self._on_apply); self._apply_btn.pack(side="right", padx=(6, 0))
+        ttk.Button(bottom, text="Quit", command=self._on_quit).pack(side="right", padx=(6, 0))
+        ttk.Button(bottom, text="Revert to Defaults", command=self._on_revert_defaults).pack(side="left", padx=(0, 6))
+        ttk.Button(bottom, text="Save JSON", command=self._on_save_json).pack(side="left", padx=(0, 6))
+        ttk.Button(bottom, text="Load JSON", command=self._on_load_json).pack(side="left", padx=(0, 6))
+    
+        if self._rows:
+            self._select_row(self._rows[0]["name"])
+    
+        self._refresh_apply_enabled()
+
+    def _is_computed(self, info) -> bool:
+        """
+        Return True if the variable should be treated as 'computed' (read-only in UI).
+    
+        Heuristic:
+          • If it depends on any other names, it is computed.
+          • Otherwise, if the RHS AST contains operations/calls/attribute access,
+            treat it as computed even if it has no Name dependencies.
+          • Pure literals (ast.Constant) are NOT computed.
+    
+        Examples treated as computed (locked):
+          - int(1.0)                  -> Call
+          - "string".lower()          -> Attribute + Call
+          - (1.0 * 0.95)              -> BinOp
+          - f"{1+2}"                  -> JoinedStr / FormattedValue
+          - (A + 1)                   -> depends_on -> True
+    
+        Examples treated as NOT computed (editable):
+          - 10, 3.14, "hello", True   -> Constant
+        """
+        if not info:
+            return False
+    
+        # Any dependency on names makes it computed
+        if getattr(info, "depends_on", None):
+            return True
+    
+        node = getattr(info, "rhs_ast", None)
+        if node is None:
+            return False
+    
+        # Pure literal is not computed
+        if isinstance(node, ast.Constant):
+            return False
+    
+        # Any of these shapes means "computed" even with no names
+        computed_node_types = (
+            ast.Call, ast.BinOp, ast.UnaryOp, ast.BoolOp, ast.Compare, ast.IfExp,
+            ast.Attribute, ast.Subscript, ast.JoinedStr, ast.FormattedValue,
+        )
+        if isinstance(node, computed_node_types):
+            return True
+    
+        # Names would have been caught by depends_on; other rare node types—err on the safe side.
+        return False
+
+    # ---------------- Value handling ----------------
+
+    def _fmt(self, val, vtype: type) -> str:
+        if vtype is float and self.locale_floats:
+            try:
+                return locale.format_string("%f", val, grouping=False).rstrip("0").rstrip(".")
+            except Exception:
+                return str(val)
+        return str(val)
+
+    def _parse(self, s: str, vtype: type):
+        s2 = s.strip()
+        if vtype is int:
+            return int(s2, 10)
+        if vtype is float:
+            if self.locale_floats:
+                dec = locale.localeconv().get("decimal_point") or "."
+                if dec != ".":
+                    s2 = s2.replace(dec, ".")
+            ts = locale.localeconv().get("thousands_sep") or ","
+            if ts in s2:
+                raise ValueError("Thousands separators not supported")
+            return float(s2)
+        if vtype is str:
+            return s
+        if vtype is bool:
+            return bool(s)
+        raise TypeError("Unsupported type")
+
+    # ---------------- Events ----------------
+
+    def _on_value_changed(self, name: str):
+        row = next((r for r in self._rows if r["name"] == name), None)
+        if not row:
+            return
+        vtype = row["type"]
+        valid = True
+        try:
+            new_val = row["boolvar"].get() if vtype is bool else self._parse(row["candidate"].get(), vtype)
+        except Exception:
+            new_val, valid = None, False
+
+        row["valid"] = valid
+        if valid:
+            changed = (new_val != row["orig"])
+            row["changed"].set(changed)
+            if not row["apply_overridden"]:
+                row["apply"].set(changed)
+        else:
+            row["changed"].set(False)
+            if not row["apply_overridden"]:
+                row["apply"].set(False)
+
+        self._refresh_apply_enabled()
+
+    def _on_apply_toggled(self, name: str):
+        row = next((r for r in self._rows if r["name"] == name), None)
+        if row:
+            row["apply_overridden"] = True
+            self._refresh_apply_enabled()
+
+    def _on_quit(self):
+        self._result = {"applied": False}
+        self._win.destroy()
+
+    def _on_apply(self):
+        # Validate all rows
+        for row in self._rows:
+            if not row["valid"]:
+                messagebox.showerror("Invalid value", f"Invalid value for {row['name']} ({row['type'].__name__})")
+                return
+
+        changes = {}
+        # Apply base changes
+        for row in self._rows:
+            if not row["apply"].get():
+                continue
+            name, vtype = row["name"], row["type"]
+            new_val = row["boolvar"].get() if vtype is bool else self._parse(row["candidate"].get(), vtype)
+            old_val = row["orig"]
+            if new_val != old_val:
+                setattr(self.module, name, new_val)
+                row["orig"] = new_val
+                changes[name] = {"old": old_val, "new": new_val}
+
+        # Optional recompute
+        recompute_report = []
+        if self.allow_recompute and self._recompute_var.get():
+            info_by_name, deps = self._build_dep_graph()
+            if info_by_name:
+                reverse = {}
+                for tgt, dep_set in deps.items():
+                    for dep in dep_set:
+                        reverse.setdefault(dep, set()).add(tgt)
+
+                changed_roots = set(changes.keys())
+                affected = set()
+                stack = list(changed_roots)
+                while stack:
+                    n = stack.pop()
+                    for m in reverse.get(n, ()):
+                        if m not in affected:
+                            affected.add(m); stack.append(m)
+
+                if affected:
+                    safe_globals = {n: v for n, v in self.module.__dict__.items() if isinstance(v, self.SIMPLE_TYPES)}
+                    for k, m in self.SAFE_MODULES.items():
+                        safe_globals[k] = m
+                    safe_globals["__builtins__"] = self.SAFE_BUILTINS
+
+                    order = self._topo_sort({n: info_by_name.get(n, self._DepInfo(None, set(), False, None, ast.Constant(None))).depends_on for n in affected})
+                    for name in order:
+                        info = info_by_name.get(name)
+                        if not info or not info.eligible:
+                            continue
+                        try:
+                            code = compile(info.rhs_ast, filename="<ast>", mode="eval")
+                            new_val = eval(code, safe_globals, {})
+                            if name in self.module.__dict__:
+                                old_val = getattr(self.module, name)
+                                # type compatibility check (keep simple)
+                                if type(old_val) in self.SIMPLE_TYPES and isinstance(new_val, type(old_val)):
+                                    setattr(self.module, name, new_val)
+                                    safe_globals[name] = new_val
+                                    if name not in changes or changes[name]["new"] != new_val:
+                                        changes[name] = {"old": old_val, "new": new_val}
+                                else:
+                                    recompute_report.append(f"{name}: type mismatch; skipped")
+                        except Exception as ex:
+                            recompute_report.append(f"{name}: {ex!r}")
+
+        if changes and self.on_apply:
+            try: self.on_apply(changes)
+            except Exception: pass
+
+        self.last_changes = changes
+        try: self.root.event_generate("<<DebugGlobalsApplied>>", when="tail")
+        except Exception: pass
+
+        if recompute_report:
+            self._message_var.set("; ".join(recompute_report))
+        else:
+            self._message_var.set("Applied.")
+
+        self._result = {"applied": True, "changes": changes}
+        self._win.destroy()
+
+    def _on_revert_defaults(self):
+        defaults = DebugGlobalEditor_class._DEFAULTS_SNAPSHOT or {}
+        for row in self._rows:
+            name, vtype = row["name"], row["type"]
+            if name in defaults:
+                val = defaults[name]
+                if vtype is bool:
+                    row["boolvar"].set(bool(val))
+                else:
+                    row["candidate"].set(self._fmt(val, vtype))
+                row["apply_overridden"] = False
+                self._on_value_changed(name)
+        self._message_var.set("Reverted to defaults (candidate values).")
+
+    def _on_save_json(self):
+        path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON", "*.json")])
+        if not path:
+            return
+    
+        # Build dep info so we can skip computed variables
+        try:
+            info_by_name, _ = self._build_dep_graph()
+        except Exception:
+            info_by_name = {}
+    
+        data = {}
+        for row in self._rows:
+            name, vtype = row["name"], row["type"]
+            info = info_by_name.get(name)
+            is_computed = bool(info and info.depends_on)
+            if is_computed:
+                continue  # skip computed values
+    
+            if vtype is bool:
+                data[name] = bool(row["boolvar"].get())
+            else:
+                try:
+                    data[name] = self._parse(row["candidate"].get(), vtype)
+                except Exception:
+                    pass
+    
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            self._message_var.set(f"Saved to {path}")
+        except Exception as ex:
+            messagebox.showerror("Save JSON failed", str(ex))
+
+    def _on_load_json(self):
+        path = filedialog.askopenfilename(filetypes=[("JSON", "*.json"), ("All Files", "*.*")])
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as ex:
+            messagebox.showerror("Load JSON failed", str(ex))
+            return
+    
+        # Build dep info so we can skip computed variables
+        try:
+            info_by_name, _ = self._build_dep_graph()
+        except Exception:
+            info_by_name = {}
+    
+        for row in self._rows:
+            name, vtype = row["name"], row["type"]
+            if name not in data:
+                continue
+    
+            info = info_by_name.get(name)
+            is_computed = bool(info and info.depends_on)
+            if is_computed:
+                continue  # never load into computed variables
+    
+            val = data[name]
+            # simple type check
+            if vtype is bool:
+                row["boolvar"].set(bool(val))
+            elif vtype is int and isinstance(val, int):
+                row["candidate"].set(str(val))
+            elif vtype is float and isinstance(val, (int, float)):
+                row["candidate"].set(self._fmt(float(val), float))
+            elif vtype is str and isinstance(val, str):
+                row["candidate"].set(val)
+            else:
+                continue
+    
+            row["apply_overridden"] = False
+            self._on_value_changed(name)
+    
+        self._message_var.set(f"Loaded from {path}")
+
+    # ---------------- Inspector ----------------
+
+    def _select_row(self, name: str | None):
+        """Select a row in the grid. No inspector updates (inspector removed)."""
+        self._inspected_name = name
+        # If you had visual highlight logic, keep it; otherwise, no-op is fine.
+        # Example (optional): ensure Apply button state recalculates for UX.
+        self._refresh_apply_enabled()
+
+    # ---------------- Misc ----------------
+
+    def _refresh_apply_enabled(self):
+        if not self._apply_btn: return
+        ok = all(r["valid"] for r in self._rows)
+        self._apply_btn.state(["!disabled"] if ok else ["disabled"])
+
+#=== END OF class DebugGlobalEditor_class ==============================================================================================================
 
 # ============================================================================
 # TOP-LEVEL UTILITY FUNCTION - Place this near the top of the program
@@ -2688,6 +3546,15 @@ class FolderCompareSync_class:
         ttk.Button(filter_tree_frame, text="Expand All", command=self.expand_all_trees, style="DefaultNormal.TButton").pack(side=tk.LEFT, padx=(0, 5)) # v001.0016 changed [use default button style]
         ttk.Button(filter_tree_frame, text="Collapse All", command=self.collapse_all_trees, style="DefaultNormal.TButton").pack(side=tk.LEFT) # v001.0016 changed [use default button style]
         
+        # Debug button (debug mode only) # v001.0019 added [DebugGlobalEditor_class integration - UI button]
+        if __debug__:
+            ttk.Button(
+                filter_tree_frame,
+                text="Debug Globals",
+                command=self.open_debug_global_editor,
+                style="DefaultNormal.TButton"
+            ).pack(side=tk.LEFT, padx=(10, 0))
+
         # Tree comparison frame (adjusted height to make room for status log)
         tree_frame = ttk.Frame(main_frame)
         tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
@@ -5009,6 +5876,405 @@ class FolderCompareSync_class:
             raise
         finally:
             log_and_flush(logging.INFO, "Application shutdown")
+
+    def open_debug_global_editor(self): # v001.0019 added [DebugGlobalEditor_class integration - main editor method]
+        """
+        Open the DebugGlobalEditor_class and handle UI recreation if changes are applied.
+        
+        Purpose:
+        --------
+        Main integration method that captures application state, opens the debug editor,
+        and handles UI recreation with updated global values using the destroy/recreate
+        pattern for clean integration.
+        """
+        if not __debug__:
+            self.add_status_message("Debug Global Editor is only available in debug builds")
+            return
+        
+        log_and_flush(logging.INFO, "Opening DebugGlobalEditor_class for global variable modification")
+        self.add_status_message("Opening Debug Global Editor...")
+        
+        try:
+            # Capture current application state before opening editor
+            captured_state = self.capture_application_state()
+            
+            # Create and open the debug editor
+            editor = DebugGlobalEditor_class(
+                self.root,
+                module=sys.modules[__name__],  # v001.0019 changed [explicitly pass FolderCompareSync module instead of auto-detection]
+                title="FolderCompareSync - Debug Global Variables",
+                allow_recompute=True,
+                on_apply=lambda changes: self._handle_debug_changes_applied(changes, captured_state)
+            )
+            
+            # Open modal dialog and get result
+            result = editor.open()
+            
+            # Handle result
+            if result.get('applied', False):
+                changes = result.get('changes', {})
+                if changes:
+                    log_and_flush(logging.INFO, f"Debug editor applied {len(changes)} global changes")
+                    self.add_status_message(f"Debug Global Editor applied {len(changes)} changes")
+                    
+                    # Schedule UI recreation with updated globals
+                    self.root.after(100, lambda: self._recreate_ui_with_new_globals(captured_state, changes))
+                else:
+                    self.add_status_message("Debug Global Editor completed - no changes applied")
+            else:
+                self.add_status_message("Debug Global Editor cancelled")
+                
+            # Clean up editor reference
+            del editor
+            
+        except Exception as e:
+            error_msg = f"Error opening Debug Global Editor: {str(e)}"
+            log_and_flush(logging.ERROR, error_msg)
+            if __debug__:
+                log_and_flush(logging.DEBUG, f"Debug editor exception: {traceback.format_exc()}")
+            self.add_status_message(f"ERROR: {error_msg}")
+            self.show_error(error_msg)
+    
+    def _handle_debug_changes_applied(self, changes: dict, captured_state: dict): # v001.0019 added [DebugGlobalEditor_class integration - change handler]
+        """Handle callback when debug editor applies changes (before dialog closes)."""
+        if __debug__:
+            log_and_flush(logging.DEBUG, f"Debug editor changes applied callback: {len(changes)} changes")
+            for name, change_info in changes.items():
+                log_and_flush(logging.DEBUG, f"  {name}: {change_info['old']} -> {change_info['new']}")
+    
+    def _recreate_ui_with_new_globals(self, captured_state: dict, changes: dict): # v001.0020 changed [fixed threading conflict and state restoration timing]
+        """
+        Recreate the entire UI using updated global values.
+        
+        Purpose:
+        --------
+        Implements the destroy/recreate pattern to ensure all UI elements
+        automatically use the new global values after debug changes.
+        """
+        log_and_flush(logging.INFO, "Recreating UI with updated global values")
+        
+        try:
+            # Add final status message before destruction
+            self.add_status_message("Rebuilding UI with new global settings...")
+            
+            # Create new application instance (this will create a new window)
+            new_app = FolderCompareSync_class()
+            
+            # Wait a moment for new app to fully initialize before restoring state # v001.0020 added [ensure UI is fully ready before state restoration]
+            def restore_state_after_init(): # v001.0020 added [delayed state restoration function]
+                try: # v001.0020 added [error handling for state restoration]
+                    # Restore state to new instance
+                    new_app.restore_application_state(captured_state)
+                    
+                    # Add status messages about the recreation
+                    change_summary = ", ".join(f"{name}={info['new']}" for name, info in changes.items())
+                    new_app.add_status_message(f"UI recreated with debug changes: {change_summary}")
+                    
+                    # Check if we should auto-compare (only if both folders were set and we had comparison data) # v001.0020 changed [improved auto-compare condition checking]
+                    should_auto_compare = ( # v001.0020 added [explicit auto-compare condition check]
+                        captured_state.get('left_folder') and 
+                        captured_state.get('right_folder') and
+                        captured_state.get('has_comparison_data', False)
+                    ) # v001.0020 added [explicit auto-compare condition check]
+                    
+                    if should_auto_compare: # v001.0020 changed [use explicit condition variable]
+                        # Ask user if they want to auto-compare - but do it safely on the new window # v001.0020 changed [ensure dialog uses new window as parent]
+                        def ask_auto_compare(): # v001.0020 added [separate function for auto-compare dialog]
+                            try: # v001.0020 added [error handling for auto-compare dialog]
+                                auto_compare = messagebox.askyesno(
+                                    "Auto-Compare",
+                                    "UI has been recreated with new global settings.\n\n"
+                                    "Would you like to automatically re-compare the folders\n"
+                                    "to see the results with the new settings?",
+                                    parent=new_app.root  # v001.0020 changed [explicitly use new app root as parent]
+                                )
+                                
+                                if auto_compare:
+                                    new_app.add_status_message("Auto-comparing folders with new settings...")
+                                    # Start comparison in background thread - but on the NEW instance # v001.0020 changed [ensure comparison runs on new instance]
+                                    threading.Thread(target=new_app.perform_comparison, daemon=True).start() # v001.0020 changed [use new_app instead of self]
+                            except Exception as e: # v001.0020 added [error handling for auto-compare dialog]
+                                log_and_flush(logging.ERROR, f"Error in auto-compare dialog: {e}") # v001.0020 added [error handling for auto-compare dialog]
+                                new_app.add_status_message(f"Error in auto-compare dialog: {str(e)}") # v001.0020 added [error handling for auto-compare dialog]
+                        
+                        # Schedule the auto-compare dialog after a short delay to ensure UI is stable # v001.0020 added [delayed auto-compare dialog]
+                        new_app.root.after(100, ask_auto_compare) # v001.0020 added [delayed auto-compare dialog]
+                    
+                    log_and_flush(logging.INFO, "State restoration completed successfully") # v001.0020 added [log successful state restoration]
+                    
+                except Exception as e: # v001.0020 added [error handling for state restoration]
+                    error_msg = f"Error during state restoration: {str(e)}" # v001.0020 added [error handling for state restoration]
+                    log_and_flush(logging.ERROR, error_msg) # v001.0020 added [error handling for state restoration]
+                    if __debug__: # v001.0020 added [error handling for state restoration]
+                        log_and_flush(logging.DEBUG, f"State restoration exception: {traceback.format_exc()}") # v001.0020 added [error handling for state restoration]
+                    new_app.add_status_message(f"Warning: {error_msg}") # v001.0020 added [error handling for state restoration]
+            
+            # Schedule state restoration after UI is fully initialized # v001.0020 changed [delayed state restoration to prevent timing issues]
+            new_app.root.after(50, restore_state_after_init) # v001.0020 changed [delayed state restoration to prevent timing issues]
+            
+            # Schedule destruction of old window after new window is stable # v001.0020 changed [increased delay and better cleanup]
+            def destroy_old_window(): # v001.0020 added [separate function for old window destruction]
+                try: # v001.0020 added [error handling for window destruction]
+                    self.root.destroy() # v001.0020 added [destroy old window]
+                    log_and_flush(logging.INFO, "Old window destroyed successfully") # v001.0020 added [log successful window destruction]
+                except Exception as e: # v001.0020 added [error handling for window destruction]
+                    log_and_flush(logging.ERROR, f"Error destroying old window: {e}") # v001.0020 added [error handling for window destruction]
+            
+            self.root.after(1000, destroy_old_window)  # v001.0020 changed [increased delay from 500ms to 1000ms and use separate function]
+            
+            log_and_flush(logging.INFO, "UI recreation process initiated successfully") # v001.0020 added [log successful recreation initiation]
+            
+        except Exception as e:
+            error_msg = f"Error recreating UI: {str(e)}"
+            log_and_flush(logging.ERROR, error_msg)
+            if __debug__:
+                log_and_flush(logging.DEBUG, f"UI recreation exception: {traceback.format_exc()}")
+            self.add_status_message(f"ERROR: {error_msg}")
+            messagebox.showerror("UI Recreation Failed", f"{error_msg}\n\nContinuing with current UI.")
+
+    def capture_application_state(self) -> dict[str, Any]: # v001.0019 added [DebugGlobalEditor_class integration - state capture]
+        """
+        Capture current application state for restoration after UI recreation.
+        
+        Purpose:
+        --------
+        Saves all important application state including folder paths, comparison results,
+        selections, filter state, and UI configuration for restoration after debug
+        global changes trigger UI recreation.
+        
+        Returns:
+        --------
+        dict: Complete application state dictionary
+        """
+        if __debug__: 
+            log_and_flush(logging.DEBUG, "Capturing application state for debug UI recreation") 
+        
+        state = {} 
+        
+        try: 
+            # Folder paths 
+            state['left_folder'] = self.left_folder.get() 
+            state['right_folder'] = self.right_folder.get() 
+            
+            # Comparison options 
+            state['compare_existence'] = self.compare_existence.get() 
+            state['compare_size'] = self.compare_size.get() 
+            state['compare_date_created'] = self.compare_date_created.get() 
+            state['compare_date_modified'] = self.compare_date_modified.get() 
+            state['compare_sha512'] = self.compare_sha512.get() 
+            
+            # Operation modes 
+            state['overwrite_mode'] = self.overwrite_mode.get() 
+            state['dry_run_mode'] = self.dry_run_mode.get() 
+            
+            # Filter state 
+            state['filter_wildcard'] = self.filter_wildcard.get() 
+            state['is_filtered'] = self.is_filtered 
+            
+            # Window geometry 
+            state['window_geometry'] = self.root.geometry() 
+            state['window_state'] = self.root.state() 
+            
+            # Comparison data (if exists) 
+            if hasattr(self, 'comparison_results') and self.comparison_results: 
+                state['has_comparison_data'] = True 
+                state['comparison_results'] = self.comparison_results.copy() 
+                if hasattr(self, 'filtered_results') and self.filtered_results: 
+                    state['filtered_results'] = self.filtered_results.copy() 
+            else: 
+                state['has_comparison_data'] = False 
+            
+            # Selection state 
+            if hasattr(self, 'selected_left') and hasattr(self, 'selected_right'): 
+                state['selected_left'] = self.selected_left.copy() 
+                state['selected_right'] = self.selected_right.copy() 
+            
+            # File count tracking 
+            state['file_count_left'] = getattr(self, 'file_count_left', 0) 
+            state['file_count_right'] = getattr(self, 'file_count_right', 0) 
+            state['total_file_count'] = getattr(self, 'total_file_count', 0) 
+            state['limit_exceeded'] = getattr(self, 'limit_exceeded', False) 
+            
+            # Status information 
+            state['status_var'] = self.status_var.get() 
+            state['summary_var'] = self.summary_var.get() 
+            
+            # Status log history 
+            if hasattr(self, 'status_log_lines'): 
+                state['status_log_lines'] = self.status_log_lines.copy() 
+            
+            if __debug__: 
+                log_and_flush(logging.DEBUG, f"Successfully captured application state: {len(state)} items") 
+                
+        except Exception as e: 
+            log_and_flush(logging.ERROR, f"Error capturing application state: {e}") 
+            if __debug__: 
+                log_and_flush(logging.DEBUG, f"State capture exception: {traceback.format_exc()}") 
+        
+        return state 
+
+    def restore_application_state(self, state: dict[str, Any]): # v001.0020 changed [added better error handling and timing safety]
+        """
+        Restore application state after UI recreation.
+        
+        Purpose:
+        --------
+        Restores all captured application state including folder paths, comparison results,
+        selections, filter state, and UI configuration after debug global changes have
+        triggered UI recreation with new global values.
+        
+        Args:
+        -----
+        state: Application state dictionary from capture_application_state
+        """
+        if __debug__:
+            log_and_flush(logging.DEBUG, "Restoring application state after debug UI recreation")
+        
+        try:
+            # Ensure UI is fully initialized before restoring state # v001.0020 added [UI initialization check]
+            if not hasattr(self, 'left_folder') or not hasattr(self, 'right_folder'): # v001.0020 added [check if tkinter variables exist]
+                log_and_flush(logging.ERROR, "UI not fully initialized - tkinter variables missing") # v001.0020 added [error for missing variables]
+                self.add_status_message("Warning: UI not ready for state restoration - retrying...") # v001.0020 added [user warning]
+                # Retry after a short delay # v001.0020 added [retry mechanism]
+                self.root.after(100, lambda: self.restore_application_state(state)) # v001.0020 added [retry mechanism]
+                return # v001.0020 added [early return for retry]
+            
+            # Restore folder paths with validation # v001.0020 changed [added validation for folder path restoration]
+            if 'left_folder' in state and state['left_folder']: # v001.0020 changed [added null check]
+                try: # v001.0020 added [error handling for folder path setting]
+                    self.left_folder.set(state['left_folder'])
+                    log_and_flush(logging.DEBUG, f"Restored left folder: {state['left_folder']}") # v001.0020 added [log folder restoration]
+                except Exception as e: # v001.0020 added [error handling for folder path setting]
+                    log_and_flush(logging.ERROR, f"Error setting left folder: {e}") # v001.0020 added [error handling for folder path setting]
+                    
+            if 'right_folder' in state and state['right_folder']: # v001.0020 changed [added null check]
+                try: # v001.0020 added [error handling for folder path setting]
+                    self.right_folder.set(state['right_folder'])
+                    log_and_flush(logging.DEBUG, f"Restored right folder: {state['right_folder']}") # v001.0020 added [log folder restoration]
+                except Exception as e: # v001.0020 added [error handling for folder path setting]
+                    log_and_flush(logging.ERROR, f"Error setting right folder: {e}") # v001.0020 added [error handling for folder path setting]
+            
+            # Restore comparison options with error handling # v001.0020 changed [added error handling for comparison options]
+            comparison_options = [ # v001.0020 added [list of comparison options for easier handling]
+                ('compare_existence', 'compare_existence'),
+                ('compare_size', 'compare_size'),
+                ('compare_date_created', 'compare_date_created'),
+                ('compare_date_modified', 'compare_date_modified'),
+                ('compare_sha512', 'compare_sha512')
+            ] # v001.0020 added [list of comparison options for easier handling]
+            
+            for state_key, attr_name in comparison_options: # v001.0020 added [iterate through comparison options]
+                if state_key in state: # v001.0020 added [check if option exists in state]
+                    try: # v001.0020 added [error handling for comparison option setting]
+                        getattr(self, attr_name).set(state[state_key]) # v001.0020 added [safely set comparison option]
+                        log_and_flush(logging.DEBUG, f"Restored {attr_name}: {state[state_key]}") # v001.0020 added [log option restoration]
+                    except Exception as e: # v001.0020 added [error handling for comparison option setting]
+                        log_and_flush(logging.ERROR, f"Error setting {attr_name}: {e}") # v001.0020 added [error handling for comparison option setting]
+            
+            # Restore operation modes with error handling # v001.0020 changed [added error handling for operation modes]
+            operation_modes = [ # v001.0020 added [list of operation modes for easier handling]
+                ('overwrite_mode', 'overwrite_mode'),
+                ('dry_run_mode', 'dry_run_mode')
+            ] # v001.0020 added [list of operation modes for easier handling]
+            
+            for state_key, attr_name in operation_modes: # v001.0020 added [iterate through operation modes]
+                if state_key in state: # v001.0020 added [check if mode exists in state]
+                    try: # v001.0020 added [error handling for operation mode setting]
+                        getattr(self, attr_name).set(state[state_key]) # v001.0020 added [safely set operation mode]
+                        log_and_flush(logging.DEBUG, f"Restored {attr_name}: {state[state_key]}") # v001.0020 added [log mode restoration]
+                    except Exception as e: # v001.0020 added [error handling for operation mode setting]
+                        log_and_flush(logging.ERROR, f"Error setting {attr_name}: {e}") # v001.0020 added [error handling for operation mode setting]
+            
+            # Restore filter state with error handling # v001.0020 changed [added error handling for filter state]
+            if 'filter_wildcard' in state: # v001.0020 added [check if filter exists in state]
+                try: # v001.0020 added [error handling for filter setting]
+                    self.filter_wildcard.set(state['filter_wildcard'])
+                    log_and_flush(logging.DEBUG, f"Restored filter: {state['filter_wildcard']}") # v001.0020 added [log filter restoration]
+                except Exception as e: # v001.0020 added [error handling for filter setting]
+                    log_and_flush(logging.ERROR, f"Error setting filter: {e}") # v001.0020 added [error handling for filter setting]
+                    
+            if 'is_filtered' in state:
+                self.is_filtered = state['is_filtered']
+            
+            # Restore window geometry (after a brief delay for UI to settle) with error handling # v001.0020 changed [added error handling for geometry]
+            if 'window_geometry' in state: # v001.0020 added [check if geometry exists in state]
+                try: # v001.0020 added [error handling for geometry setting]
+                    self.root.after(100, lambda: self.root.geometry(state['window_geometry'])) # v001.0020 added [safely set geometry]
+                    log_and_flush(logging.DEBUG, f"Scheduled geometry restoration: {state['window_geometry']}") # v001.0020 added [log geometry restoration]
+                except Exception as e: # v001.0020 added [error handling for geometry setting]
+                    log_and_flush(logging.ERROR, f"Error setting geometry: {e}") # v001.0020 added [error handling for geometry setting]
+                    
+            if 'window_state' in state and state['window_state'] != 'normal': # v001.0020 added [check if window state exists and is not normal]
+                try: # v001.0020 added [error handling for window state setting]
+                    self.root.after(200, lambda: self.root.state(state['window_state'])) # v001.0020 added [safely set window state]
+                    log_and_flush(logging.DEBUG, f"Scheduled window state restoration: {state['window_state']}") # v001.0020 added [log window state restoration]
+                except Exception as e: # v001.0020 added [error handling for window state setting]
+                    log_and_flush(logging.ERROR, f"Error setting window state: {e}") # v001.0020 added [error handling for window state setting]
+            
+            # Restore comparison data with error handling # v001.0020 changed [added error handling for comparison data]
+            if state.get('has_comparison_data', False):
+                try: # v001.0020 added [error handling for comparison data restoration]
+                    if 'comparison_results' in state:
+                        self.comparison_results = state['comparison_results']
+                        log_and_flush(logging.DEBUG, f"Restored comparison results: {len(self.comparison_results)} items") # v001.0020 added [log comparison results restoration]
+                    if 'filtered_results' in state:
+                        self.filtered_results = state['filtered_results']
+                        log_and_flush(logging.DEBUG, f"Restored filtered results: {len(self.filtered_results)} items") # v001.0020 added [log filtered results restoration]
+                except Exception as e: # v001.0020 added [error handling for comparison data restoration]
+                    log_and_flush(logging.ERROR, f"Error restoring comparison data: {e}") # v001.0020 added [error handling for comparison data restoration]
+            
+            # Restore selection state with error handling # v001.0020 changed [added error handling for selection state]
+            try: # v001.0020 added [error handling for selection restoration]
+                if 'selected_left' in state:
+                    self.selected_left = state['selected_left']
+                    log_and_flush(logging.DEBUG, f"Restored left selections: {len(self.selected_left)} items") # v001.0020 added [log left selection restoration]
+                if 'selected_right' in state:
+                    self.selected_right = state['selected_right']
+                    log_and_flush(logging.DEBUG, f"Restored right selections: {len(self.selected_right)} items") # v001.0020 added [log right selection restoration]
+            except Exception as e: # v001.0020 added [error handling for selection restoration]
+                log_and_flush(logging.ERROR, f"Error restoring selections: {e}") # v001.0020 added [error handling for selection restoration]
+            
+            # Restore file count tracking
+            self.file_count_left = state.get('file_count_left', 0)
+            self.file_count_right = state.get('file_count_right', 0)
+            self.total_file_count = state.get('total_file_count', 0)
+            self.limit_exceeded = state.get('limit_exceeded', False)
+            
+            # Restore status information with error handling # v001.0020 changed [added error handling for status restoration]
+            try: # v001.0020 added [error handling for status restoration]
+                if 'status_var' in state:
+                    self.status_var.set(state['status_var'])
+                if 'summary_var' in state:
+                    self.summary_var.set(state['summary_var'])
+            except Exception as e: # v001.0020 added [error handling for status restoration]
+                log_and_flush(logging.ERROR, f"Error restoring status variables: {e}") # v001.0020 added [error handling for status restoration]
+            
+            # Restore status log history with error handling # v001.0020 changed [added error handling for status log restoration]
+            if 'status_log_lines' in state: # v001.0020 added [check if status log exists in state]
+                try: # v001.0020 added [error handling for status log restoration]
+                    self.status_log_lines = state['status_log_lines']
+                    # Update status log display
+                    if self.status_log_text:
+                        self.status_log_text.config(state=tk.NORMAL)
+                        self.status_log_text.delete('1.0', tk.END)
+                        self.status_log_text.insert('1.0', '\n'.join(self.status_log_lines))
+                        self.status_log_text.config(state=tk.DISABLED)
+                        self.status_log_text.see(tk.END)
+                    log_and_flush(logging.DEBUG, f"Restored status log: {len(self.status_log_lines)} lines") # v001.0020 added [log status log restoration]
+                except Exception as e: # v001.0020 added [error handling for status log restoration]
+                    log_and_flush(logging.ERROR, f"Error restoring status log: {e}") # v001.0020 added [error handling for status log restoration]
+            
+            # Add status message about restoration
+            self.add_status_message("Application state restored after debug global changes")
+            
+            if __debug__:
+                log_and_flush(logging.DEBUG, "Successfully restored application state")
+                
+        except Exception as e:
+            log_and_flush(logging.ERROR, f"Error restoring application state: {e}")
+            if __debug__:
+                log_and_flush(logging.DEBUG, f"State restore exception: {traceback.format_exc()}")
+            self.add_status_message(f"Warning: Some application state could not be restored: {str(e)}")
 
 # ============================================================================
 # COMPREHENSIVE DELETE ORPHANS MANAGER CLASS
