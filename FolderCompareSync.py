@@ -2,8 +2,9 @@
 """
 FolderCompareSync - A Folder Comparison & Synchronization Tool
 
-
-Version  v001.0020 - fix threading conflict and UI recreation timing in debug global editor
+Version:
+         v001.0021 - fix UI recreation to use in-place rebuild instead of new instance
+         v001.0020 - fix threading conflict and UI recreation timing in debug global editor
          v001.0019 - add DebugGlobalEditor_class integration with destroy/recreate UI refresh pattern
          v001.0018 - fix delete orphans dialog cancel button error by adding None check for manager result,
                      fix static method calling syntax in delete orphans functionality 
@@ -3043,61 +3044,9 @@ class FolderCompareSync_class:
         self.root = tk.Tk()
         self.root.title("FolderCompareSync - Folder Comparison and Syncing Tool")
     
-        # NEW style configs for the "Compare" "Copy" "Quit" buttons  button
-        # 1) Get the existing default font and make a bold copy
-        self.default_font = tkfont.nametofont("TkDefaultFont")
-        self.bold_font = self.default_font.copy()
-        self.bold_font.configure(weight="bold")
-        
-        # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        # Create scaled fonts based on configuration
-        self.scaled_button_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_button_font.configure(size=SCALED_BUTTON_FONT_SIZE)
-        # Create a bold version
-        self.scaled_button_font_bold = self.scaled_button_font.copy()
-        self.scaled_button_font_bold.configure(weight="bold")
-        
-        self.scaled_label_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_label_font.configure(size=SCALED_LABEL_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        
-        self.scaled_entry_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_entry_font.configure(size=SCALED_ENTRY_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        
-        self.scaled_checkbox_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_checkbox_font.configure(size=SCALED_CHECKBOX_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        
-        self.scaled_dialog_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_dialog_font.configure(size=SCALED_DIALOG_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        
-        self.scaled_status_font = self.default_font.copy() # v001.0016 added [scaled font for status messages using global SCALED_STATUS_MESSAGE_FONT_SIZE]
-        self.scaled_status_font.configure(size=SCALED_STATUS_MESSAGE_FONT_SIZE) # v001.0016 added [scaled font for status messages using global SCALED_STATUS_MESSAGE_FONT_SIZE]
-        
-        self.style = ttk.Style(self.root)
-        # 2) Create colour styles for some bolded_fonts
-        self.style.configure("LimeGreenBold.TButton", foreground="limegreen",font=self.scaled_button_font_bold)
-        self.style.configure("GreenBold.TButton", foreground="green",font=self.scaled_button_font_bold)
-        self.style.configure("DarkGreenBold.TButton", foreground="darkgreen",font=self.scaled_button_font_bold)
-        self.style.configure("RedBold.TButton", foreground="red",font=self.scaled_button_font_bold)
-        self.style.configure("PurpleBold.TButton", foreground="purple",font=self.scaled_button_font_bold)
-        self.style.configure("MediumPurpleBold.TButton", foreground="mediumpurple",font=self.scaled_button_font_bold)
-        self.style.configure("IndigoBold.TButton", foreground="indigo",font=self.scaled_button_font_bold)
-        self.style.configure("BlueBold.TButton", foreground="blue",font=self.scaled_button_font_bold)
-        self.style.configure("GoldBold.TButton", foreground="gold",font=self.scaled_button_font_bold)
-        self.style.configure("YellowBold.TButton", foreground="yellow",font=self.scaled_button_font_bold)
-
-        # v001.0016 added [default button style for buttons without specific colors]
-        self.style.configure("DefaultNormal.TButton", font=self.scaled_button_font, weight="normal") # v001.0016 added [default button style for buttons without specific colors]
-        self.style.configure("DefaultBold.TButton.TButton", font=self.scaled_button_font_bold, weight="bold")     # v001.0016 added [default bold button style for buttons without specific colors]
-
-        # v001.0014 added [create custom ttk styles for scaled fonts]
-        # Create custom styles for ttk widgets that need scaled fonts
-        self.style.configure("Scaled.TCheckbutton", font=self.scaled_checkbox_font)
-        self.style.configure("Scaled.TLabel", font=self.scaled_label_font)
-        self.style.configure("StatusMessage.TLabel", font=self.scaled_status_font) # v001.0016 added [status message label style using SCALED_STATUS_MESSAGE_FONT_SIZE]
-        self.style.configure("Scaled.TEntry", font=self.scaled_entry_font)
-    
-        # Configure tree row height for all treeviews globally # v001.0015 added [tree row height control for compact display]
-        self.style.configure("Treeview", rowheight=TREE_ROW_HEIGHT) # v001.0015 added [tree row height control for compact display]
+        # v001.0021 - fix UI recreation to use in-place rebuild instead of new instance
+        # v001.0021 - Create fonts and styles (extracted to separate method for UI recreation)
+        self.create_fonts_and_styles()
     
         # Get screen dimensions for smart window sizing
         screen_width = self.root.winfo_screenwidth()
@@ -3183,6 +3132,64 @@ class FolderCompareSync_class:
         timezone_str = self.copy_manager.timestamp_manager.get_timezone_string()
         self.add_status_message(f"Timezone detected: {timezone_str} - will be used for timestamp operations")
         log_and_flush(logging.INFO, "Application initialization complete ")
+
+    def create_fonts_and_styles(self):
+        """Create or recreate fonts and styles based on current global values."""
+        # v001.0021 added [extracted font/style creation for UI recreation support]
+        # 1) Get the existing default font and make a bold copy
+        self.default_font = tkfont.nametofont("TkDefaultFont")
+        self.bold_font = self.default_font.copy()
+        self.bold_font.configure(weight="bold")
+        
+        # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        # Create scaled fonts based on configuration
+        self.scaled_button_font = self.default_font.copy()
+        self.scaled_button_font.configure(size=SCALED_BUTTON_FONT_SIZE)
+        # Create a bold version
+        self.scaled_button_font_bold = self.scaled_button_font.copy()
+        self.scaled_button_font_bold.configure(weight="bold")
+        
+        self.scaled_label_font = self.default_font.copy()
+        self.scaled_label_font.configure(size=SCALED_LABEL_FONT_SIZE)
+        
+        self.scaled_entry_font = self.default_font.copy()
+        self.scaled_entry_font.configure(size=SCALED_ENTRY_FONT_SIZE)
+        
+        self.scaled_checkbox_font = self.default_font.copy()
+        self.scaled_checkbox_font.configure(size=SCALED_CHECKBOX_FONT_SIZE)
+        
+        self.scaled_dialog_font = self.default_font.copy()
+        self.scaled_dialog_font.configure(size=SCALED_DIALOG_FONT_SIZE)
+        
+        self.scaled_status_font = self.default_font.copy()
+        self.scaled_status_font.configure(size=SCALED_STATUS_MESSAGE_FONT_SIZE)
+        
+        self.style = ttk.Style(self.root)
+        # 2) Create colour styles for some bolded_fonts
+        self.style.configure("LimeGreenBold.TButton", foreground="limegreen",font=self.scaled_button_font_bold)
+        self.style.configure("GreenBold.TButton", foreground="green",font=self.scaled_button_font_bold)
+        self.style.configure("DarkGreenBold.TButton", foreground="darkgreen",font=self.scaled_button_font_bold)
+        self.style.configure("RedBold.TButton", foreground="red",font=self.scaled_button_font_bold)
+        self.style.configure("PurpleBold.TButton", foreground="purple",font=self.scaled_button_font_bold)
+        self.style.configure("MediumPurpleBold.TButton", foreground="mediumpurple",font=self.scaled_button_font_bold)
+        self.style.configure("IndigoBold.TButton", foreground="indigo",font=self.scaled_button_font_bold)
+        self.style.configure("BlueBold.TButton", foreground="blue",font=self.scaled_button_font_bold)
+        self.style.configure("GoldBold.TButton", foreground="gold",font=self.scaled_button_font_bold)
+        self.style.configure("YellowBold.TButton", foreground="yellow",font=self.scaled_button_font_bold)
+
+        # v001.0016 added [default button style for buttons without specific colors]
+        self.style.configure("DefaultNormal.TButton", font=self.scaled_button_font, weight="normal")
+        self.style.configure("DefaultBold.TButton.TButton", font=self.scaled_button_font_bold, weight="bold")
+
+        # v001.0014 added [create custom ttk styles for scaled fonts]
+        # Create custom styles for ttk widgets that need scaled fonts
+        self.style.configure("Scaled.TCheckbutton", font=self.scaled_checkbox_font)
+        self.style.configure("Scaled.TLabel", font=self.scaled_label_font)
+        self.style.configure("StatusMessage.TLabel", font=self.scaled_status_font)
+        self.style.configure("Scaled.TEntry", font=self.scaled_entry_font)
+    
+        # Configure tree row height for all treeviews globally # v001.0015 added [tree row height control for compact display]
+        self.style.configure("Treeview", rowheight=TREE_ROW_HEIGHT) # v001.0015 added [tree row height control for compact display]
 
     def add_status_message(self, message):
         """
@@ -4396,6 +4403,11 @@ class FolderCompareSync_class:
         Orchestrates the complete comparison process including scanning, comparison,
         and UI updates while enforcing file count limits for performance management.
         """
+        # v001.0021 added [check if UI is being recreated to prevent threading issues]
+        if hasattr(self, '_ui_recreating') and self._ui_recreating:
+            log_and_flush(logging.WARNING, "Comparison aborted - UI is being recreated")
+            return
+            
         start_time = time.time()
         log_and_flush(logging.INFO, "Beginning folder comparison operation")
         
@@ -5903,8 +5915,7 @@ class FolderCompareSync_class:
                 self.root,
                 module=sys.modules[__name__],  # v001.0019 changed [explicitly pass FolderCompareSync module instead of auto-detection]
                 title="FolderCompareSync - Debug Global Variables",
-                allow_recompute=True,
-                on_apply=lambda changes: self._handle_debug_changes_applied(changes, captured_state)
+                allow_recompute=True
             )
             
             # Open modal dialog and get result
@@ -5917,8 +5928,9 @@ class FolderCompareSync_class:
                     log_and_flush(logging.INFO, f"Debug editor applied {len(changes)} global changes")
                     self.add_status_message(f"Debug Global Editor applied {len(changes)} changes")
                     
-                    # Schedule UI recreation with updated globals
-                    self.root.after(100, lambda: self._recreate_ui_with_new_globals(captured_state, changes))
+                    # v001.0021 changed [directly recreate UI in-place instead of scheduling]
+                    # Recreate UI with updated globals
+                    self._recreate_ui_with_new_globals(captured_state, changes)
                 else:
                     self.add_status_message("Debug Global Editor completed - no changes applied")
             else:
@@ -5935,94 +5947,79 @@ class FolderCompareSync_class:
             self.add_status_message(f"ERROR: {error_msg}")
             self.show_error(error_msg)
     
-    def _handle_debug_changes_applied(self, changes: dict, captured_state: dict): # v001.0019 added [DebugGlobalEditor_class integration - change handler]
-        """Handle callback when debug editor applies changes (before dialog closes)."""
-        if __debug__:
-            log_and_flush(logging.DEBUG, f"Debug editor changes applied callback: {len(changes)} changes")
-            for name, change_info in changes.items():
-                log_and_flush(logging.DEBUG, f"  {name}: {change_info['old']} -> {change_info['new']}")
-    
-    def _recreate_ui_with_new_globals(self, captured_state: dict, changes: dict): # v001.0020 changed [fixed threading conflict and state restoration timing]
+    def _recreate_ui_with_new_globals(self, captured_state: dict, changes: dict): # v001.0021 changed [recreate UI in-place instead of new instance]
         """
-        Recreate the entire UI using updated global values.
+        Recreate the UI in-place using updated global values.
         
         Purpose:
         --------
-        Implements the destroy/recreate pattern to ensure all UI elements
-        automatically use the new global values after debug changes.
+        Implements in-place UI recreation to avoid multiple Tk instance issues.
+        Destroys all widgets, recreates fonts/styles with new globals, rebuilds UI,
+        and restores state - all within the same application instance.
         """
-        log_and_flush(logging.INFO, "Recreating UI with updated global values")
+        log_and_flush(logging.INFO, "Recreating UI in-place with updated global values")
         
         try:
-            # Add final status message before destruction
+            # Add final status message before UI destruction
             self.add_status_message("Rebuilding UI with new global settings...")
             
-            # Create new application instance (this will create a new window)
-            new_app = FolderCompareSync_class()
+            # v001.0021 added [stop any running background operations before UI recreation]
+            # Store a flag to prevent new operations during recreation
+            self._ui_recreating = True
             
-            # Wait a moment for new app to fully initialize before restoring state # v001.0020 added [ensure UI is fully ready before state restoration]
-            def restore_state_after_init(): # v001.0020 added [delayed state restoration function]
-                try: # v001.0020 added [error handling for state restoration]
-                    # Restore state to new instance
-                    new_app.restore_application_state(captured_state)
-                    
-                    # Add status messages about the recreation
-                    change_summary = ", ".join(f"{name}={info['new']}" for name, info in changes.items())
-                    new_app.add_status_message(f"UI recreated with debug changes: {change_summary}")
-                    
-                    # Check if we should auto-compare (only if both folders were set and we had comparison data) # v001.0020 changed [improved auto-compare condition checking]
-                    should_auto_compare = ( # v001.0020 added [explicit auto-compare condition check]
-                        captured_state.get('left_folder') and 
-                        captured_state.get('right_folder') and
-                        captured_state.get('has_comparison_data', False)
-                    ) # v001.0020 added [explicit auto-compare condition check]
-                    
-                    if should_auto_compare: # v001.0020 changed [use explicit condition variable]
-                        # Ask user if they want to auto-compare - but do it safely on the new window # v001.0020 changed [ensure dialog uses new window as parent]
-                        def ask_auto_compare(): # v001.0020 added [separate function for auto-compare dialog]
-                            try: # v001.0020 added [error handling for auto-compare dialog]
-                                auto_compare = messagebox.askyesno(
-                                    "Auto-Compare",
-                                    "UI has been recreated with new global settings.\n\n"
-                                    "Would you like to automatically re-compare the folders\n"
-                                    "to see the results with the new settings?",
-                                    parent=new_app.root  # v001.0020 changed [explicitly use new app root as parent]
-                                )
-                                
-                                if auto_compare:
-                                    new_app.add_status_message("Auto-comparing folders with new settings...")
-                                    # Start comparison in background thread - but on the NEW instance # v001.0020 changed [ensure comparison runs on new instance]
-                                    threading.Thread(target=new_app.perform_comparison, daemon=True).start() # v001.0020 changed [use new_app instead of self]
-                            except Exception as e: # v001.0020 added [error handling for auto-compare dialog]
-                                log_and_flush(logging.ERROR, f"Error in auto-compare dialog: {e}") # v001.0020 added [error handling for auto-compare dialog]
-                                new_app.add_status_message(f"Error in auto-compare dialog: {str(e)}") # v001.0020 added [error handling for auto-compare dialog]
-                        
-                        # Schedule the auto-compare dialog after a short delay to ensure UI is stable # v001.0020 added [delayed auto-compare dialog]
-                        new_app.root.after(100, ask_auto_compare) # v001.0020 added [delayed auto-compare dialog]
-                    
-                    log_and_flush(logging.INFO, "State restoration completed successfully") # v001.0020 added [log successful state restoration]
-                    
-                except Exception as e: # v001.0020 added [error handling for state restoration]
-                    error_msg = f"Error during state restoration: {str(e)}" # v001.0020 added [error handling for state restoration]
-                    log_and_flush(logging.ERROR, error_msg) # v001.0020 added [error handling for state restoration]
-                    if __debug__: # v001.0020 added [error handling for state restoration]
-                        log_and_flush(logging.DEBUG, f"State restoration exception: {traceback.format_exc()}") # v001.0020 added [error handling for state restoration]
-                    new_app.add_status_message(f"Warning: {error_msg}") # v001.0020 added [error handling for state restoration]
+            # v001.0021 added [destroy all child widgets of root]
+            # This removes everything but keeps the root window
+            log_and_flush(logging.DEBUG, "Destroying all UI widgets for recreation")
+            for widget in self.root.winfo_children():
+                widget.destroy()
             
-            # Schedule state restoration after UI is fully initialized # v001.0020 changed [delayed state restoration to prevent timing issues]
-            new_app.root.after(50, restore_state_after_init) # v001.0020 changed [delayed state restoration to prevent timing issues]
+            # v001.0021 added [clear widget references to prevent stale references]
+            self.left_tree = None
+            self.right_tree = None
+            self.status_log_text = None
             
-            # Schedule destruction of old window after new window is stable # v001.0020 changed [increased delay and better cleanup]
-            def destroy_old_window(): # v001.0020 added [separate function for old window destruction]
-                try: # v001.0020 added [error handling for window destruction]
-                    self.root.destroy() # v001.0020 added [destroy old window]
-                    log_and_flush(logging.INFO, "Old window destroyed successfully") # v001.0020 added [log successful window destruction]
-                except Exception as e: # v001.0020 added [error handling for window destruction]
-                    log_and_flush(logging.ERROR, f"Error destroying old window: {e}") # v001.0020 added [error handling for window destruction]
+            # v001.0021 added [recreate fonts and styles with new global values]
+            log_and_flush(logging.DEBUG, "Recreating fonts and styles with new global values")
+            self.create_fonts_and_styles()
             
-            self.root.after(1000, destroy_old_window)  # v001.0020 changed [increased delay from 500ms to 1000ms and use separate function]
+            # v001.0021 added [rebuild the entire UI using existing setup_ui method]
+            log_and_flush(logging.DEBUG, "Rebuilding UI structure")
+            self.setup_ui()
             
-            log_and_flush(logging.INFO, "UI recreation process initiated successfully") # v001.0020 added [log successful recreation initiation]
+            # v001.0021 added [clear recreation flag]
+            self._ui_recreating = False
+            
+            # v001.0021 added [restore application state to the rebuilt UI]
+            log_and_flush(logging.DEBUG, "Restoring application state to rebuilt UI")
+            self.restore_application_state(captured_state)
+            
+            # Add status messages about the recreation
+            change_summary = ", ".join(f"{name}={info['new']}" for name, info in changes.items())
+            self.add_status_message(f"UI recreated with debug changes: {change_summary}")
+            
+            # v001.0021 added [check if we should offer auto-compare]
+            should_auto_compare = (
+                captured_state.get('left_folder') and 
+                captured_state.get('right_folder') and
+                captured_state.get('has_comparison_data', False)
+            )
+            
+            if should_auto_compare:
+                # Ask user if they want to auto-compare
+                auto_compare = messagebox.askyesno(
+                    "Auto-Compare",
+                    "UI has been recreated with new global settings.\n\n"
+                    "Would you like to automatically re-compare the folders\n"
+                    "to see the results with the new settings?",
+                    parent=self.root
+                )
+                
+                if auto_compare:
+                    self.add_status_message("Auto-comparing folders with new settings...")
+                    # Start comparison in background thread
+                    threading.Thread(target=self.perform_comparison, daemon=True).start()
+            
+            log_and_flush(logging.INFO, "UI recreation completed successfully")
             
         except Exception as e:
             error_msg = f"Error recreating UI: {str(e)}"
@@ -6030,7 +6027,7 @@ class FolderCompareSync_class:
             if __debug__:
                 log_and_flush(logging.DEBUG, f"UI recreation exception: {traceback.format_exc()}")
             self.add_status_message(f"ERROR: {error_msg}")
-            messagebox.showerror("UI Recreation Failed", f"{error_msg}\n\nContinuing with current UI.")
+            messagebox.showerror("UI Recreation Failed", f"{error_msg}\n\nThe application may need to be restarted.")
 
     def capture_application_state(self) -> dict[str, Any]: # v001.0019 added [DebugGlobalEditor_class integration - state capture]
         """
@@ -6113,7 +6110,7 @@ class FolderCompareSync_class:
         
         return state 
 
-    def restore_application_state(self, state: dict[str, Any]): # v001.0020 changed [added better error handling and timing safety]
+    def restore_application_state(self, state: dict[str, Any]): # v001.0021 changed [simplified for in-place UI recreation]
         """
         Restore application state after UI recreation.
         
@@ -6121,118 +6118,74 @@ class FolderCompareSync_class:
         --------
         Restores all captured application state including folder paths, comparison results,
         selections, filter state, and UI configuration after debug global changes have
-        triggered UI recreation with new global values.
+        triggered in-place UI recreation with new global values.
         
         Args:
         -----
         state: Application state dictionary from capture_application_state
         """
         if __debug__:
-            log_and_flush(logging.DEBUG, "Restoring application state after debug UI recreation")
+            log_and_flush(logging.DEBUG, "Restoring application state after in-place UI recreation")
         
         try:
-            # Ensure UI is fully initialized before restoring state # v001.0020 added [UI initialization check]
-            if not hasattr(self, 'left_folder') or not hasattr(self, 'right_folder'): # v001.0020 added [check if tkinter variables exist]
-                log_and_flush(logging.ERROR, "UI not fully initialized - tkinter variables missing") # v001.0020 added [error for missing variables]
-                self.add_status_message("Warning: UI not ready for state restoration - retrying...") # v001.0020 added [user warning]
-                # Retry after a short delay # v001.0020 added [retry mechanism]
-                self.root.after(100, lambda: self.restore_application_state(state)) # v001.0020 added [retry mechanism]
-                return # v001.0020 added [early return for retry]
-            
-            # Restore folder paths with validation # v001.0020 changed [added validation for folder path restoration]
-            if 'left_folder' in state and state['left_folder']: # v001.0020 changed [added null check]
-                try: # v001.0020 added [error handling for folder path setting]
-                    self.left_folder.set(state['left_folder'])
-                    log_and_flush(logging.DEBUG, f"Restored left folder: {state['left_folder']}") # v001.0020 added [log folder restoration]
-                except Exception as e: # v001.0020 added [error handling for folder path setting]
-                    log_and_flush(logging.ERROR, f"Error setting left folder: {e}") # v001.0020 added [error handling for folder path setting]
+            # Restore folder paths
+            if 'left_folder' in state and state['left_folder']:
+                self.left_folder.set(state['left_folder'])
+                log_and_flush(logging.DEBUG, f"Restored left folder: {state['left_folder']}")
                     
-            if 'right_folder' in state and state['right_folder']: # v001.0020 changed [added null check]
-                try: # v001.0020 added [error handling for folder path setting]
-                    self.right_folder.set(state['right_folder'])
-                    log_and_flush(logging.DEBUG, f"Restored right folder: {state['right_folder']}") # v001.0020 added [log folder restoration]
-                except Exception as e: # v001.0020 added [error handling for folder path setting]
-                    log_and_flush(logging.ERROR, f"Error setting right folder: {e}") # v001.0020 added [error handling for folder path setting]
+            if 'right_folder' in state and state['right_folder']:
+                self.right_folder.set(state['right_folder'])
+                log_and_flush(logging.DEBUG, f"Restored right folder: {state['right_folder']}")
             
-            # Restore comparison options with error handling # v001.0020 changed [added error handling for comparison options]
-            comparison_options = [ # v001.0020 added [list of comparison options for easier handling]
-                ('compare_existence', 'compare_existence'),
-                ('compare_size', 'compare_size'),
-                ('compare_date_created', 'compare_date_created'),
-                ('compare_date_modified', 'compare_date_modified'),
-                ('compare_sha512', 'compare_sha512')
-            ] # v001.0020 added [list of comparison options for easier handling]
+            # Restore comparison options
+            if 'compare_existence' in state:
+                self.compare_existence.set(state['compare_existence'])
+            if 'compare_size' in state:
+                self.compare_size.set(state['compare_size'])
+            if 'compare_date_created' in state:
+                self.compare_date_created.set(state['compare_date_created'])
+            if 'compare_date_modified' in state:
+                self.compare_date_modified.set(state['compare_date_modified'])
+            if 'compare_sha512' in state:
+                self.compare_sha512.set(state['compare_sha512'])
             
-            for state_key, attr_name in comparison_options: # v001.0020 added [iterate through comparison options]
-                if state_key in state: # v001.0020 added [check if option exists in state]
-                    try: # v001.0020 added [error handling for comparison option setting]
-                        getattr(self, attr_name).set(state[state_key]) # v001.0020 added [safely set comparison option]
-                        log_and_flush(logging.DEBUG, f"Restored {attr_name}: {state[state_key]}") # v001.0020 added [log option restoration]
-                    except Exception as e: # v001.0020 added [error handling for comparison option setting]
-                        log_and_flush(logging.ERROR, f"Error setting {attr_name}: {e}") # v001.0020 added [error handling for comparison option setting]
+            # Restore operation modes
+            if 'overwrite_mode' in state:
+                self.overwrite_mode.set(state['overwrite_mode'])
+            if 'dry_run_mode' in state:
+                self.dry_run_mode.set(state['dry_run_mode'])
             
-            # Restore operation modes with error handling # v001.0020 changed [added error handling for operation modes]
-            operation_modes = [ # v001.0020 added [list of operation modes for easier handling]
-                ('overwrite_mode', 'overwrite_mode'),
-                ('dry_run_mode', 'dry_run_mode')
-            ] # v001.0020 added [list of operation modes for easier handling]
-            
-            for state_key, attr_name in operation_modes: # v001.0020 added [iterate through operation modes]
-                if state_key in state: # v001.0020 added [check if mode exists in state]
-                    try: # v001.0020 added [error handling for operation mode setting]
-                        getattr(self, attr_name).set(state[state_key]) # v001.0020 added [safely set operation mode]
-                        log_and_flush(logging.DEBUG, f"Restored {attr_name}: {state[state_key]}") # v001.0020 added [log mode restoration]
-                    except Exception as e: # v001.0020 added [error handling for operation mode setting]
-                        log_and_flush(logging.ERROR, f"Error setting {attr_name}: {e}") # v001.0020 added [error handling for operation mode setting]
-            
-            # Restore filter state with error handling # v001.0020 changed [added error handling for filter state]
-            if 'filter_wildcard' in state: # v001.0020 added [check if filter exists in state]
-                try: # v001.0020 added [error handling for filter setting]
-                    self.filter_wildcard.set(state['filter_wildcard'])
-                    log_and_flush(logging.DEBUG, f"Restored filter: {state['filter_wildcard']}") # v001.0020 added [log filter restoration]
-                except Exception as e: # v001.0020 added [error handling for filter setting]
-                    log_and_flush(logging.ERROR, f"Error setting filter: {e}") # v001.0020 added [error handling for filter setting]
-                    
+            # Restore filter state
+            if 'filter_wildcard' in state:
+                self.filter_wildcard.set(state['filter_wildcard'])
             if 'is_filtered' in state:
                 self.is_filtered = state['is_filtered']
             
-            # Restore window geometry (after a brief delay for UI to settle) with error handling # v001.0020 changed [added error handling for geometry]
-            if 'window_geometry' in state: # v001.0020 added [check if geometry exists in state]
-                try: # v001.0020 added [error handling for geometry setting]
-                    self.root.after(100, lambda: self.root.geometry(state['window_geometry'])) # v001.0020 added [safely set geometry]
-                    log_and_flush(logging.DEBUG, f"Scheduled geometry restoration: {state['window_geometry']}") # v001.0020 added [log geometry restoration]
-                except Exception as e: # v001.0020 added [error handling for geometry setting]
-                    log_and_flush(logging.ERROR, f"Error setting geometry: {e}") # v001.0020 added [error handling for geometry setting]
-                    
-            if 'window_state' in state and state['window_state'] != 'normal': # v001.0020 added [check if window state exists and is not normal]
-                try: # v001.0020 added [error handling for window state setting]
-                    self.root.after(200, lambda: self.root.state(state['window_state'])) # v001.0020 added [safely set window state]
-                    log_and_flush(logging.DEBUG, f"Scheduled window state restoration: {state['window_state']}") # v001.0020 added [log window state restoration]
-                except Exception as e: # v001.0020 added [error handling for window state setting]
-                    log_and_flush(logging.ERROR, f"Error setting window state: {e}") # v001.0020 added [error handling for window state setting]
+            # Restore window geometry (after a brief delay for UI to settle)
+            if 'window_geometry' in state:
+                self.root.after(100, lambda: self.root.geometry(state['window_geometry']))
+            if 'window_state' in state and state['window_state'] != 'normal':
+                self.root.after(200, lambda: self.root.state(state['window_state']))
             
-            # Restore comparison data with error handling # v001.0020 changed [added error handling for comparison data]
+            # Restore comparison data
             if state.get('has_comparison_data', False):
-                try: # v001.0020 added [error handling for comparison data restoration]
-                    if 'comparison_results' in state:
-                        self.comparison_results = state['comparison_results']
-                        log_and_flush(logging.DEBUG, f"Restored comparison results: {len(self.comparison_results)} items") # v001.0020 added [log comparison results restoration]
-                    if 'filtered_results' in state:
-                        self.filtered_results = state['filtered_results']
-                        log_and_flush(logging.DEBUG, f"Restored filtered results: {len(self.filtered_results)} items") # v001.0020 added [log filtered results restoration]
-                except Exception as e: # v001.0020 added [error handling for comparison data restoration]
-                    log_and_flush(logging.ERROR, f"Error restoring comparison data: {e}") # v001.0020 added [error handling for comparison data restoration]
+                if 'comparison_results' in state:
+                    self.comparison_results = state['comparison_results']
+                if 'filtered_results' in state:
+                    self.filtered_results = state['filtered_results']
+                    
+                # v001.0021 added [rebuild trees with restored comparison data]
+                # Update the UI to show the restored comparison results
+                if self.is_filtered:
+                    self.update_comparison_ui_filtered()
+                else:
+                    self.update_comparison_ui()
             
-            # Restore selection state with error handling # v001.0020 changed [added error handling for selection state]
-            try: # v001.0020 added [error handling for selection restoration]
-                if 'selected_left' in state:
-                    self.selected_left = state['selected_left']
-                    log_and_flush(logging.DEBUG, f"Restored left selections: {len(self.selected_left)} items") # v001.0020 added [log left selection restoration]
-                if 'selected_right' in state:
-                    self.selected_right = state['selected_right']
-                    log_and_flush(logging.DEBUG, f"Restored right selections: {len(self.selected_right)} items") # v001.0020 added [log right selection restoration]
-            except Exception as e: # v001.0020 added [error handling for selection restoration]
-                log_and_flush(logging.ERROR, f"Error restoring selections: {e}") # v001.0020 added [error handling for selection restoration]
+            # Restore selection state
+            if 'selected_left' in state:
+                self.selected_left = state['selected_left']
+            if 'selected_right' in state:
+                self.selected_right = state['selected_right']
             
             # Restore file count tracking
             self.file_count_left = state.get('file_count_left', 0)
@@ -6240,29 +6193,22 @@ class FolderCompareSync_class:
             self.total_file_count = state.get('total_file_count', 0)
             self.limit_exceeded = state.get('limit_exceeded', False)
             
-            # Restore status information with error handling # v001.0020 changed [added error handling for status restoration]
-            try: # v001.0020 added [error handling for status restoration]
-                if 'status_var' in state:
-                    self.status_var.set(state['status_var'])
-                if 'summary_var' in state:
-                    self.summary_var.set(state['summary_var'])
-            except Exception as e: # v001.0020 added [error handling for status restoration]
-                log_and_flush(logging.ERROR, f"Error restoring status variables: {e}") # v001.0020 added [error handling for status restoration]
+            # Restore status information
+            if 'status_var' in state:
+                self.status_var.set(state['status_var'])
+            if 'summary_var' in state:
+                self.summary_var.set(state['summary_var'])
             
-            # Restore status log history with error handling # v001.0020 changed [added error handling for status log restoration]
-            if 'status_log_lines' in state: # v001.0020 added [check if status log exists in state]
-                try: # v001.0020 added [error handling for status log restoration]
-                    self.status_log_lines = state['status_log_lines']
-                    # Update status log display
-                    if self.status_log_text:
-                        self.status_log_text.config(state=tk.NORMAL)
-                        self.status_log_text.delete('1.0', tk.END)
-                        self.status_log_text.insert('1.0', '\n'.join(self.status_log_lines))
-                        self.status_log_text.config(state=tk.DISABLED)
-                        self.status_log_text.see(tk.END)
-                    log_and_flush(logging.DEBUG, f"Restored status log: {len(self.status_log_lines)} lines") # v001.0020 added [log status log restoration]
-                except Exception as e: # v001.0020 added [error handling for status log restoration]
-                    log_and_flush(logging.ERROR, f"Error restoring status log: {e}") # v001.0020 added [error handling for status log restoration]
+            # Restore status log history
+            if 'status_log_lines' in state:
+                self.status_log_lines = state['status_log_lines']
+                # Update status log display
+                if self.status_log_text:
+                    self.status_log_text.config(state=tk.NORMAL)
+                    self.status_log_text.delete('1.0', tk.END)
+                    self.status_log_text.insert('1.0', '\n'.join(self.status_log_lines))
+                    self.status_log_text.config(state=tk.DISABLED)
+                    self.status_log_text.see(tk.END)
             
             # Add status message about restoration
             self.add_status_message("Application state restored after debug global changes")
