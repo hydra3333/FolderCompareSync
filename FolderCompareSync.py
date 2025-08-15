@@ -3,6 +3,7 @@
 FolderCompareSync - A Folder Comparison & Synchronization Tool
 
 Version:
+         v001.0023 - ensure deletions occure bottom up so folders do not get deleted before the files in them
          v001.0022 - reorganize bottom area button layout to put copy and delete orphan buttons on same row
          v001.0021 - fix UI recreation to use in-place rebuild instead of new instance
          v001.0020 - fix threading conflict and UI recreation timing in debug global editor
@@ -8387,8 +8388,9 @@ class DeleteOrphansManager_class:
         
     def perform_deletion(self, selected_paths, deletion_method):
         """Perform the actual deletion operation with progress tracking."""
+        
         log_and_flush(logging.DEBUG, f"Entered DeleteOrphansManager_class: perform_deletion")
-
+    
         operation_start_time = time.time()
         operation_id = uuid.uuid4().hex[:8]
         
@@ -8402,13 +8404,18 @@ class DeleteOrphansManager_class:
         dry_run_text = " (DRY RUN)" if is_local_dry_run else "" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         method_text = "Recycle Bin" if deletion_method.lower() == "recycle_bin".lower() else "Permanent"
         
+        # v001.0023 added [sort paths for proper deletion order - deepest/child items first]
+        # Sort paths by depth (number of separators) in descending order to ensure
+        # files are deleted before their parent folders
+        sorted_paths = sorted(selected_paths, key=lambda path: (path.count('/'), path), reverse=True)
+        
         log_and_flush(logging.INFO, "=" * 80)
         log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: DELETE ORPHANS OPERATION STARTED{dry_run_text}")
         log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Operation ID: {operation_id}")
         log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Side: {self.side.upper()}")
         log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Source Folder: {self.source_folder}")
         log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Deletion Method: {method_text}")
-        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Files/Folders to delete: {len(selected_paths)}")
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Files/Folders to delete: {len(sorted_paths)} (sorted by depth)") # v001.0023 changed [mention sorting]
         log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Local Dry Run Mode: {is_local_dry_run}") # v001.0013 changed [log local dry run mode instead of main app dry run mode]
         log_and_flush(logging.INFO, "=" * 80)
         
@@ -8418,7 +8425,7 @@ class DeleteOrphansManager_class:
             self.parent,
             progress_title,
             f"{'Simulating' if is_local_dry_run else 'Processing'} orphaned files...", # v001.0013 changed [use local dry run mode instead of main app dry run mode]
-            max_value=len(selected_paths)
+            max_value=len(sorted_paths) # v001.0023 changed [use sorted_paths length]
         )
         
         success_count = 0
@@ -8427,11 +8434,12 @@ class DeleteOrphansManager_class:
         total_bytes_processed = 0
         
         try:
-            for i, rel_path in enumerate(selected_paths):
+            # v001.0023 changed [iterate through sorted_paths instead of selected_paths]
+            for i, rel_path in enumerate(sorted_paths):
                 try:
                     # Update progress
                     file_name = rel_path.split('/')[-1]
-                    progress_text = f"{'Simulating' if is_local_dry_run else 'Processing'} {i+1} of {len(selected_paths)}: {file_name}" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
+                    progress_text = f"{'Simulating' if is_local_dry_run else 'Processing'} {i+1} of {len(sorted_paths)}: {file_name}" # v001.0023 changed [use sorted_paths length]
                     progress.update_progress(i+1, progress_text)
                     
                     # Get full path
@@ -8474,7 +8482,7 @@ class DeleteOrphansManager_class:
                     error_count += 1
                     log_and_flush(logging.ERROR, f"DeleteOrphansManager_class: perform_deletion: Exception deleting {rel_path}: {str(e)}")
                     continue
-                    
+
         except Exception as e:
             log_and_flush(logging.CRITICAL, f"DeleteOrphansManager_class: perform_deletion: Critical error during deletion operation: {str(e)}")
             
