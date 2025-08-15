@@ -2,8 +2,11 @@
 """
 FolderCompareSync - A Folder Comparison & Synchronization Tool
 
-
-Version  v001.0020 - fix threading conflict and UI recreation timing in debug global editor
+Version:
+         v001.0023 - ensure deletions occurs bottom up so folders do not get deleted before the files in them
+         v001.0022 - reorganize bottom area button layout to put copy and delete orphan buttons on same row
+         v001.0021 - fix UI recreation to use in-place rebuild instead of new instance
+         v001.0020 - fix threading conflict and UI recreation timing in debug global editor
          v001.0019 - add DebugGlobalEditor_class integration with destroy/recreate UI refresh pattern
          v001.0018 - fix delete orphans dialog cancel button error by adding None check for manager result,
                      fix static method calling syntax in delete orphans functionality 
@@ -152,7 +155,9 @@ TREE_STATUS_WIDTH = 100            # Status column width
 TREE_STATUS_MIN_WIDTH = 80         # Minimum status column width
 
 # Tree row height configuration # v001.0015 added [tree row height control for compact display]
-TREE_ROW_HEIGHT_VERY_COMPACT = 18  # Very tight spacing # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT_VERY_PACKED = 14   # REALLY Packed them up spacing # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT_PACKED = 16        # Packed them up spacing # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT_VERY_COMPACT = 18  # Quite tight spacing # v001.0015 added [tree row height control for compact display]
 TREE_ROW_HEIGHT_COMPACT = 20       # Tight spacing # v001.0015 added [tree row height control for compact display]
 TREE_ROW_HEIGHT_NORMAL = 22        # Comfortable spacing # v001.0015 added [tree row height control for compact display]
 TREE_ROW_HEIGHT_DEFAULT = 24       # Tkinter default spacing # v001.0015 added [tree row height control for compact display]
@@ -160,7 +165,7 @@ TREE_ROW_HEIGHT_LOOSE = 26         # Relaxed spacing # v001.0015 added [tree row
 TREE_ROW_HEIGHT_VERY_LOOSE = 28    # Very relaxed spacing # v001.0015 added [tree row height control for compact display]
 
 # Active tree row height setting - change this to switch spacing globally # v001.0015 added [tree row height control for compact display]
-TREE_ROW_HEIGHT = TREE_ROW_HEIGHT_NORMAL  # Start with 22px for good balance # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT = TREE_ROW_HEIGHT_VERY_COMPACT  # v001.0015 added [tree row height control for compact display]
 
 # Font scaling configuration # v001.0014 added [font scaling system for UI text size control]
 UI_FONT_SCALE = 1                  # v001.0014 added [font scaling system for UI text size control]
@@ -169,10 +174,10 @@ UI_FONT_SCALE = 1                  # v001.0014 added [font scaling system for UI
                                    # Font scaling infrastructure preserved for future use if needed
 
 # Specific font sizes # v001.0014 added [font scaling system for UI text size control]
-BUTTON_FONT_SIZE = 10               # Button text size (default ~9, so +2) # v001.0014 added [font scaling system for UI text size control]
-LABEL_FONT_SIZE = 11                # Label text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
-ENTRY_FONT_SIZE = 11                # Entry field text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
-CHECKBOX_FONT_SIZE = 11             # Checkbox text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
+BUTTON_FONT_SIZE = 10               # Button text size (default ~9, so +1) # v001.0014 added [font scaling system for UI text size control]
+LABEL_FONT_SIZE = 11                # Label text size (default ~8, so +3) # v001.0014 added [font scaling system for UI text size control]
+ENTRY_FONT_SIZE = 11                # Entry field text size (default ~8, so +3) # v001.0014 added [font scaling system for UI text size control]
+CHECKBOX_FONT_SIZE = 11             # Checkbox text size (default ~8, so +3) # v001.0014 added [font scaling system for UI text size control]
 DIALOG_FONT_SIZE = 11               # Dialog text size # v001.0014 added [font scaling system for UI text size control]
 STATUS_MESSAGE_FONT_SIZE = 12       # Status message text size # v001.0014 added [font scaling system for UI text size control]
 INSTRUCTION_FONT_SIZE = 11          # formerly INSTRUCTION_TEXT_SIZE Font size for instructional text
@@ -506,7 +511,11 @@ class DebugGlobalEditor_class:
           • (No other behavior changed here.)
         """
         if not __debug__:
+            log_and_flush("DebugGlobalEditor_class is debug-only and requires __debug__ == True.")
             raise RuntimeError("DebugGlobalEditor_class is debug-only and requires __debug__ == True.")
+
+        log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, __init__")
+
         self.root = root
         self.abort_on_missing_source = abort_on_missing_source
     
@@ -658,6 +667,8 @@ class DebugGlobalEditor_class:
               stop the editor (useful in debug/packaging). Otherwise, we cache
               an empty graph, which disables AST-driven recompute.
         """
+        log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, _build_dep_graph")
+
         cached = DebugGlobalEditor_class._DEP_CACHE.get(self._module_key)
         if cached:
             log_and_flush(logging.DEBUG, "Dep-graph cache hit for %s", self._module_key)
@@ -716,6 +727,8 @@ class DebugGlobalEditor_class:
                            filename, self._module_key, e)
     
         DebugGlobalEditor_class._DEP_CACHE[self._module_key] = (info_by_name, deps)
+
+        log_and_flush(logging.DEBUG, f"Exiting DebugGlobalEditor_class, _build_dep_graph at end of def with info_by_name=\n{info_by_name}\ndeps=\n{deps}")
         return info_by_name, deps
 
     # ---------------- UI Build ----------------
@@ -786,7 +799,9 @@ class DebugGlobalEditor_class:
             info = info_by_name.get(name)
             expr_text = info.expr_str if (info and info.expr_str) else ""
             deps_text = ", ".join(sorted(info.depends_on)) if (info and info.depends_on) else ""
+            #log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _create_window: calling        _is_computed: for name='{name}' '{vtype}' val='{val}' expr_text='{expr_text}' deps_text='{deps_text}'")
             is_computed = self._is_computed(info)
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _create_window: returned from  _is_computed: for name='{name}' '{vtype}' val='{val}' expr_text='{expr_text}' deps_text='{deps_text}' with is_computed='{is_computed}'")
     
             rec = {
                 "name": name,
@@ -901,18 +916,22 @@ class DebugGlobalEditor_class:
           - 10, 3.14, "hello", True   -> Constant
         """
         if not info:
+            #log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' caught by 'if not info' so returning False")
             return False
     
         # Any dependency on names makes it computed
         if getattr(info, "depends_on", None):
+            #log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' 'depends_on' so returning True")
             return True
     
         node = getattr(info, "rhs_ast", None)
         if node is None:
+            #log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' 'rhs_ast' None so returning False")
             return False
     
         # Pure literal is not computed
         if isinstance(node, ast.Constant):
+            #log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' 'ast.Constant' so returning False")
             return False
     
         # Any of these shapes means "computed" even with no names
@@ -921,9 +940,11 @@ class DebugGlobalEditor_class:
             ast.Attribute, ast.Subscript, ast.JoinedStr, ast.FormattedValue,
         )
         if isinstance(node, computed_node_types):
+            #log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' is instance of 'computed_node_types' so returning True")
             return True
     
         # Names would have been caught by depends_on; other rare node types—err on the safe side.
+        #log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _is_computed: 'info' not caught by prior if-tests so finally returning False")
         return False
 
     # ---------------- Value handling ----------------
@@ -988,18 +1009,24 @@ class DebugGlobalEditor_class:
             self._refresh_apply_enabled()
 
     def _on_quit(self):
+        log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, _on_quit")
         self._result = {"applied": False}
+        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: validly destroying self with applied:False ...")
         self._win.destroy()
 
     def _on_apply(self):
+        log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, _on_apply")
+
         # Validate all rows
+        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Validating all rows")
         for row in self._rows:
             if not row["valid"]:
                 messagebox.showerror("Invalid value", f"Invalid value for {row['name']} ({row['type'].__name__})")
                 return
 
-        changes = {}
         # Apply base changes
+        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Applying base changes")
+        changes = {}
         for row in self._rows:
             if not row["apply"].get():
                 continue
@@ -1014,6 +1041,7 @@ class DebugGlobalEditor_class:
         # Optional recompute
         recompute_report = []
         if self.allow_recompute and self._recompute_var.get():
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: performing Optional recompute")
             info_by_name, deps = self._build_dep_graph()
             if info_by_name:
                 reverse = {}
@@ -1038,39 +1066,71 @@ class DebugGlobalEditor_class:
 
                     order = self._topo_sort({n: info_by_name.get(n, self._DepInfo(None, set(), False, None, ast.Constant(None))).depends_on for n in affected})
                     for name in order:
+                        if name in changes:  # Skip variables that were directly changed by user
+                            continue
                         info = info_by_name.get(name)
                         if not info or not info.eligible:
                             continue
                         try:
-                            code = compile(info.rhs_ast, filename="<ast>", mode="eval")
+                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' about to get code using 'compile' ...")
+                            #
+                            # This (original) line fails because mode="eval" requires the AST to be wrapped in an ast.Expression node:
+                            #     code = compile(info.rhs_ast, filename="<ast>", mode="eval")
+                            # Technically the fix is to Wrap in ast.Expression:
+                            #     expr_wrapper = ast.Expression(body=info.rhs_ast)
+                            #     code = compile(expr_wrapper, filename="<ast>", mode="eval")
+                            # This approach below might be safer since this class is already working with the string representation elsewhere in the code
+                            code = compile(info.expr_str, filename="<ast>", mode="eval")
+                            #
+                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' using info.expr_str='{info.expr_str}' as input to 'compile'")
+                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' about to get new_val using 'eval' ...")
                             new_val = eval(code, safe_globals, {})
+                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' info.expr_str='{info.expr_str}' new_val='{new_val}' using 'eval'")
                             if name in self.module.__dict__:
                                 old_val = getattr(self.module, name)
+                                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' is in 'self.module.__dict__' and old_val=getattr(self.module, name)='{old_val}'")
                                 # type compatibility check (keep simple)
                                 if type(old_val) in self.SIMPLE_TYPES and isinstance(new_val, type(old_val)):
+                                    log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' new_val='{new_val}', calling setattr(self.module, name, new_val)")
                                     setattr(self.module, name, new_val)
                                     safe_globals[name] = new_val
                                     if name not in changes or changes[name]["new"] != new_val:
                                         changes[name] = {"old": old_val, "new": new_val}
+                                        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: changes[{name}]: old_val='{old_val}' new_val='{new_val}'")
+                                    else:
+                                        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: SKIPPED changes[{name}]")
                                 else:
-                                    recompute_report.append(f"{name}: type mismatch; skipped")
+                                    recompute_report.append(f"{name}: type mismatch; SKIPPED")
+                                    log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: {name}: type mismatch; SKIPPED")
                         except Exception as ex:
                             recompute_report.append(f"{name}: {ex!r}")
+                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute Exception: {name}: {ex!r}")
 
         if changes and self.on_apply:
-            try: self.on_apply(changes)
-            except Exception: pass
+            try: 
+                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: about to self.on_apply(changes) where changes={changes}")
+                self.on_apply(changes)
+            except Exception: 
+                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception on self.on_apply(changes) where changes={changes}")
+                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception {ex!r}")
 
         self.last_changes = changes
-        try: self.root.event_generate("<<DebugGlobalsApplied>>", when="tail")
-        except Exception: pass
+        try: 
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: about to self.root.event_generate(...)")
+            self.root.event_generate("<<DebugGlobalsApplied>>", when="tail")
+        except Exception: 
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception on self.root.event_generate(...)")
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception {ex!r}")
 
         if recompute_report:
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: recompute_report:\n{recompute_report}")
             self._message_var.set("; ".join(recompute_report))
         else:
+            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Applied.")
             self._message_var.set("Applied.")
 
         self._result = {"applied": True, "changes": changes}
+        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: validly destroying self with applied:True changes:{changes} ...")
         self._win.destroy()
 
     def _on_revert_defaults(self):
@@ -3043,61 +3103,9 @@ class FolderCompareSync_class:
         self.root = tk.Tk()
         self.root.title("FolderCompareSync - Folder Comparison and Syncing Tool")
     
-        # NEW style configs for the "Compare" "Copy" "Quit" buttons  button
-        # 1) Get the existing default font and make a bold copy
-        self.default_font = tkfont.nametofont("TkDefaultFont")
-        self.bold_font = self.default_font.copy()
-        self.bold_font.configure(weight="bold")
-        
-        # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        # Create scaled fonts based on configuration
-        self.scaled_button_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_button_font.configure(size=SCALED_BUTTON_FONT_SIZE)
-        # Create a bold version
-        self.scaled_button_font_bold = self.scaled_button_font.copy()
-        self.scaled_button_font_bold.configure(weight="bold")
-        
-        self.scaled_label_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_label_font.configure(size=SCALED_LABEL_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        
-        self.scaled_entry_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_entry_font.configure(size=SCALED_ENTRY_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        
-        self.scaled_checkbox_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_checkbox_font.configure(size=SCALED_CHECKBOX_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        
-        self.scaled_dialog_font = self.default_font.copy() # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        self.scaled_dialog_font.configure(size=SCALED_DIALOG_FONT_SIZE) # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
-        
-        self.scaled_status_font = self.default_font.copy() # v001.0016 added [scaled font for status messages using global SCALED_STATUS_MESSAGE_FONT_SIZE]
-        self.scaled_status_font.configure(size=SCALED_STATUS_MESSAGE_FONT_SIZE) # v001.0016 added [scaled font for status messages using global SCALED_STATUS_MESSAGE_FONT_SIZE]
-        
-        self.style = ttk.Style(self.root)
-        # 2) Create colour styles for some bolded_fonts
-        self.style.configure("LimeGreenBold.TButton", foreground="limegreen",font=self.scaled_button_font_bold)
-        self.style.configure("GreenBold.TButton", foreground="green",font=self.scaled_button_font_bold)
-        self.style.configure("DarkGreenBold.TButton", foreground="darkgreen",font=self.scaled_button_font_bold)
-        self.style.configure("RedBold.TButton", foreground="red",font=self.scaled_button_font_bold)
-        self.style.configure("PurpleBold.TButton", foreground="purple",font=self.scaled_button_font_bold)
-        self.style.configure("MediumPurpleBold.TButton", foreground="mediumpurple",font=self.scaled_button_font_bold)
-        self.style.configure("IndigoBold.TButton", foreground="indigo",font=self.scaled_button_font_bold)
-        self.style.configure("BlueBold.TButton", foreground="blue",font=self.scaled_button_font_bold)
-        self.style.configure("GoldBold.TButton", foreground="gold",font=self.scaled_button_font_bold)
-        self.style.configure("YellowBold.TButton", foreground="yellow",font=self.scaled_button_font_bold)
-
-        # v001.0016 added [default button style for buttons without specific colors]
-        self.style.configure("DefaultNormal.TButton", font=self.scaled_button_font, weight="normal") # v001.0016 added [default button style for buttons without specific colors]
-        self.style.configure("DefaultBold.TButton.TButton", font=self.scaled_button_font_bold, weight="bold")     # v001.0016 added [default bold button style for buttons without specific colors]
-
-        # v001.0014 added [create custom ttk styles for scaled fonts]
-        # Create custom styles for ttk widgets that need scaled fonts
-        self.style.configure("Scaled.TCheckbutton", font=self.scaled_checkbox_font)
-        self.style.configure("Scaled.TLabel", font=self.scaled_label_font)
-        self.style.configure("StatusMessage.TLabel", font=self.scaled_status_font) # v001.0016 added [status message label style using SCALED_STATUS_MESSAGE_FONT_SIZE]
-        self.style.configure("Scaled.TEntry", font=self.scaled_entry_font)
-    
-        # Configure tree row height for all treeviews globally # v001.0015 added [tree row height control for compact display]
-        self.style.configure("Treeview", rowheight=TREE_ROW_HEIGHT) # v001.0015 added [tree row height control for compact display]
+        # v001.0021 - fix UI recreation to use in-place rebuild instead of new instance
+        # v001.0021 - Create fonts and styles (extracted to separate method for UI recreation)
+        self.create_fonts_and_styles()
     
         # Get screen dimensions for smart window sizing
         screen_width = self.root.winfo_screenwidth()
@@ -3184,9 +3192,67 @@ class FolderCompareSync_class:
         self.add_status_message(f"Timezone detected: {timezone_str} - will be used for timestamp operations")
         log_and_flush(logging.INFO, "Application initialization complete ")
 
+    def create_fonts_and_styles(self):
+        """Create or recreate fonts and styles based on current global values."""
+        # v001.0021 added [extracted font/style creation for UI recreation support]
+        # 1) Get the existing default font and make a bold copy
+        self.default_font = tkfont.nametofont("TkDefaultFont")
+        self.bold_font = self.default_font.copy()
+        self.bold_font.configure(weight="bold")
+        
+        # v001.0014 added [create scaled fonts for UI elements while preserving tree fonts]
+        # Create scaled fonts based on configuration
+        self.scaled_button_font = self.default_font.copy()
+        self.scaled_button_font.configure(size=SCALED_BUTTON_FONT_SIZE)
+        # Create a bold version
+        self.scaled_button_font_bold = self.scaled_button_font.copy()
+        self.scaled_button_font_bold.configure(weight="bold")
+        
+        self.scaled_label_font = self.default_font.copy()
+        self.scaled_label_font.configure(size=SCALED_LABEL_FONT_SIZE)
+        
+        self.scaled_entry_font = self.default_font.copy()
+        self.scaled_entry_font.configure(size=SCALED_ENTRY_FONT_SIZE)
+        
+        self.scaled_checkbox_font = self.default_font.copy()
+        self.scaled_checkbox_font.configure(size=SCALED_CHECKBOX_FONT_SIZE)
+        
+        self.scaled_dialog_font = self.default_font.copy()
+        self.scaled_dialog_font.configure(size=SCALED_DIALOG_FONT_SIZE)
+        
+        self.scaled_status_font = self.default_font.copy()
+        self.scaled_status_font.configure(size=SCALED_STATUS_MESSAGE_FONT_SIZE)
+        
+        self.style = ttk.Style(self.root)
+        # 2) Create colour styles for some bolded_fonts
+        self.style.configure("LimeGreenBold.TButton", foreground="limegreen",font=self.scaled_button_font_bold)
+        self.style.configure("GreenBold.TButton", foreground="green",font=self.scaled_button_font_bold)
+        self.style.configure("DarkGreenBold.TButton", foreground="darkgreen",font=self.scaled_button_font_bold)
+        self.style.configure("RedBold.TButton", foreground="red",font=self.scaled_button_font_bold)
+        self.style.configure("PurpleBold.TButton", foreground="purple",font=self.scaled_button_font_bold)
+        self.style.configure("MediumPurpleBold.TButton", foreground="mediumpurple",font=self.scaled_button_font_bold)
+        self.style.configure("IndigoBold.TButton", foreground="indigo",font=self.scaled_button_font_bold)
+        self.style.configure("BlueBold.TButton", foreground="blue",font=self.scaled_button_font_bold)
+        self.style.configure("GoldBold.TButton", foreground="gold",font=self.scaled_button_font_bold)
+        self.style.configure("YellowBold.TButton", foreground="yellow",font=self.scaled_button_font_bold)
+
+        # v001.0016 added [default button style for buttons without specific colors]
+        self.style.configure("DefaultNormal.TButton", font=self.scaled_button_font, weight="normal")
+        self.style.configure("DefaultBold.TButton.TButton", font=self.scaled_button_font_bold, weight="bold")
+
+        # v001.0014 added [create custom ttk styles for scaled fonts]
+        # Create custom styles for ttk widgets that need scaled fonts
+        self.style.configure("Scaled.TCheckbutton", font=self.scaled_checkbox_font)
+        self.style.configure("Scaled.TLabel", font=self.scaled_label_font)
+        self.style.configure("StatusMessage.TLabel", font=self.scaled_status_font)
+        self.style.configure("Scaled.TEntry", font=self.scaled_entry_font)
+    
+        # Configure tree row height for all treeviews globally # v001.0015 added [tree row height control for compact display]
+        self.style.configure("Treeview", rowheight=TREE_ROW_HEIGHT) # v001.0015 added [tree row height control for compact display]
+
     def add_status_message(self, message):
         """
-        Add a timestamped message to the status log using configurable history limit.
+        FolderCompareSync_class: Add a timestamped message to the status log using configurable history limit.
         
         Purpose:
         --------
@@ -3215,7 +3281,7 @@ class FolderCompareSync_class:
             self.status_log_text.config(state=tk.DISABLED)
             self.status_log_text.see(tk.END)  # Auto-scroll to bottom
             
-        log_and_flush(logging.INFO, f"STATUS: {message}")
+        log_and_flush(logging.INFO, f"FolderCompareSync_class: POSTED STATUS MESSAGE: {message}")
 
     def export_status_log(self):
         """
@@ -3353,11 +3419,14 @@ class FolderCompareSync_class:
         -----
         side: LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase - which side to process orphaned files for
         """
+        log_and_flush(logging.DEBUG, f"Entered FolderCompareSync_class: delete_orphans: side='{side}'")
         if self.limit_exceeded:
+            log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': Operation Disabled, Delete operations are disabled when file limits are exceeded.")
             messagebox.showwarning("Operation Disabled", "Delete operations are disabled when file limits are exceeded.")
             return
             
         if not self.comparison_results:
+            log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': No comparison data available")
             self.add_status_message("No comparison data available - please run comparison first")
             messagebox.showinfo("No Data", "Please perform a folder comparison first.")
             return
@@ -3367,22 +3436,25 @@ class FolderCompareSync_class:
         
         # v001.0017 changed [use enhanced detect_orphaned_files method]
         # Get enhanced orphan detection results
+        log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': calling 'DeleteOrphansManager_class.detect_orphaned_files'")
         orphaned_files, orphan_detection_metadata = DeleteOrphansManager_class.detect_orphaned_files(
             self.comparison_results, side, active_filter
         )
+        log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': returned from 'DeleteOrphansManager_class.detect_orphaned_files'")
         
         side_upper = side.upper()  # v001.0017 added [preserve original case for display while using case insensitive logic]
         if not orphaned_files:
             filter_text = f" (with active filter: {active_filter})" if active_filter else ""
-            self.add_status_message(f"No orphaned files found on {side_upper} side{filter_text}")
-            messagebox.showinfo("No Orphans", f"No orphaned files found on {side_upper} side{filter_text}.")
+            log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': No orphaned files found on {side_upper} side {filter_text}")
+            self.add_status_message(f"No orphaned files found on {side_upper} side {filter_text}")
             return
             
         # v001.0017 added [log enhanced orphan classification results]
         true_orphans = sum(1 for meta in orphan_detection_metadata.values() if meta.get('is_true_orphan', False))
         contains_orphans = sum(1 for meta in orphan_detection_metadata.values() if not meta.get('is_true_orphan', True))
         
-        self.add_status_message(f"Enhanced orphan detection on {side_upper}: {true_orphans} true orphans, {contains_orphans} folders containing orphans")
+        log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': side='{side_upper}' true orphans='{true_orphans}' folders containing orphans={contains_orphans}")
+        self.add_status_message(f"Enhanced orphan detection on {side_upper} side: {true_orphans} true orphans, {contains_orphans} folders containing orphans")
         self.add_status_message(f"Opening enhanced delete orphans dialog for {side_upper} side: {len(orphaned_files)} total items")
         
         try:
@@ -3391,6 +3463,7 @@ class FolderCompareSync_class:
             source_folder = self.left_folder.get() if side.lower() == LEFT_SIDE_lowercase else self.right_folder.get()  # v001.0017 changed [case insensitive comparison]
             
             # Create and show enhanced delete orphans manager/dialog
+            log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': creating a 'DeleteOrphansManager_class' manager")
             manager = DeleteOrphansManager_class(
                 parent=self.root,
                 orphaned_files=orphaned_files,
@@ -3400,6 +3473,7 @@ class FolderCompareSync_class:
                 comparison_results=self.comparison_results,
                 active_filter=active_filter
             )
+            log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': created a 'DeleteOrphansManager_class' manager")
             
             # v001.0017 added [pass enhanced detection metadata to manager for smart initialization]
             # Note: This requires enhancement to DeleteOrphansManager_class.__init__ to accept this parameter
@@ -3412,19 +3486,23 @@ class FolderCompareSync_class:
             # Check if files were actually deleted (not dry run)
             #if hasattr(manager, 'result') and manager.result.lower() == 'deleted'.lower() and not self.dry_run_mode.get(): # v001.0018 superseded, [add None check for manager.result before calling .lower()]
             if hasattr(manager, 'result') and manager.result and manager.result.lower() == 'deleted'.lower():   # v001.0018 changed [add None check for manager.result before calling .lower()]
-                self.add_status_message("Enhanced delete operation completed - refreshing folder comparison...")
+                self.add_status_message("Enhanced {side_upper} side delete operation completed - refreshing folder comparison...")
+                log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': delete operation completed - refreshing folder comparison...")
                 # Refresh comparison to show updated state
-                self.refresh_after_copy_operation()
+                self.refresh_after_copy_or_delete_operation()
             else:
-                self.add_status_message("Enhanced delete orphans dialog closed")
+                log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': Enhanced {side_upper} side delete orphans dialog closed")
+                self.add_status_message("Enhanced {side_upper} side delete orphans dialog closed")
                 
         except Exception as e:
-            error_msg = f"Error opening enhanced delete orphans dialog: {str(e)}"
+            error_msg = f"Error opening enhanced {side_upper} side delete orphans dialog: {str(e)}"
+            log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': ERROR: {error_msg}")
             self.add_status_message(f"ERROR: {error_msg}")
             self.show_error(error_msg)
         finally:
             # Cleanup memory after dialog operations
             gc.collect()
+        log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': exiting 'delete_orphans'")
 
     def setup_ui(self):
         """
@@ -3450,7 +3528,7 @@ class FolderCompareSync_class:
             text=(
                 f"⚠ Performance Notice: Large folder operations may be slow. "
                 f"Maximum {MAX_FILES_FOLDERS:,} files/folders supported. "
-                f"SHA512 operations will take circa 2 seconds elapsed per GB of file read."
+                f"SHA512 operations will take circa 2 to 10 seconds elapsed per GB of file read."
             ),
             foreground="royalblue",
             style="Scaled.TLabel" # v001.0014 changed [use scaled label style instead of font]
@@ -3497,7 +3575,7 @@ class FolderCompareSync_class:
         ttk.Checkbutton(instruction_frame, text="SHA512", variable=self.compare_sha512, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled checkbox style]
         
         # Add instructional text for workflow guidance using configurable colors and font size
-        ttk.Label(instruction_frame, text="<- select options then click Compare", 
+        ttk.Label(instruction_frame, text="<- select options then click Compare (see sha512 note above)", 
                  foreground=INSTRUCTION_TEXT_COLOR, 
                  font=("TkDefaultFont", SCALED_INSTRUCTION_FONT_SIZE, "italic")).pack(side=tk.LEFT, padx=(20, 0))
         
@@ -3593,17 +3671,25 @@ class FolderCompareSync_class:
         # Synchronize scrolling between panes
         self.setup_synchronized_scrolling()
         
-        # Copy buttons frame
+        # Copy and delete buttons frame - all on one row # v001.0022 changed [reorganized button layout to put copy and delete orphan buttons on same row]
         copy_frame = ttk.Frame(main_frame)
-        copy_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
+        copy_frame.pack(fill=tk.X, pady=(0, 3))
+        
+        # Copy buttons pair # v001.0022 added [copy buttons pair comment]
         ttk.Button(copy_frame, text="Copy LEFT to Right", command=self.copy_left_to_right, style="RedBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left, style="LimeGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
-        delete_frame = ttk.Frame(main_frame)
-        delete_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
-        ttk.Button(delete_frame, text="Delete Orphaned Files from LEFT-only", 
+        
+        # Moderate gap between button pairs # v001.0022 added [moderate gap between copy and delete button pairs]
+        separator_frame = ttk.Frame(copy_frame, width=20)
+        separator_frame.pack(side=tk.LEFT, padx=(10, 10))
+        
+        # Delete orphaned files buttons pair # v001.0022 added [delete buttons pair on same row as copy buttons]
+        ttk.Button(copy_frame, text="Delete Orphaned Files from LEFT-only", 
                       command=self.delete_left_orphans_onclick, style="PurpleBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(delete_frame, text="Delete Orphaned Files from RIGHT-only", 
+        ttk.Button(copy_frame, text="Delete Orphaned Files from RIGHT-only", 
                       command=self.delete_right_orphans_onclick, style="DarkGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
+
+        # Quit button on far right
         ttk.Button(copy_frame, text="Quit", command=self.root.quit, style="BlueBold.TButton").pack(side=tk.RIGHT)
     
         # status log frame at bottom with export functionality
@@ -4396,6 +4482,13 @@ class FolderCompareSync_class:
         Orchestrates the complete comparison process including scanning, comparison,
         and UI updates while enforcing file count limits for performance management.
         """
+        log_and_flush(logging.DEBUG, f"Entered FolderCompareSync_class: perform_comparison")
+
+        # v001.0021 added [check if UI is being recreated to prevent threading issues]
+        if hasattr(self, '_ui_recreating') and self._ui_recreating:
+            log_and_flush(logging.WARNING, "Comparison aborted - UI is being recreated")
+            return
+            
         start_time = time.time()
         log_and_flush(logging.INFO, "Beginning folder comparison operation")
         
@@ -4529,6 +4622,7 @@ class FolderCompareSync_class:
         finally:
             # Always close the progress dialog
             progress.close()
+        log_and_flush(logging.DEBUG, f"Exiting FolderCompareSync_class: perform_comparison")
             
     def build_file_list_with_progress(self, root_path: str, progress: ProgressDialog, 
                                     start_percent: int, end_percent: int) -> Optional[dict[str, FileMetadata_class]]:
@@ -5153,7 +5247,7 @@ class FolderCompareSync_class:
             
         # Populate trees under root items with stable alphabetical ordering # v000.0002 changed - removed sorting
         log_and_flush(logging.INFO, "Populating tree views under root paths with stable ordering...") # v000.0002 changed - removed sorting
-        self.populate_tree(self.left_tree, left_structure, self.root_item_left, 'left', '') # v000.0002 changed - removed sorting
+        self.populate_tree(self.left_tree, left_structure, self.root_item_left, LEFT_SIDE_lowercase, '') # v000.0002 changed - removed sorting
                                                                          
         self.populate_tree(self.right_tree, right_structure, self.root_item_right, RIGHT_SIDE_lowercase, '') # v000.0002 changed - removed sorting
                                                                          
@@ -5765,7 +5859,7 @@ class FolderCompareSync_class:
             
             # IMPORTANT: Only refresh trees and clear selections for actual copy operations (not dry runs)
             if not is_dry_run:
-                self.root.after(0, self.refresh_after_copy_operation)
+                self.root.after(0, self.refresh_after_copy_or_delete_operation)
             else:
                 self.root.after(0, lambda: self.add_status_message("DRY RUN complete - no file system changes made"))
             
@@ -5779,17 +5873,17 @@ class FolderCompareSync_class:
             progress.close()
             self.root.after(0, lambda: self.status_var.set("Ready"))
 
-    def refresh_after_copy_operation(self):
+    def refresh_after_copy_or_delete_operation(self):
         """
-        Refresh folder trees and clear all selections after copy operation with limit checking.
+        Refresh folder trees and clear all selections after copy/delete operation with limit checking.
         
         Purpose:
         --------
         This ensures the user sees the current state after copying,
-        but only performs refresh for actual copy operations (not dry runs).
+        but only performs refresh for actual copy or delete operations (not dry runs).
         """
-        log_and_flush(logging.INFO, "Refreshing trees and clearing selections after copy operation")
-        self.add_status_message("Refreshing folder trees after copy operation...")
+        log_and_flush(logging.INFO, "Refreshing trees and clearing selections after copy or delete operation")
+        self.add_status_message("Refreshing folder trees after copy or delete operation...")
         
         # Clear all selections first
         self.selected_left.clear()
@@ -5808,7 +5902,7 @@ class FolderCompareSync_class:
             self.add_status_message("Re-scanning folders to show updated state...")
             threading.Thread(target=self.perform_comparison, daemon=True).start()
         else:
-            self.add_status_message("Copy operation complete - ready for next operation")
+            self.add_status_message("Copy or Delete operation complete - ready for next operation")
         
     def update_summary(self):
         """Update summary information with filter status and limit checking."""
@@ -5903,8 +5997,7 @@ class FolderCompareSync_class:
                 self.root,
                 module=sys.modules[__name__],  # v001.0019 changed [explicitly pass FolderCompareSync module instead of auto-detection]
                 title="FolderCompareSync - Debug Global Variables",
-                allow_recompute=True,
-                on_apply=lambda changes: self._handle_debug_changes_applied(changes, captured_state)
+                allow_recompute=True
             )
             
             # Open modal dialog and get result
@@ -5914,11 +6007,12 @@ class FolderCompareSync_class:
             if result.get('applied', False):
                 changes = result.get('changes', {})
                 if changes:
-                    log_and_flush(logging.INFO, f"Debug editor applied {len(changes)} global changes")
-                    self.add_status_message(f"Debug Global Editor applied {len(changes)} changes")
+                    log_and_flush(logging.INFO, f"Debug editor applied {len(changes)} global changes:\n{changes}")
+                    self.add_status_message(f"Debug Global Editor applied {len(changes)} changes:\n{changes}")
                     
-                    # Schedule UI recreation with updated globals
-                    self.root.after(100, lambda: self._recreate_ui_with_new_globals(captured_state, changes))
+                    # v001.0021 changed [directly recreate UI in-place instead of scheduling]
+                    # Recreate UI with updated globals
+                    self._recreate_ui_with_new_globals(captured_state, changes)
                 else:
                     self.add_status_message("Debug Global Editor completed - no changes applied")
             else:
@@ -5935,94 +6029,79 @@ class FolderCompareSync_class:
             self.add_status_message(f"ERROR: {error_msg}")
             self.show_error(error_msg)
     
-    def _handle_debug_changes_applied(self, changes: dict, captured_state: dict): # v001.0019 added [DebugGlobalEditor_class integration - change handler]
-        """Handle callback when debug editor applies changes (before dialog closes)."""
-        if __debug__:
-            log_and_flush(logging.DEBUG, f"Debug editor changes applied callback: {len(changes)} changes")
-            for name, change_info in changes.items():
-                log_and_flush(logging.DEBUG, f"  {name}: {change_info['old']} -> {change_info['new']}")
-    
-    def _recreate_ui_with_new_globals(self, captured_state: dict, changes: dict): # v001.0020 changed [fixed threading conflict and state restoration timing]
+    def _recreate_ui_with_new_globals(self, captured_state: dict, changes: dict): # v001.0021 changed [recreate UI in-place instead of new instance]
         """
-        Recreate the entire UI using updated global values.
+        Recreate the UI in-place using updated global values.
         
         Purpose:
         --------
-        Implements the destroy/recreate pattern to ensure all UI elements
-        automatically use the new global values after debug changes.
+        Implements in-place UI recreation to avoid multiple Tk instance issues.
+        Destroys all widgets, recreates fonts/styles with new globals, rebuilds UI,
+        and restores state - all within the same application instance.
         """
-        log_and_flush(logging.INFO, "Recreating UI with updated global values")
+        log_and_flush(logging.INFO, "Recreating UI in-place with updated global values")
         
         try:
-            # Add final status message before destruction
+            # Add final status message before UI destruction
             self.add_status_message("Rebuilding UI with new global settings...")
             
-            # Create new application instance (this will create a new window)
-            new_app = FolderCompareSync_class()
+            # v001.0021 added [stop any running background operations before UI recreation]
+            # Store a flag to prevent new operations during recreation
+            self._ui_recreating = True
             
-            # Wait a moment for new app to fully initialize before restoring state # v001.0020 added [ensure UI is fully ready before state restoration]
-            def restore_state_after_init(): # v001.0020 added [delayed state restoration function]
-                try: # v001.0020 added [error handling for state restoration]
-                    # Restore state to new instance
-                    new_app.restore_application_state(captured_state)
-                    
-                    # Add status messages about the recreation
-                    change_summary = ", ".join(f"{name}={info['new']}" for name, info in changes.items())
-                    new_app.add_status_message(f"UI recreated with debug changes: {change_summary}")
-                    
-                    # Check if we should auto-compare (only if both folders were set and we had comparison data) # v001.0020 changed [improved auto-compare condition checking]
-                    should_auto_compare = ( # v001.0020 added [explicit auto-compare condition check]
-                        captured_state.get('left_folder') and 
-                        captured_state.get('right_folder') and
-                        captured_state.get('has_comparison_data', False)
-                    ) # v001.0020 added [explicit auto-compare condition check]
-                    
-                    if should_auto_compare: # v001.0020 changed [use explicit condition variable]
-                        # Ask user if they want to auto-compare - but do it safely on the new window # v001.0020 changed [ensure dialog uses new window as parent]
-                        def ask_auto_compare(): # v001.0020 added [separate function for auto-compare dialog]
-                            try: # v001.0020 added [error handling for auto-compare dialog]
-                                auto_compare = messagebox.askyesno(
-                                    "Auto-Compare",
-                                    "UI has been recreated with new global settings.\n\n"
-                                    "Would you like to automatically re-compare the folders\n"
-                                    "to see the results with the new settings?",
-                                    parent=new_app.root  # v001.0020 changed [explicitly use new app root as parent]
-                                )
-                                
-                                if auto_compare:
-                                    new_app.add_status_message("Auto-comparing folders with new settings...")
-                                    # Start comparison in background thread - but on the NEW instance # v001.0020 changed [ensure comparison runs on new instance]
-                                    threading.Thread(target=new_app.perform_comparison, daemon=True).start() # v001.0020 changed [use new_app instead of self]
-                            except Exception as e: # v001.0020 added [error handling for auto-compare dialog]
-                                log_and_flush(logging.ERROR, f"Error in auto-compare dialog: {e}") # v001.0020 added [error handling for auto-compare dialog]
-                                new_app.add_status_message(f"Error in auto-compare dialog: {str(e)}") # v001.0020 added [error handling for auto-compare dialog]
-                        
-                        # Schedule the auto-compare dialog after a short delay to ensure UI is stable # v001.0020 added [delayed auto-compare dialog]
-                        new_app.root.after(100, ask_auto_compare) # v001.0020 added [delayed auto-compare dialog]
-                    
-                    log_and_flush(logging.INFO, "State restoration completed successfully") # v001.0020 added [log successful state restoration]
-                    
-                except Exception as e: # v001.0020 added [error handling for state restoration]
-                    error_msg = f"Error during state restoration: {str(e)}" # v001.0020 added [error handling for state restoration]
-                    log_and_flush(logging.ERROR, error_msg) # v001.0020 added [error handling for state restoration]
-                    if __debug__: # v001.0020 added [error handling for state restoration]
-                        log_and_flush(logging.DEBUG, f"State restoration exception: {traceback.format_exc()}") # v001.0020 added [error handling for state restoration]
-                    new_app.add_status_message(f"Warning: {error_msg}") # v001.0020 added [error handling for state restoration]
+            # v001.0021 added [destroy all child widgets of root]
+            # This removes everything but keeps the root window
+            log_and_flush(logging.DEBUG, "Destroying all UI widgets for recreation")
+            for widget in self.root.winfo_children():
+                widget.destroy()
             
-            # Schedule state restoration after UI is fully initialized # v001.0020 changed [delayed state restoration to prevent timing issues]
-            new_app.root.after(50, restore_state_after_init) # v001.0020 changed [delayed state restoration to prevent timing issues]
+            # v001.0021 added [clear widget references to prevent stale references]
+            self.left_tree = None
+            self.right_tree = None
+            self.status_log_text = None
             
-            # Schedule destruction of old window after new window is stable # v001.0020 changed [increased delay and better cleanup]
-            def destroy_old_window(): # v001.0020 added [separate function for old window destruction]
-                try: # v001.0020 added [error handling for window destruction]
-                    self.root.destroy() # v001.0020 added [destroy old window]
-                    log_and_flush(logging.INFO, "Old window destroyed successfully") # v001.0020 added [log successful window destruction]
-                except Exception as e: # v001.0020 added [error handling for window destruction]
-                    log_and_flush(logging.ERROR, f"Error destroying old window: {e}") # v001.0020 added [error handling for window destruction]
+            # v001.0021 added [recreate fonts and styles with new global values]
+            log_and_flush(logging.DEBUG, "Recreating fonts and styles with new global values")
+            self.create_fonts_and_styles()
             
-            self.root.after(1000, destroy_old_window)  # v001.0020 changed [increased delay from 500ms to 1000ms and use separate function]
+            # v001.0021 added [rebuild the entire UI using existing setup_ui method]
+            log_and_flush(logging.DEBUG, "Rebuilding UI structure")
+            self.setup_ui()
             
-            log_and_flush(logging.INFO, "UI recreation process initiated successfully") # v001.0020 added [log successful recreation initiation]
+            # v001.0021 added [clear recreation flag]
+            self._ui_recreating = False
+            
+            # v001.0021 added [restore application state to the rebuilt UI]
+            log_and_flush(logging.DEBUG, "Restoring application state to rebuilt UI")
+            self.restore_application_state(captured_state)
+            
+            # Add status messages about the recreation
+            change_summary = ", ".join(f"{name}={info['new']}" for name, info in changes.items())
+            self.add_status_message(f"UI recreated with debug changes: {change_summary}")
+            
+            # v001.0021 added [check if we should offer auto-compare]
+            should_auto_compare = (
+                captured_state.get('left_folder') and 
+                captured_state.get('right_folder') and
+                captured_state.get('has_comparison_data', False)
+            )
+            
+            if should_auto_compare:
+                # Ask user if they want to auto-compare
+                auto_compare = messagebox.askyesno(
+                    "Auto-Compare",
+                    "UI has been recreated with new global settings.\n\n"
+                    "Would you like to automatically re-compare the folders\n"
+                    "to see the results with the new settings?",
+                    parent=self.root
+                )
+                
+                if auto_compare:
+                    self.add_status_message("Auto-comparing folders with new settings...")
+                    # Start comparison in background thread
+                    threading.Thread(target=self.perform_comparison, daemon=True).start()
+            
+            log_and_flush(logging.INFO, "UI recreation completed successfully")
             
         except Exception as e:
             error_msg = f"Error recreating UI: {str(e)}"
@@ -6030,7 +6109,7 @@ class FolderCompareSync_class:
             if __debug__:
                 log_and_flush(logging.DEBUG, f"UI recreation exception: {traceback.format_exc()}")
             self.add_status_message(f"ERROR: {error_msg}")
-            messagebox.showerror("UI Recreation Failed", f"{error_msg}\n\nContinuing with current UI.")
+            messagebox.showerror("UI Recreation Failed", f"{error_msg}\n\nThe application may need to be restarted.")
 
     def capture_application_state(self) -> dict[str, Any]: # v001.0019 added [DebugGlobalEditor_class integration - state capture]
         """
@@ -6113,7 +6192,7 @@ class FolderCompareSync_class:
         
         return state 
 
-    def restore_application_state(self, state: dict[str, Any]): # v001.0020 changed [added better error handling and timing safety]
+    def restore_application_state(self, state: dict[str, Any]): # v001.0021 changed [simplified for in-place UI recreation]
         """
         Restore application state after UI recreation.
         
@@ -6121,118 +6200,74 @@ class FolderCompareSync_class:
         --------
         Restores all captured application state including folder paths, comparison results,
         selections, filter state, and UI configuration after debug global changes have
-        triggered UI recreation with new global values.
+        triggered in-place UI recreation with new global values.
         
         Args:
         -----
         state: Application state dictionary from capture_application_state
         """
         if __debug__:
-            log_and_flush(logging.DEBUG, "Restoring application state after debug UI recreation")
+            log_and_flush(logging.DEBUG, "Restoring application state after in-place UI recreation")
         
         try:
-            # Ensure UI is fully initialized before restoring state # v001.0020 added [UI initialization check]
-            if not hasattr(self, 'left_folder') or not hasattr(self, 'right_folder'): # v001.0020 added [check if tkinter variables exist]
-                log_and_flush(logging.ERROR, "UI not fully initialized - tkinter variables missing") # v001.0020 added [error for missing variables]
-                self.add_status_message("Warning: UI not ready for state restoration - retrying...") # v001.0020 added [user warning]
-                # Retry after a short delay # v001.0020 added [retry mechanism]
-                self.root.after(100, lambda: self.restore_application_state(state)) # v001.0020 added [retry mechanism]
-                return # v001.0020 added [early return for retry]
-            
-            # Restore folder paths with validation # v001.0020 changed [added validation for folder path restoration]
-            if 'left_folder' in state and state['left_folder']: # v001.0020 changed [added null check]
-                try: # v001.0020 added [error handling for folder path setting]
-                    self.left_folder.set(state['left_folder'])
-                    log_and_flush(logging.DEBUG, f"Restored left folder: {state['left_folder']}") # v001.0020 added [log folder restoration]
-                except Exception as e: # v001.0020 added [error handling for folder path setting]
-                    log_and_flush(logging.ERROR, f"Error setting left folder: {e}") # v001.0020 added [error handling for folder path setting]
+            # Restore folder paths
+            if 'left_folder' in state and state['left_folder']:
+                self.left_folder.set(state['left_folder'])
+                log_and_flush(logging.DEBUG, f"Restored left folder: {state['left_folder']}")
                     
-            if 'right_folder' in state and state['right_folder']: # v001.0020 changed [added null check]
-                try: # v001.0020 added [error handling for folder path setting]
-                    self.right_folder.set(state['right_folder'])
-                    log_and_flush(logging.DEBUG, f"Restored right folder: {state['right_folder']}") # v001.0020 added [log folder restoration]
-                except Exception as e: # v001.0020 added [error handling for folder path setting]
-                    log_and_flush(logging.ERROR, f"Error setting right folder: {e}") # v001.0020 added [error handling for folder path setting]
+            if 'right_folder' in state and state['right_folder']:
+                self.right_folder.set(state['right_folder'])
+                log_and_flush(logging.DEBUG, f"Restored right folder: {state['right_folder']}")
             
-            # Restore comparison options with error handling # v001.0020 changed [added error handling for comparison options]
-            comparison_options = [ # v001.0020 added [list of comparison options for easier handling]
-                ('compare_existence', 'compare_existence'),
-                ('compare_size', 'compare_size'),
-                ('compare_date_created', 'compare_date_created'),
-                ('compare_date_modified', 'compare_date_modified'),
-                ('compare_sha512', 'compare_sha512')
-            ] # v001.0020 added [list of comparison options for easier handling]
+            # Restore comparison options
+            if 'compare_existence' in state:
+                self.compare_existence.set(state['compare_existence'])
+            if 'compare_size' in state:
+                self.compare_size.set(state['compare_size'])
+            if 'compare_date_created' in state:
+                self.compare_date_created.set(state['compare_date_created'])
+            if 'compare_date_modified' in state:
+                self.compare_date_modified.set(state['compare_date_modified'])
+            if 'compare_sha512' in state:
+                self.compare_sha512.set(state['compare_sha512'])
             
-            for state_key, attr_name in comparison_options: # v001.0020 added [iterate through comparison options]
-                if state_key in state: # v001.0020 added [check if option exists in state]
-                    try: # v001.0020 added [error handling for comparison option setting]
-                        getattr(self, attr_name).set(state[state_key]) # v001.0020 added [safely set comparison option]
-                        log_and_flush(logging.DEBUG, f"Restored {attr_name}: {state[state_key]}") # v001.0020 added [log option restoration]
-                    except Exception as e: # v001.0020 added [error handling for comparison option setting]
-                        log_and_flush(logging.ERROR, f"Error setting {attr_name}: {e}") # v001.0020 added [error handling for comparison option setting]
+            # Restore operation modes
+            if 'overwrite_mode' in state:
+                self.overwrite_mode.set(state['overwrite_mode'])
+            if 'dry_run_mode' in state:
+                self.dry_run_mode.set(state['dry_run_mode'])
             
-            # Restore operation modes with error handling # v001.0020 changed [added error handling for operation modes]
-            operation_modes = [ # v001.0020 added [list of operation modes for easier handling]
-                ('overwrite_mode', 'overwrite_mode'),
-                ('dry_run_mode', 'dry_run_mode')
-            ] # v001.0020 added [list of operation modes for easier handling]
-            
-            for state_key, attr_name in operation_modes: # v001.0020 added [iterate through operation modes]
-                if state_key in state: # v001.0020 added [check if mode exists in state]
-                    try: # v001.0020 added [error handling for operation mode setting]
-                        getattr(self, attr_name).set(state[state_key]) # v001.0020 added [safely set operation mode]
-                        log_and_flush(logging.DEBUG, f"Restored {attr_name}: {state[state_key]}") # v001.0020 added [log mode restoration]
-                    except Exception as e: # v001.0020 added [error handling for operation mode setting]
-                        log_and_flush(logging.ERROR, f"Error setting {attr_name}: {e}") # v001.0020 added [error handling for operation mode setting]
-            
-            # Restore filter state with error handling # v001.0020 changed [added error handling for filter state]
-            if 'filter_wildcard' in state: # v001.0020 added [check if filter exists in state]
-                try: # v001.0020 added [error handling for filter setting]
-                    self.filter_wildcard.set(state['filter_wildcard'])
-                    log_and_flush(logging.DEBUG, f"Restored filter: {state['filter_wildcard']}") # v001.0020 added [log filter restoration]
-                except Exception as e: # v001.0020 added [error handling for filter setting]
-                    log_and_flush(logging.ERROR, f"Error setting filter: {e}") # v001.0020 added [error handling for filter setting]
-                    
+            # Restore filter state
+            if 'filter_wildcard' in state:
+                self.filter_wildcard.set(state['filter_wildcard'])
             if 'is_filtered' in state:
                 self.is_filtered = state['is_filtered']
             
-            # Restore window geometry (after a brief delay for UI to settle) with error handling # v001.0020 changed [added error handling for geometry]
-            if 'window_geometry' in state: # v001.0020 added [check if geometry exists in state]
-                try: # v001.0020 added [error handling for geometry setting]
-                    self.root.after(100, lambda: self.root.geometry(state['window_geometry'])) # v001.0020 added [safely set geometry]
-                    log_and_flush(logging.DEBUG, f"Scheduled geometry restoration: {state['window_geometry']}") # v001.0020 added [log geometry restoration]
-                except Exception as e: # v001.0020 added [error handling for geometry setting]
-                    log_and_flush(logging.ERROR, f"Error setting geometry: {e}") # v001.0020 added [error handling for geometry setting]
-                    
-            if 'window_state' in state and state['window_state'] != 'normal': # v001.0020 added [check if window state exists and is not normal]
-                try: # v001.0020 added [error handling for window state setting]
-                    self.root.after(200, lambda: self.root.state(state['window_state'])) # v001.0020 added [safely set window state]
-                    log_and_flush(logging.DEBUG, f"Scheduled window state restoration: {state['window_state']}") # v001.0020 added [log window state restoration]
-                except Exception as e: # v001.0020 added [error handling for window state setting]
-                    log_and_flush(logging.ERROR, f"Error setting window state: {e}") # v001.0020 added [error handling for window state setting]
+            # Restore window geometry (after a brief delay for UI to settle)
+            if 'window_geometry' in state:
+                self.root.after(100, lambda: self.root.geometry(state['window_geometry']))
+            if 'window_state' in state and state['window_state'] != 'normal':
+                self.root.after(200, lambda: self.root.state(state['window_state']))
             
-            # Restore comparison data with error handling # v001.0020 changed [added error handling for comparison data]
+            # Restore comparison data
             if state.get('has_comparison_data', False):
-                try: # v001.0020 added [error handling for comparison data restoration]
-                    if 'comparison_results' in state:
-                        self.comparison_results = state['comparison_results']
-                        log_and_flush(logging.DEBUG, f"Restored comparison results: {len(self.comparison_results)} items") # v001.0020 added [log comparison results restoration]
-                    if 'filtered_results' in state:
-                        self.filtered_results = state['filtered_results']
-                        log_and_flush(logging.DEBUG, f"Restored filtered results: {len(self.filtered_results)} items") # v001.0020 added [log filtered results restoration]
-                except Exception as e: # v001.0020 added [error handling for comparison data restoration]
-                    log_and_flush(logging.ERROR, f"Error restoring comparison data: {e}") # v001.0020 added [error handling for comparison data restoration]
+                if 'comparison_results' in state:
+                    self.comparison_results = state['comparison_results']
+                if 'filtered_results' in state:
+                    self.filtered_results = state['filtered_results']
+                    
+                # v001.0021 added [rebuild trees with restored comparison data]
+                # Update the UI to show the restored comparison results
+                if self.is_filtered:
+                    self.update_comparison_ui_filtered()
+                else:
+                    self.update_comparison_ui()
             
-            # Restore selection state with error handling # v001.0020 changed [added error handling for selection state]
-            try: # v001.0020 added [error handling for selection restoration]
-                if 'selected_left' in state:
-                    self.selected_left = state['selected_left']
-                    log_and_flush(logging.DEBUG, f"Restored left selections: {len(self.selected_left)} items") # v001.0020 added [log left selection restoration]
-                if 'selected_right' in state:
-                    self.selected_right = state['selected_right']
-                    log_and_flush(logging.DEBUG, f"Restored right selections: {len(self.selected_right)} items") # v001.0020 added [log right selection restoration]
-            except Exception as e: # v001.0020 added [error handling for selection restoration]
-                log_and_flush(logging.ERROR, f"Error restoring selections: {e}") # v001.0020 added [error handling for selection restoration]
+            # Restore selection state
+            if 'selected_left' in state:
+                self.selected_left = state['selected_left']
+            if 'selected_right' in state:
+                self.selected_right = state['selected_right']
             
             # Restore file count tracking
             self.file_count_left = state.get('file_count_left', 0)
@@ -6240,29 +6275,22 @@ class FolderCompareSync_class:
             self.total_file_count = state.get('total_file_count', 0)
             self.limit_exceeded = state.get('limit_exceeded', False)
             
-            # Restore status information with error handling # v001.0020 changed [added error handling for status restoration]
-            try: # v001.0020 added [error handling for status restoration]
-                if 'status_var' in state:
-                    self.status_var.set(state['status_var'])
-                if 'summary_var' in state:
-                    self.summary_var.set(state['summary_var'])
-            except Exception as e: # v001.0020 added [error handling for status restoration]
-                log_and_flush(logging.ERROR, f"Error restoring status variables: {e}") # v001.0020 added [error handling for status restoration]
+            # Restore status information
+            if 'status_var' in state:
+                self.status_var.set(state['status_var'])
+            if 'summary_var' in state:
+                self.summary_var.set(state['summary_var'])
             
-            # Restore status log history with error handling # v001.0020 changed [added error handling for status log restoration]
-            if 'status_log_lines' in state: # v001.0020 added [check if status log exists in state]
-                try: # v001.0020 added [error handling for status log restoration]
-                    self.status_log_lines = state['status_log_lines']
-                    # Update status log display
-                    if self.status_log_text:
-                        self.status_log_text.config(state=tk.NORMAL)
-                        self.status_log_text.delete('1.0', tk.END)
-                        self.status_log_text.insert('1.0', '\n'.join(self.status_log_lines))
-                        self.status_log_text.config(state=tk.DISABLED)
-                        self.status_log_text.see(tk.END)
-                    log_and_flush(logging.DEBUG, f"Restored status log: {len(self.status_log_lines)} lines") # v001.0020 added [log status log restoration]
-                except Exception as e: # v001.0020 added [error handling for status log restoration]
-                    log_and_flush(logging.ERROR, f"Error restoring status log: {e}") # v001.0020 added [error handling for status log restoration]
+            # Restore status log history
+            if 'status_log_lines' in state:
+                self.status_log_lines = state['status_log_lines']
+                # Update status log display
+                if self.status_log_text:
+                    self.status_log_text.config(state=tk.NORMAL)
+                    self.status_log_text.delete('1.0', tk.END)
+                    self.status_log_text.insert('1.0', '\n'.join(self.status_log_lines))
+                    self.status_log_text.config(state=tk.DISABLED)
+                    self.status_log_text.see(tk.END)
             
             # Add status message about restoration
             self.add_status_message("Application state restored after debug global changes")
@@ -6548,6 +6576,8 @@ class DeleteOrphansManager_class:
             orphaned_paths: List of relative paths of orphaned files on the specified side
             orphan_metadata: dict mapping rel_path -> {'is_true_orphan': bool, 'contains_orphans': bool, 'orphan_reason': str} # v001.0017 added [orphan metadata dictionary]
         """
+        log_and_flush(logging.DEBUG, f"Entered DeleteOrphansManager_class: detect_orphaned_files")
+
         orphaned_paths = []
         orphan_metadata = {}  # v001.0017 added [orphan metadata tracking]
         
@@ -6647,8 +6677,9 @@ class DeleteOrphansManager_class:
         contains_orphan_folders = sum(1 for meta in orphan_metadata.values() if not meta['is_true_orphan'] and meta['is_folder'])
         orphan_files = sum(1 for meta in orphan_metadata.values() if not meta['is_folder'])
         
-        log_and_flush(logging.DEBUG, f"Enhanced orphan breakdown: {true_orphan_folders} truly orphaned folders, {contains_orphan_folders} folders containing orphans, {orphan_files} orphaned files")
-            
+        log_and_flush(logging.DEBUG, f"Enhanced orphan breakdown: \n{true_orphan_folders} truly orphaned folders \n{contains_orphan_folders} folders containing orphans \n{orphan_files} orphaned files")
+        log_and_flush(logging.DEBUG, f"Exiting DeleteOrphansManager_class: detect_orphaned_files with sorted(orphaned_paths)=\n{sorted(orphaned_paths)}")
+           
         return sorted(orphaned_paths), orphan_metadata  # v001.0017 changed [return tuple with enhanced metadata]
     
     @staticmethod
@@ -6908,40 +6939,48 @@ class DeleteOrphansManager_class:
         comparison_results: Main app comparison results for metadata
         active_filter: Current filter from main app (if any)
         """
-        self.parent = parent
-        self.orphaned_files = orphaned_files.copy()  # Create local copy
-        self.side = side.upper()
-        self.source_folder = source_folder
-        self.dry_run_mode = dry_run_mode  # v001.0013 Keep original for reference only
-        self.comparison_results = comparison_results
-        self.active_filter = active_filter
-        
-        # Dialog state variables
-        self.deletion_method = tk.StringVar(value="recycle_bin")  # Default to safer option
-        self.local_dry_run_mode = tk.BooleanVar(value=dry_run_mode)  # v001.0013 added [local dry run mode for delete orphans dialog]
-        self.dialog_filter = tk.StringVar()  # Dialog-specific filter
-        self.result = None  # Result of dialog operation
-        
-        # Large data structures for memory management
-        self.orphan_metadata = {}
-        self.orphan_tree_data = {}
-        self.selected_items = set()
-        self.path_to_item_map = {}
-        
-        # UI References
-        self.dialog = None
-        self.tree = None
-        self.statistics_var = tk.StringVar()
-        self.status_log_text = None
-        self.status_log_lines = []
-        
-        # Memory management thresholds (local constants)
-        self.LARGE_FILE_LIST_THRESHOLD = DELETE_LARGE_FILE_LIST_THRESHOLD
-        self.LARGE_TREE_DATA_THRESHOLD = DELETE_LARGE_TREE_DATA_THRESHOLD
-        self.LARGE_SELECTION_THRESHOLD = DELETE_LARGE_SELECTION_THRESHOLD
-        
-        # Initialize dialog
-        self.setup_dialog()
+        log_and_flush(logging.DEBUG, f"Entered DeleteOrphansManager_class: __init__")
+        try:
+            self.parent = parent
+            self.orphaned_files = orphaned_files.copy()  # Create local copy
+            self.side = side.upper()
+            self.source_folder = source_folder
+            self.dry_run_mode = dry_run_mode  # v001.0013 Keep original for reference only
+            self.comparison_results = comparison_results
+            self.active_filter = active_filter
+            
+            # Dialog state variables
+            self.deletion_method = tk.StringVar(value="recycle_bin")  # Default to safer option
+            self.local_dry_run_mode = tk.BooleanVar(value=dry_run_mode)  # v001.0013 added [local dry run mode for delete orphans dialog]
+            self.dialog_filter = tk.StringVar()  # Dialog-specific filter
+            self.result = None  # Result of dialog operation
+            
+            # Large data structures for memory management
+            self.orphan_metadata = {}
+            self.orphan_tree_data = {}
+            self.selected_items = set()
+            self.path_to_item_map = {}
+            
+            # UI References
+            self.dialog = None
+            self.tree = None
+            self.statistics_var = tk.StringVar()
+            self.status_log_text = None
+            self.status_log_lines = []
+            
+            # Memory management thresholds (local constants)
+            self.LARGE_FILE_LIST_THRESHOLD = DELETE_LARGE_FILE_LIST_THRESHOLD
+            self.LARGE_TREE_DATA_THRESHOLD = DELETE_LARGE_TREE_DATA_THRESHOLD
+            self.LARGE_SELECTION_THRESHOLD = DELETE_LARGE_SELECTION_THRESHOLD
+            
+            # Initialize dialog
+            log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: __init__: calling 'setup_dialog'")
+            self.setup_dialog()
+            log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: __init__: returned from 'setup_dialog'")
+        except Exception as e:
+            log_and_flush(logging.CRITICAL, f"DeleteOrphansManager_class: __init__: error ", e)
+
+        log_and_flush(logging.DEBUG, f"Exiting DeleteOrphansManager_class: __init__")
         
     def setup_dialog(self):
         """Create and configure the modal dialog window."""
@@ -6975,7 +7014,7 @@ class DeleteOrphansManager_class:
         self.initialize_orphan_data()
         
     def add_status_message(self, message):
-        """Add timestamped message to dialog status log."""
+        """DeleteOrphansManager_class: Add timestamped message to dialog status log."""
         timestamp = datetime.now().strftime("%H:%M:%S")
         status_line = f"{timestamp} - {message}"
         
@@ -6993,7 +7032,7 @@ class DeleteOrphansManager_class:
             self.status_log_text.config(state=tk.DISABLED)
             self.status_log_text.see(tk.END)
             
-        log_and_flush(logging.DEBUG, f"Delete Orphans Manager STATUS: {message}")
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class:: POSTED STATUS MESSAGE: {message}")
         
     def initialize_orphan_data(self):
         """Initialize orphan metadata and build tree structure."""
@@ -7683,7 +7722,10 @@ class DeleteOrphansManager_class:
     
     def build_orphan_tree(self):
         """Build the orphan file tree display."""
+        log_and_flush(logging.DEBUG, f"Entered DeleteOrphansManager_class: build_orphan_tree")
+
         if not self.tree:
+            log_and_flush(logging.DEBUG, f"Exiting DeleteOrphansManager_class: build_orphan_tree: tree is False or None")
             return
             
         # Clear existing tree
@@ -7692,14 +7734,17 @@ class DeleteOrphansManager_class:
         self.path_to_item_map.clear()
         
         if not self.orphan_tree_data:
-            self.add_status_message("No orphan tree data to display")
+            self.add_status_message("No Orphan file tree data to display")
+            log_and_flush(logging.DEBUG, f"Exiting DeleteOrphansManager_class: build_orphan_tree: No Orphan file tree data to display")
             return
             
         # Build tree from structure
-        self.add_status_message("Building orphan file tree...")
+        self.add_status_message("Building Orphan file tree...")
         
         # Use alphabetical ordering for stability
+        log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: build_orphan_tree: Building orphan file tree by calling populate_orphan_tree...")
         self.populate_orphan_tree(self.tree, self.orphan_tree_data, '', '')
+        log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: build_orphan_tree: Built orphan file tree by calling populate_orphan_tree...")
         
         # Expand all items by default
         self.expand_all_tree_items()
@@ -7707,7 +7752,9 @@ class DeleteOrphansManager_class:
         # Update display with selections
         self.update_tree_display()
         
-        self.add_status_message(f"Tree built with {len(self.orphan_metadata)} items")
+        self.add_status_message(f"Orphan file tree built with {len(self.orphan_metadata)} items")
+        log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: build_orphan_tree: Orphan file tree built with {len(self.orphan_metadata)} items")
+        log_and_flush(logging.DEBUG, f"Exiting DeleteOrphansManager_class: build_orphan_tree")
         
     def populate_orphan_tree(self, tree, structure, parent_id, current_path):
         """
@@ -7719,6 +7766,7 @@ class DeleteOrphansManager_class:
         Only truly orphaned folders are auto-ticked, while folders that just contain orphaned files are not.
         """
         if not structure:
+            log_and_flush(logging.DEBUG, f"Exiting DeleteOrphansManager_class: populate_orphan_tree: structure False or None")
             return
             
         # Process items in alphabetical order for stability
@@ -7754,6 +7802,7 @@ class DeleteOrphansManager_class:
                     tags = ('inaccessible',)
                 
                 # Insert file item
+                log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: populate_orphan_tree: Insert file item_text='{item_text}' metadata['rel_path']='{metadata['rel_path']}'")
                 item_id = tree.insert(
                     parent_id, 
                     tk.END, 
@@ -7812,6 +7861,7 @@ class DeleteOrphansManager_class:
                     folder_text = f"{folder_checkbox} {name}/"
                     folder_status = "Folder"  # v001.0017 changed [simplified status for non-orphan folders]
                 
+                log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: populate_orphan_tree: Insert folder folder_text='{folder_text}' item_rel_path='{item_rel_path}'")
                 folder_id = tree.insert(
                     parent_id,
                     tk.END,
@@ -8230,9 +8280,12 @@ class DeleteOrphansManager_class:
         
     def delete_selected_files(self):
         """Start the deletion process for selected files."""
+        log_and_flush(logging.DEBUG, f"Entered DeleteOrphansManager_class: delete_selected_files")
+
         if not self.selected_items:
             self.add_status_message("No files selected for deletion")
             messagebox.showinfo("No Selection", "Please select files to delete first.")
+            log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: No files selected for deletion")
             return
             
         # Get selected accessible files only
@@ -8245,6 +8298,7 @@ class DeleteOrphansManager_class:
         if not selected_accessible:
             self.add_status_message("No accessible files selected for deletion")
             messagebox.showinfo("No Accessible Files", "All selected files are inaccessible and cannot be deleted.")
+            log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: No Accessible Files, All selected files are inaccessible and cannot be deleted.")
             return
             
         # Calculate statistics for confirmation
@@ -8256,6 +8310,23 @@ class DeleteOrphansManager_class:
         
         deletion_method = self.deletion_method.get().lower()
         method_text = "Move to Recycle Bin" if deletion_method.lower() == "recycle_bin".lower() else "Permanently Delete"
+        log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: delete_method_text='{method_text}'")
+
+        # ----- Display and count for DEBUG purposes
+        log_and_flush(logging.INFO, "=" * 80)
+        debug_count_selected_accessible_files = 0
+        debug_count_selected_accessible_folders = 0
+        for path in selected_accessible:
+            if self.orphan_metadata[path]['is_folder']:
+                debug_count_selected_accessible_folders = debug_count_selected_accessible_folders + 1
+                log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED folder {debug_count_selected_accessible_folders}. '{self.orphan_metadata[path]['full_path']}'")
+        for path in selected_accessible:
+            if not self.orphan_metadata[path]['is_folder']:
+                debug_count_selected_accessible_files = debug_count_selected_accessible_files + 1
+                log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED file   {debug_count_selected_accessible_files}. '{self.orphan_metadata[path]['full_path']}'")
+        log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED {debug_count_selected_accessible_files} files, SELECTED {debug_count_selected_accessible_folders} folders")
+        log_and_flush(logging.INFO, "=" * 80)
+        # ----- Display and count for DEBUG purposes
         
         # Use local dry run mode instead of main app dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         is_local_dry_run = self.local_dry_run_mode.get() # v001.0013 changed [use local dry run mode instead of main app dry run mode]
@@ -8298,7 +8369,7 @@ class DeleteOrphansManager_class:
             return
             
         # Start deletion process
-        self.add_status_message(f"Starting deletion process: {len(selected_accessible)} files")
+        self.add_status_message(f"Starting deletion process: {len(selected_accessible)} files/folders")
         
         # Close dialog and start deletion in background
         deletion_method_final = deletion_method.lower()
@@ -8317,6 +8388,9 @@ class DeleteOrphansManager_class:
         
     def perform_deletion(self, selected_paths, deletion_method):
         """Perform the actual deletion operation with progress tracking."""
+        
+        log_and_flush(logging.DEBUG, f"Entered DeleteOrphansManager_class: perform_deletion")
+    
         operation_start_time = time.time()
         operation_id = uuid.uuid4().hex[:8]
         
@@ -8330,14 +8404,19 @@ class DeleteOrphansManager_class:
         dry_run_text = " (DRY RUN)" if is_local_dry_run else "" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         method_text = "Recycle Bin" if deletion_method.lower() == "recycle_bin".lower() else "Permanent"
         
+        # v001.0023 added [sort paths for proper deletion order - deepest/child items first]
+        # Sort paths by depth (number of separators) in descending order to ensure
+        # files are deleted before their parent folders
+        sorted_paths = sorted(selected_paths, key=lambda path: (path.count('/'), path), reverse=True)
+        
         log_and_flush(logging.INFO, "=" * 80)
-        log_and_flush(logging.INFO, f"DELETE ORPHANS OPERATION STARTED{dry_run_text}")
-        log_and_flush(logging.INFO, f"Operation ID: {operation_id}")
-        log_and_flush(logging.INFO, f"Side: {self.side.upper()}")
-        log_and_flush(logging.INFO, f"Source Folder: {self.source_folder}")
-        log_and_flush(logging.INFO, f"Deletion Method: {method_text}")
-        log_and_flush(logging.INFO, f"Files to delete: {len(selected_paths)}")
-        log_and_flush(logging.INFO, f"Local Dry Run Mode: {is_local_dry_run}") # v001.0013 changed [log local dry run mode instead of main app dry run mode]
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: DELETE ORPHANS OPERATION STARTED{dry_run_text}")
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Operation ID: {operation_id}")
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Side: {self.side.upper()}")
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Source Folder: {self.source_folder}")
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Deletion Method: {method_text}")
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Files/Folders to delete: {len(sorted_paths)} (sorted by depth)") # v001.0023 changed [mention sorting]
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Local Dry Run Mode: {is_local_dry_run}") # v001.0013 changed [log local dry run mode instead of main app dry run mode]
         log_and_flush(logging.INFO, "=" * 80)
         
         # Create progress dialog
@@ -8346,7 +8425,7 @@ class DeleteOrphansManager_class:
             self.parent,
             progress_title,
             f"{'Simulating' if is_local_dry_run else 'Processing'} orphaned files...", # v001.0013 changed [use local dry run mode instead of main app dry run mode]
-            max_value=len(selected_paths)
+            max_value=len(sorted_paths) # v001.0023 changed [use sorted_paths length]
         )
         
         success_count = 0
@@ -8355,11 +8434,12 @@ class DeleteOrphansManager_class:
         total_bytes_processed = 0
         
         try:
-            for i, rel_path in enumerate(selected_paths):
+            # v001.0023 changed [iterate through sorted_paths instead of selected_paths]
+            for i, rel_path in enumerate(sorted_paths):
                 try:
                     # Update progress
                     file_name = rel_path.split('/')[-1]
-                    progress_text = f"{'Simulating' if is_local_dry_run else 'Processing'} {i+1} of {len(selected_paths)}: {file_name}" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
+                    progress_text = f"{'Simulating' if is_local_dry_run else 'Processing'} {i+1} of {len(sorted_paths)}: {file_name}" # v001.0023 changed [use sorted_paths length]
                     progress.update_progress(i+1, progress_text)
                     
                     # Get full path
@@ -8368,7 +8448,7 @@ class DeleteOrphansManager_class:
                     # Skip if file doesn't exist
                     if not os.path.exists(full_path):
                         skipped_count += 1
-                        log_and_flush(logging.WARNING, f"File not found, skipping: {full_path}")
+                        log_and_flush(logging.ERROR, f"DeleteOrphansManager_class: perform_deletion: ***delete_status: File not found, skipping: {full_path}")
                         continue
                         
                     # Get file size for statistics
@@ -8393,32 +8473,31 @@ class DeleteOrphansManager_class:
                             
                         if success:
                             success_count += 1
-                            log_and_flush(logging.INFO, f"Successfully {method_text.lower()} deleted: {full_path}")
+                            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: ***delete_status: Successfully {method_text.lower()} deleted: {full_path}")
                         else:
                             error_count += 1
-                            log_and_flush(logging.ERROR, f"Failed to delete {full_path}: {error_msg}")
+                            log_and_flush(logging.ERROR, f"DeleteOrphansManager_class: perform_deletion: ***delete_status: Failed to delete: {full_path}: {error_msg}")
                             
                 except Exception as e:
                     error_count += 1
-                    log_and_flush(logging.ERROR, f"Exception deleting {rel_path}: {str(e)}")
+                    log_and_flush(logging.ERROR, f"DeleteOrphansManager_class: perform_deletion: Exception deleting {rel_path}: {str(e)}")
                     continue
-                    
+
         except Exception as e:
-            log_and_flush(logging.ERROR, f"Critical error during deletion operation: {str(e)}")
+            log_and_flush(logging.CRITICAL, f"DeleteOrphansManager_class: perform_deletion: Critical error during deletion operation: {str(e)}")
             
         finally:
             progress.close()
-            
             # Log operation completion
             elapsed_time = time.time() - operation_start_time
             log_and_flush(logging.INFO, "=" * 80)
-            log_and_flush(logging.INFO, f"DELETE ORPHANS OPERATION COMPLETED{dry_run_text}")
-            log_and_flush(logging.INFO, f"Operation ID: {operation_id}")
-            log_and_flush(logging.INFO, f"Files processed successfully: {success_count}")
-            log_and_flush(logging.INFO, f"Files failed: {error_count}")
-            log_and_flush(logging.INFO, f"Files skipped: {skipped_count}")
-            log_and_flush(logging.INFO, f"Total bytes processed: {total_bytes_processed:,}")
-            log_and_flush(logging.INFO, f"Duration: {elapsed_time:.2f} seconds")
+            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: DELETE ORPHANS OPERATION COMPLETED{dry_run_text}")
+            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Operation ID: {operation_id}")
+            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Files processed successfully: {success_count}")
+            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Files failed: {error_count}")
+            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Files skipped: {skipped_count}")
+            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Total bytes processed: {total_bytes_processed:,}")
+            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Duration: {elapsed_time:.2f} seconds")
             if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
                 log_and_flush(logging.INFO, "NOTE: This was a DRY RUN simulation - no actual files were modified")
             log_and_flush(logging.INFO, "=" * 80)
