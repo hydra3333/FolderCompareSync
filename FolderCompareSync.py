@@ -8311,16 +8311,17 @@ class DeleteOrphansManager_class:
         method_text = "Move to Recycle Bin" if deletion_method.lower() == "recycle_bin".lower() else "Permanently Delete"
         log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: delete_method_text='{method_text}'")
 
-        # Display and count for debug purposes
+        # Display and count for DEBUG purposes
         debug_count_selected_accessible_files = 0
         debug_count_selected_accessible_folders = 0
         for path in selected_accessible:
-            if self.orphan_metadata[path]['is_folder']: # assume folder
+            if self.orphan_metadata[path]['is_folder']:
                 debug_count_selected_accessible_folders = debug_count_selected_accessible_folders + 1
-                log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED folder {debug_count_selected_accessible_folders}. '{self.orphan_metadata[path]}'")
-            else: # assume file
+                log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED folder {debug_count_selected_accessible_folders}. '{self.orphan_metadata[path]['full_path']}'")
+        for path in selected_accessible:
+            if not self.orphan_metadata[path]['is_folder']:
                 debug_count_selected_accessible_files = debug_count_selected_accessible_files + 1
-                log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED file   {debug_count_selected_accessible_files}. '{self.orphan_metadata[path]}'")
+                log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED file   {debug_count_selected_accessible_files}. '{self.orphan_metadata[path]['full_path']}'")
         log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED {debug_count_selected_accessible_files} files, SELECTED {debug_count_selected_accessible_folders} folders")
         
         # Use local dry run mode instead of main app dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
