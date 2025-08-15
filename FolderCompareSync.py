@@ -8311,7 +8311,7 @@ class DeleteOrphansManager_class:
         method_text = "Move to Recycle Bin" if deletion_method.lower() == "recycle_bin".lower() else "Permanently Delete"
         log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: delete_method_text='{method_text}'")
 
-        # Display and count for DEBUG purposes
+        # ----- Display and count for DEBUG purposes
         debug_count_selected_accessible_files = 0
         debug_count_selected_accessible_folders = 0
         for path in selected_accessible:
@@ -8323,6 +8323,7 @@ class DeleteOrphansManager_class:
                 debug_count_selected_accessible_files = debug_count_selected_accessible_files + 1
                 log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED file   {debug_count_selected_accessible_files}. '{self.orphan_metadata[path]['full_path']}'")
         log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED {debug_count_selected_accessible_files} files, SELECTED {debug_count_selected_accessible_folders} folders")
+        # ----- Display and count for DEBUG purposes
         
         # Use local dry run mode instead of main app dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         is_local_dry_run = self.local_dry_run_mode.get() # v001.0013 changed [use local dry run mode instead of main app dry run mode]
@@ -8365,7 +8366,7 @@ class DeleteOrphansManager_class:
             return
             
         # Start deletion process
-        self.add_status_message(f"Starting deletion process: {len(selected_accessible)} files")
+        self.add_status_message(f"Starting deletion process: {len(selected_accessible)} files/folders")
         
         # Close dialog and start deletion in background
         deletion_method_final = deletion_method.lower()
@@ -8460,10 +8461,10 @@ class DeleteOrphansManager_class:
                             
                         if success:
                             success_count += 1
-                            log_and_flush(logging.INFO, f"Successfully {method_text.lower()} deleted: {full_path}")
+                            log_and_flush(logging.INFO, f"***delete_status: Successfully {method_text.lower()} deleted: {full_path}")
                         else:
                             error_count += 1
-                            log_and_flush(logging.ERROR, f"Failed to delete {full_path}: {error_msg}")
+                            log_and_flush(logging.ERROR, f"***delete_status: Failed to delete: {full_path}: {error_msg}")
                             
                 except Exception as e:
                     error_count += 1
