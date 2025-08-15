@@ -3251,7 +3251,7 @@ class FolderCompareSync_class:
 
     def add_status_message(self, message):
         """
-        Add a timestamped message to the status log using configurable history limit.
+        FolderCompareSync_class: Add a timestamped message to the status log using configurable history limit.
         
         Purpose:
         --------
@@ -3280,7 +3280,7 @@ class FolderCompareSync_class:
             self.status_log_text.config(state=tk.DISABLED)
             self.status_log_text.see(tk.END)  # Auto-scroll to bottom
             
-        log_and_flush(logging.INFO, f"STATUS: {message}")
+        log_and_flush(logging.INFO, f"FolderCompareSync_class: POSTED STATUS MESSAGE: {message}")
 
     def export_status_log(self):
         """
@@ -3418,11 +3418,14 @@ class FolderCompareSync_class:
         -----
         side: LEFT_SIDE_lowercase or RIGHT_SIDE_lowercase - which side to process orphaned files for
         """
+        log_and_flush(logging.DEBUG, f"Entered FolderCompareSync_class: delete_orphans: side='{side}'")
         if self.limit_exceeded:
+            log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': Operation Disabled, Delete operations are disabled when file limits are exceeded.")
             messagebox.showwarning("Operation Disabled", "Delete operations are disabled when file limits are exceeded.")
             return
             
         if not self.comparison_results:
+            log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': No comparison data available")
             self.add_status_message("No comparison data available - please run comparison first")
             messagebox.showinfo("No Data", "Please perform a folder comparison first.")
             return
@@ -3432,22 +3435,25 @@ class FolderCompareSync_class:
         
         # v001.0017 changed [use enhanced detect_orphaned_files method]
         # Get enhanced orphan detection results
+        log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': calling 'DeleteOrphansManager_class.detect_orphaned_files'")
         orphaned_files, orphan_detection_metadata = DeleteOrphansManager_class.detect_orphaned_files(
             self.comparison_results, side, active_filter
         )
+        log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': returned from 'DeleteOrphansManager_class.detect_orphaned_files'")
         
         side_upper = side.upper()  # v001.0017 added [preserve original case for display while using case insensitive logic]
         if not orphaned_files:
             filter_text = f" (with active filter: {active_filter})" if active_filter else ""
-            self.add_status_message(f"No orphaned files found on {side_upper} side{filter_text}")
-            messagebox.showinfo("No Orphans", f"No orphaned files found on {side_upper} side{filter_text}.")
+            log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': No orphaned files found on {side_upper} side {filter_text}")
+            self.add_status_message(f"No orphaned files found on {side_upper} side {filter_text}")
             return
             
         # v001.0017 added [log enhanced orphan classification results]
         true_orphans = sum(1 for meta in orphan_detection_metadata.values() if meta.get('is_true_orphan', False))
         contains_orphans = sum(1 for meta in orphan_detection_metadata.values() if not meta.get('is_true_orphan', True))
         
-        self.add_status_message(f"Enhanced orphan detection on {side_upper}: {true_orphans} true orphans, {contains_orphans} folders containing orphans")
+        log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': side='{side_upper}' true orphans='{true_orphans}' folders containing orphans={contains_orphans}")
+        self.add_status_message(f"Enhanced orphan detection on {side_upper} side: {true_orphans} true orphans, {contains_orphans} folders containing orphans")
         self.add_status_message(f"Opening enhanced delete orphans dialog for {side_upper} side: {len(orphaned_files)} total items")
         
         try:
@@ -3456,6 +3462,7 @@ class FolderCompareSync_class:
             source_folder = self.left_folder.get() if side.lower() == LEFT_SIDE_lowercase else self.right_folder.get()  # v001.0017 changed [case insensitive comparison]
             
             # Create and show enhanced delete orphans manager/dialog
+            log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': creating a 'DeleteOrphansManager_class' manager")
             manager = DeleteOrphansManager_class(
                 parent=self.root,
                 orphaned_files=orphaned_files,
@@ -3465,6 +3472,7 @@ class FolderCompareSync_class:
                 comparison_results=self.comparison_results,
                 active_filter=active_filter
             )
+            log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': created a 'DeleteOrphansManager_class' manager")
             
             # v001.0017 added [pass enhanced detection metadata to manager for smart initialization]
             # Note: This requires enhancement to DeleteOrphansManager_class.__init__ to accept this parameter
@@ -3477,19 +3485,23 @@ class FolderCompareSync_class:
             # Check if files were actually deleted (not dry run)
             #if hasattr(manager, 'result') and manager.result.lower() == 'deleted'.lower() and not self.dry_run_mode.get(): # v001.0018 superseded, [add None check for manager.result before calling .lower()]
             if hasattr(manager, 'result') and manager.result and manager.result.lower() == 'deleted'.lower():   # v001.0018 changed [add None check for manager.result before calling .lower()]
-                self.add_status_message("Enhanced delete operation completed - refreshing folder comparison...")
+                self.add_status_message("Enhanced {side_upper} side delete operation completed - refreshing folder comparison...")
+                log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': delete operation completed - refreshing folder comparison...")
                 # Refresh comparison to show updated state
-                self.refresh_after_copy_operation()
+                self.refresh_after_copy_or_delete_operation()
             else:
-                self.add_status_message("Enhanced delete orphans dialog closed")
+                log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': Enhanced {side_upper} side delete orphans dialog closed")
+                self.add_status_message("Enhanced {side_upper} side delete orphans dialog closed")
                 
         except Exception as e:
-            error_msg = f"Error opening enhanced delete orphans dialog: {str(e)}"
+            error_msg = f"Error opening enhanced {side_upper} side delete orphans dialog: {str(e)}"
+            log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': ERROR: {error_msg}")
             self.add_status_message(f"ERROR: {error_msg}")
             self.show_error(error_msg)
         finally:
             # Cleanup memory after dialog operations
             gc.collect()
+        log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': exiting 'delete_orphans'")
 
     def setup_ui(self):
         """
@@ -4469,6 +4481,8 @@ class FolderCompareSync_class:
         Orchestrates the complete comparison process including scanning, comparison,
         and UI updates while enforcing file count limits for performance management.
         """
+        log_and_flush(logging.DEBUG, f"Entered FolderCompareSync_class: perform_comparison")
+
         # v001.0021 added [check if UI is being recreated to prevent threading issues]
         if hasattr(self, '_ui_recreating') and self._ui_recreating:
             log_and_flush(logging.WARNING, "Comparison aborted - UI is being recreated")
@@ -4607,6 +4621,7 @@ class FolderCompareSync_class:
         finally:
             # Always close the progress dialog
             progress.close()
+        log_and_flush(logging.DEBUG, f"Exiting FolderCompareSync_class: perform_comparison")
             
     def build_file_list_with_progress(self, root_path: str, progress: ProgressDialog, 
                                     start_percent: int, end_percent: int) -> Optional[dict[str, FileMetadata_class]]:
@@ -5231,7 +5246,7 @@ class FolderCompareSync_class:
             
         # Populate trees under root items with stable alphabetical ordering # v000.0002 changed - removed sorting
         log_and_flush(logging.INFO, "Populating tree views under root paths with stable ordering...") # v000.0002 changed - removed sorting
-        self.populate_tree(self.left_tree, left_structure, self.root_item_left, 'left', '') # v000.0002 changed - removed sorting
+        self.populate_tree(self.left_tree, left_structure, self.root_item_left, LEFT_SIDE_lowercase, '') # v000.0002 changed - removed sorting
                                                                          
         self.populate_tree(self.right_tree, right_structure, self.root_item_right, RIGHT_SIDE_lowercase, '') # v000.0002 changed - removed sorting
                                                                          
@@ -5843,7 +5858,7 @@ class FolderCompareSync_class:
             
             # IMPORTANT: Only refresh trees and clear selections for actual copy operations (not dry runs)
             if not is_dry_run:
-                self.root.after(0, self.refresh_after_copy_operation)
+                self.root.after(0, self.refresh_after_copy_or_delete_operation)
             else:
                 self.root.after(0, lambda: self.add_status_message("DRY RUN complete - no file system changes made"))
             
@@ -5857,17 +5872,17 @@ class FolderCompareSync_class:
             progress.close()
             self.root.after(0, lambda: self.status_var.set("Ready"))
 
-    def refresh_after_copy_operation(self):
+    def refresh_after_copy_or_delete_operation(self):
         """
-        Refresh folder trees and clear all selections after copy operation with limit checking.
+        Refresh folder trees and clear all selections after copy/delete operation with limit checking.
         
         Purpose:
         --------
         This ensures the user sees the current state after copying,
-        but only performs refresh for actual copy operations (not dry runs).
+        but only performs refresh for actual copy or delete operations (not dry runs).
         """
-        log_and_flush(logging.INFO, "Refreshing trees and clearing selections after copy operation")
-        self.add_status_message("Refreshing folder trees after copy operation...")
+        log_and_flush(logging.INFO, "Refreshing trees and clearing selections after copy or delete operation")
+        self.add_status_message("Refreshing folder trees after copy or delete operation...")
         
         # Clear all selections first
         self.selected_left.clear()
@@ -5886,7 +5901,7 @@ class FolderCompareSync_class:
             self.add_status_message("Re-scanning folders to show updated state...")
             threading.Thread(target=self.perform_comparison, daemon=True).start()
         else:
-            self.add_status_message("Copy operation complete - ready for next operation")
+            self.add_status_message("Copy or Delete operation complete - ready for next operation")
         
     def update_summary(self):
         """Update summary information with filter status and limit checking."""
@@ -6560,6 +6575,8 @@ class DeleteOrphansManager_class:
             orphaned_paths: List of relative paths of orphaned files on the specified side
             orphan_metadata: dict mapping rel_path -> {'is_true_orphan': bool, 'contains_orphans': bool, 'orphan_reason': str} # v001.0017 added [orphan metadata dictionary]
         """
+        log_and_flush(logging.DEBUG, f"Entered DeleteOrphansManager_class: detect_orphaned_files")
+
         orphaned_paths = []
         orphan_metadata = {}  # v001.0017 added [orphan metadata tracking]
         
@@ -6659,8 +6676,9 @@ class DeleteOrphansManager_class:
         contains_orphan_folders = sum(1 for meta in orphan_metadata.values() if not meta['is_true_orphan'] and meta['is_folder'])
         orphan_files = sum(1 for meta in orphan_metadata.values() if not meta['is_folder'])
         
-        log_and_flush(logging.DEBUG, f"Enhanced orphan breakdown: {true_orphan_folders} truly orphaned folders, {contains_orphan_folders} folders containing orphans, {orphan_files} orphaned files")
-            
+        log_and_flush(logging.DEBUG, f"Enhanced orphan breakdown: \n{true_orphan_folders} truly orphaned folders \n{contains_orphan_folders} folders containing orphans \n{orphan_files} orphaned files")
+        log_and_flush(logging.DEBUG, f"Exiting DeleteOrphansManager_class: detect_orphaned_files with sorted(orphaned_paths)=\n{sorted(orphaned_paths)}")
+           
         return sorted(orphaned_paths), orphan_metadata  # v001.0017 changed [return tuple with enhanced metadata]
     
     @staticmethod
@@ -6920,40 +6938,48 @@ class DeleteOrphansManager_class:
         comparison_results: Main app comparison results for metadata
         active_filter: Current filter from main app (if any)
         """
-        self.parent = parent
-        self.orphaned_files = orphaned_files.copy()  # Create local copy
-        self.side = side.upper()
-        self.source_folder = source_folder
-        self.dry_run_mode = dry_run_mode  # v001.0013 Keep original for reference only
-        self.comparison_results = comparison_results
-        self.active_filter = active_filter
-        
-        # Dialog state variables
-        self.deletion_method = tk.StringVar(value="recycle_bin")  # Default to safer option
-        self.local_dry_run_mode = tk.BooleanVar(value=dry_run_mode)  # v001.0013 added [local dry run mode for delete orphans dialog]
-        self.dialog_filter = tk.StringVar()  # Dialog-specific filter
-        self.result = None  # Result of dialog operation
-        
-        # Large data structures for memory management
-        self.orphan_metadata = {}
-        self.orphan_tree_data = {}
-        self.selected_items = set()
-        self.path_to_item_map = {}
-        
-        # UI References
-        self.dialog = None
-        self.tree = None
-        self.statistics_var = tk.StringVar()
-        self.status_log_text = None
-        self.status_log_lines = []
-        
-        # Memory management thresholds (local constants)
-        self.LARGE_FILE_LIST_THRESHOLD = DELETE_LARGE_FILE_LIST_THRESHOLD
-        self.LARGE_TREE_DATA_THRESHOLD = DELETE_LARGE_TREE_DATA_THRESHOLD
-        self.LARGE_SELECTION_THRESHOLD = DELETE_LARGE_SELECTION_THRESHOLD
-        
-        # Initialize dialog
-        self.setup_dialog()
+        log_and_flush(logging.DEBUG, f"Entered DeleteOrphansManager_class: __init__")
+        try:
+            self.parent = parent
+            self.orphaned_files = orphaned_files.copy()  # Create local copy
+            self.side = side.upper()
+            self.source_folder = source_folder
+            self.dry_run_mode = dry_run_mode  # v001.0013 Keep original for reference only
+            self.comparison_results = comparison_results
+            self.active_filter = active_filter
+            
+            # Dialog state variables
+            self.deletion_method = tk.StringVar(value="recycle_bin")  # Default to safer option
+            self.local_dry_run_mode = tk.BooleanVar(value=dry_run_mode)  # v001.0013 added [local dry run mode for delete orphans dialog]
+            self.dialog_filter = tk.StringVar()  # Dialog-specific filter
+            self.result = None  # Result of dialog operation
+            
+            # Large data structures for memory management
+            self.orphan_metadata = {}
+            self.orphan_tree_data = {}
+            self.selected_items = set()
+            self.path_to_item_map = {}
+            
+            # UI References
+            self.dialog = None
+            self.tree = None
+            self.statistics_var = tk.StringVar()
+            self.status_log_text = None
+            self.status_log_lines = []
+            
+            # Memory management thresholds (local constants)
+            self.LARGE_FILE_LIST_THRESHOLD = DELETE_LARGE_FILE_LIST_THRESHOLD
+            self.LARGE_TREE_DATA_THRESHOLD = DELETE_LARGE_TREE_DATA_THRESHOLD
+            self.LARGE_SELECTION_THRESHOLD = DELETE_LARGE_SELECTION_THRESHOLD
+            
+            # Initialize dialog
+            log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: __init__: calling 'setup_dialog'")
+            self.setup_dialog()
+            log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: __init__: returned from 'setup_dialog'")
+        except Exception as e:
+            log_and_flush(logging.CRITICAL, f"DeleteOrphansManager_class: __init__: error ", e)
+
+        log_and_flush(logging.DEBUG, f"Exiting DeleteOrphansManager_class: __init__")
         
     def setup_dialog(self):
         """Create and configure the modal dialog window."""
@@ -6987,7 +7013,7 @@ class DeleteOrphansManager_class:
         self.initialize_orphan_data()
         
     def add_status_message(self, message):
-        """Add timestamped message to dialog status log."""
+        """DeleteOrphansManager_class: Add timestamped message to dialog status log."""
         timestamp = datetime.now().strftime("%H:%M:%S")
         status_line = f"{timestamp} - {message}"
         
@@ -7005,7 +7031,7 @@ class DeleteOrphansManager_class:
             self.status_log_text.config(state=tk.DISABLED)
             self.status_log_text.see(tk.END)
             
-        log_and_flush(logging.DEBUG, f"Delete Orphans Manager STATUS: {message}")
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class:: POSTED STATUS MESSAGE: {message}")
         
     def initialize_orphan_data(self):
         """Initialize orphan metadata and build tree structure."""
@@ -7695,7 +7721,10 @@ class DeleteOrphansManager_class:
     
     def build_orphan_tree(self):
         """Build the orphan file tree display."""
+        log_and_flush(logging.DEBUG, f"Entered DeleteOrphansManager_class: build_orphan_tree")
+
         if not self.tree:
+            log_and_flush(logging.DEBUG, f"Exiting DeleteOrphansManager_class: build_orphan_tree: tree is False or None")
             return
             
         # Clear existing tree
@@ -7704,14 +7733,17 @@ class DeleteOrphansManager_class:
         self.path_to_item_map.clear()
         
         if not self.orphan_tree_data:
-            self.add_status_message("No orphan tree data to display")
+            self.add_status_message("No Orphan file tree data to display")
+            log_and_flush(logging.DEBUG, f"Exiting DeleteOrphansManager_class: build_orphan_tree: No Orphan file tree data to display")
             return
             
         # Build tree from structure
-        self.add_status_message("Building orphan file tree...")
+        self.add_status_message("Building Orphan file tree...")
         
         # Use alphabetical ordering for stability
+        log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: build_orphan_tree: Building orphan file tree by calling populate_orphan_tree...")
         self.populate_orphan_tree(self.tree, self.orphan_tree_data, '', '')
+        log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: build_orphan_tree: Built orphan file tree by calling populate_orphan_tree...")
         
         # Expand all items by default
         self.expand_all_tree_items()
@@ -7719,7 +7751,9 @@ class DeleteOrphansManager_class:
         # Update display with selections
         self.update_tree_display()
         
-        self.add_status_message(f"Tree built with {len(self.orphan_metadata)} items")
+        self.add_status_message(f"Orphan file tree built with {len(self.orphan_metadata)} items")
+        log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: build_orphan_tree: Orphan file tree built with {len(self.orphan_metadata)} items")
+        log_and_flush(logging.DEBUG, f"Exiting DeleteOrphansManager_class: build_orphan_tree")
         
     def populate_orphan_tree(self, tree, structure, parent_id, current_path):
         """
@@ -7731,6 +7765,7 @@ class DeleteOrphansManager_class:
         Only truly orphaned folders are auto-ticked, while folders that just contain orphaned files are not.
         """
         if not structure:
+            log_and_flush(logging.DEBUG, f"Exiting DeleteOrphansManager_class: populate_orphan_tree: structure False or None")
             return
             
         # Process items in alphabetical order for stability
@@ -7766,6 +7801,7 @@ class DeleteOrphansManager_class:
                     tags = ('inaccessible',)
                 
                 # Insert file item
+                log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: populate_orphan_tree: Insert file item_text='{item_text}' metadata['rel_path']='{metadata['rel_path']}'")
                 item_id = tree.insert(
                     parent_id, 
                     tk.END, 
@@ -7824,6 +7860,7 @@ class DeleteOrphansManager_class:
                     folder_text = f"{folder_checkbox} {name}/"
                     folder_status = "Folder"  # v001.0017 changed [simplified status for non-orphan folders]
                 
+                log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: populate_orphan_tree: Insert folder folder_text='{folder_text}' item_rel_path='{item_rel_path}'")
                 folder_id = tree.insert(
                     parent_id,
                     tk.END,
@@ -8242,9 +8279,12 @@ class DeleteOrphansManager_class:
         
     def delete_selected_files(self):
         """Start the deletion process for selected files."""
+        log_and_flush(logging.DEBUG, f"Entered DeleteOrphansManager_class: delete_selected_files")
+
         if not self.selected_items:
             self.add_status_message("No files selected for deletion")
             messagebox.showinfo("No Selection", "Please select files to delete first.")
+            log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: No files selected for deletion")
             return
             
         # Get selected accessible files only
@@ -8257,6 +8297,7 @@ class DeleteOrphansManager_class:
         if not selected_accessible:
             self.add_status_message("No accessible files selected for deletion")
             messagebox.showinfo("No Accessible Files", "All selected files are inaccessible and cannot be deleted.")
+            log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: No Accessible Files, All selected files are inaccessible and cannot be deleted.")
             return
             
         # Calculate statistics for confirmation
@@ -8268,6 +8309,19 @@ class DeleteOrphansManager_class:
         
         deletion_method = self.deletion_method.get().lower()
         method_text = "Move to Recycle Bin" if deletion_method.lower() == "recycle_bin".lower() else "Permanently Delete"
+        log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: delete_method_text='{method_text}'")
+
+        # Display and count for debug purposes
+        debug_count_selected_accessible_files = 0
+        debug_count_selected_accessible_folders = 0
+        for path in selected_accessible:
+            if self.orphan_metadata[path]['is_folder']: # assume folder
+                debug_count_selected_accessible_folders = debug_count_selected_accessible_folders + 1
+                log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED folder {debug_count_selected_accessible_folders}. '{self.orphan_metadata[path]}'")
+            else: # assume file
+                debug_count_selected_accessible_files = debug_count_selected_accessible_files + 1
+                log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED file   {debug_count_selected_accessible_files}. '{self.orphan_metadata[path]}'")
+        log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED {debug_count_selected_accessible_files} files, SELECTED {debug_count_selected_accessible_folders} folders")
         
         # Use local dry run mode instead of main app dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
         is_local_dry_run = self.local_dry_run_mode.get() # v001.0013 changed [use local dry run mode instead of main app dry run mode]

@@ -38,8 +38,6 @@ FILES_PER_FOLDER = 25
 # CREATE_LARGE_FILES False means create files <= 1Gb
 CREATE_LARGE_FILES = True
 
-DO_PAUSE = False
-
 # File sizes for performance testing
 SMALL_FILE_SIZE = 1024  # 1KB
 MEDIUM_FILE_SIZE = 1024 * 100  # 100KB
@@ -688,8 +686,7 @@ def get_folder_size(path: Path) -> int:
 if __name__ == "__main__":
     try:
         generate_test_structure()
-        if DO_PAUSE:
-            input("Press Enter to exit...")
+        input("Press Enter to exit...")
     except Exception as e:
         print(f"\nError: {e}")
         import traceback
