@@ -8385,6 +8385,8 @@ class DeleteOrphansManager_class:
         
     def perform_deletion(self, selected_paths, deletion_method):
         """Perform the actual deletion operation with progress tracking."""
+        log_and_flush(logging.DEBUG, f"Entered DeleteOrphansManager_class: perform_deletion")
+
         operation_start_time = time.time()
         operation_id = uuid.uuid4().hex[:8]
         
@@ -8399,13 +8401,13 @@ class DeleteOrphansManager_class:
         method_text = "Recycle Bin" if deletion_method.lower() == "recycle_bin".lower() else "Permanent"
         
         log_and_flush(logging.INFO, "=" * 80)
-        log_and_flush(logging.INFO, f"DELETE ORPHANS OPERATION STARTED{dry_run_text}")
-        log_and_flush(logging.INFO, f"Operation ID: {operation_id}")
-        log_and_flush(logging.INFO, f"Side: {self.side.upper()}")
-        log_and_flush(logging.INFO, f"Source Folder: {self.source_folder}")
-        log_and_flush(logging.INFO, f"Deletion Method: {method_text}")
-        log_and_flush(logging.INFO, f"Files to delete: {len(selected_paths)}")
-        log_and_flush(logging.INFO, f"Local Dry Run Mode: {is_local_dry_run}") # v001.0013 changed [log local dry run mode instead of main app dry run mode]
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: DELETE ORPHANS OPERATION STARTED{dry_run_text}")
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Operation ID: {operation_id}")
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Side: {self.side.upper()}")
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Source Folder: {self.source_folder}")
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Deletion Method: {method_text}")
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Files/Folders to delete: {len(selected_paths)}")
+        log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Local Dry Run Mode: {is_local_dry_run}") # v001.0013 changed [log local dry run mode instead of main app dry run mode]
         log_and_flush(logging.INFO, "=" * 80)
         
         # Create progress dialog
@@ -8436,7 +8438,7 @@ class DeleteOrphansManager_class:
                     # Skip if file doesn't exist
                     if not os.path.exists(full_path):
                         skipped_count += 1
-                        log_and_flush(logging.WARNING, f"File not found, skipping: {full_path}")
+                        log_and_flush(logging.ERROR, f"DeleteOrphansManager_class: perform_deletion: ***delete_status: File not found, skipping: {full_path}")
                         continue
                         
                     # Get file size for statistics
@@ -8461,32 +8463,31 @@ class DeleteOrphansManager_class:
                             
                         if success:
                             success_count += 1
-                            log_and_flush(logging.INFO, f"***delete_status: Successfully {method_text.lower()} deleted: {full_path}")
+                            log_and_flush(logging.ERROR, f"DeleteOrphansManager_class: perform_deletion: ***delete_status: Successfully {method_text.lower()} deleted: {full_path}")
                         else:
                             error_count += 1
-                            log_and_flush(logging.ERROR, f"***delete_status: Failed to delete: {full_path}: {error_msg}")
+                            log_and_flush(logging.ERROR, f"DeleteOrphansManager_class: perform_deletion: ***delete_status: Failed to delete: {full_path}: {error_msg}")
                             
                 except Exception as e:
                     error_count += 1
-                    log_and_flush(logging.ERROR, f"Exception deleting {rel_path}: {str(e)}")
+                    log_and_flush(logging.ERROR, f"DeleteOrphansManager_class: perform_deletion: Exception deleting {rel_path}: {str(e)}")
                     continue
                     
         except Exception as e:
-            log_and_flush(logging.ERROR, f"Critical error during deletion operation: {str(e)}")
+            log_and_flush(logging.CRITICAL, f"DeleteOrphansManager_class: perform_deletion: Critical error during deletion operation: {str(e)}")
             
         finally:
             progress.close()
-            
             # Log operation completion
             elapsed_time = time.time() - operation_start_time
             log_and_flush(logging.INFO, "=" * 80)
-            log_and_flush(logging.INFO, f"DELETE ORPHANS OPERATION COMPLETED{dry_run_text}")
-            log_and_flush(logging.INFO, f"Operation ID: {operation_id}")
-            log_and_flush(logging.INFO, f"Files processed successfully: {success_count}")
-            log_and_flush(logging.INFO, f"Files failed: {error_count}")
-            log_and_flush(logging.INFO, f"Files skipped: {skipped_count}")
-            log_and_flush(logging.INFO, f"Total bytes processed: {total_bytes_processed:,}")
-            log_and_flush(logging.INFO, f"Duration: {elapsed_time:.2f} seconds")
+            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: DELETE ORPHANS OPERATION COMPLETED{dry_run_text}")
+            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Operation ID: {operation_id}")
+            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Files processed successfully: {success_count}")
+            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Files failed: {error_count}")
+            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Files skipped: {skipped_count}")
+            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Total bytes processed: {total_bytes_processed:,}")
+            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: Duration: {elapsed_time:.2f} seconds")
             if is_local_dry_run: # v001.0013 changed [use local dry run mode instead of main app dry run mode]
                 log_and_flush(logging.INFO, "NOTE: This was a DRY RUN simulation - no actual files were modified")
             log_and_flush(logging.INFO, "=" * 80)
