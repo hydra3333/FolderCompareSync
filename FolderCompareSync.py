@@ -170,10 +170,10 @@ UI_FONT_SCALE = 1                  # v001.0014 added [font scaling system for UI
                                    # Font scaling infrastructure preserved for future use if needed
 
 # Specific font sizes # v001.0014 added [font scaling system for UI text size control]
-BUTTON_FONT_SIZE = 10               # Button text size (default ~9, so +2) # v001.0014 added [font scaling system for UI text size control]
-LABEL_FONT_SIZE = 11                # Label text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
-ENTRY_FONT_SIZE = 11                # Entry field text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
-CHECKBOX_FONT_SIZE = 11             # Checkbox text size (default ~8, so +2) # v001.0014 added [font scaling system for UI text size control]
+BUTTON_FONT_SIZE = 10               # Button text size (default ~9, so +1) # v001.0014 added [font scaling system for UI text size control]
+LABEL_FONT_SIZE = 11                # Label text size (default ~8, so +3) # v001.0014 added [font scaling system for UI text size control]
+ENTRY_FONT_SIZE = 11                # Entry field text size (default ~8, so +3) # v001.0014 added [font scaling system for UI text size control]
+CHECKBOX_FONT_SIZE = 11             # Checkbox text size (default ~8, so +3) # v001.0014 added [font scaling system for UI text size control]
 DIALOG_FONT_SIZE = 11               # Dialog text size # v001.0014 added [font scaling system for UI text size control]
 STATUS_MESSAGE_FONT_SIZE = 12       # Status message text size # v001.0014 added [font scaling system for UI text size control]
 INSTRUCTION_FONT_SIZE = 11          # formerly INSTRUCTION_TEXT_SIZE Font size for instructional text
@@ -1062,33 +1062,45 @@ class DebugGlobalEditor_class:
 
                     order = self._topo_sort({n: info_by_name.get(n, self._DepInfo(None, set(), False, None, ast.Constant(None))).depends_on for n in affected})
                     for name in order:
+                        if name in changes:  # Skip variables that were directly changed by user
+                            continue
                         info = info_by_name.get(name)
                         if not info or not info.eligible:
                             continue
                         try:
                             log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' about to get code using 'compile' ...")
-                            code = compile(info.rhs_ast, filename="<ast>", mode="eval")
-                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' got code='{code}' using 'compile'")
+                            #
+                            # This (original) line fails because mode="eval" requires the AST to be wrapped in an ast.Expression node:
+                            #     code = compile(info.rhs_ast, filename="<ast>", mode="eval")
+                            # Technically the fix is to Wrap in ast.Expression:
+                            #     expr_wrapper = ast.Expression(body=info.rhs_ast)
+                            #     code = compile(expr_wrapper, filename="<ast>", mode="eval")
+                            # This approach below might be safer since this class is already working with the string representation elsewhere in the code
+                            code = compile(info.expr_str, filename="<ast>", mode="eval")
+                            #
+                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' using info.expr_str='{info.expr_str}' as input to 'compile'")
                             log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' about to get new_val using 'eval' ...")
                             new_val = eval(code, safe_globals, {})
-                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' code='{code}' got new_val='{new_val}' using 'eval'")
+                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' info.expr_str='{info.expr_str}' new_val='{new_val}' using 'eval'")
                             if name in self.module.__dict__:
                                 old_val = getattr(self.module, name)
+                                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' is in 'self.module.__dict__' and old_val=getattr(self.module, name)='{old_val}'")
                                 # type compatibility check (keep simple)
                                 if type(old_val) in self.SIMPLE_TYPES and isinstance(new_val, type(old_val)):
+                                    log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: name='{name}' new_val='{new_val}', calling setattr(self.module, name, new_val)")
                                     setattr(self.module, name, new_val)
                                     safe_globals[name] = new_val
                                     if name not in changes or changes[name]["new"] != new_val:
                                         changes[name] = {"old": old_val, "new": new_val}
-                                        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: changes[{name}]: old: {old_val}, new: {new_val}")
+                                        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: changes[{name}]: old_val='{old_val}' new_val='{new_val}'")
                                     else:
-                                        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: skipped changes[{name}]")
+                                        log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: SKIPPED changes[{name}]")
                                 else:
-                                    recompute_report.append(f"{name}: type mismatch; skipped")
-                                    log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: {name}: type mismatch; skipped")
+                                    recompute_report.append(f"{name}: type mismatch; SKIPPED")
+                                    log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: {name}: type mismatch; SKIPPED")
                         except Exception as ex:
                             recompute_report.append(f"{name}: {ex!r}")
-                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute: {name}: {ex!r}")
+                            log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Optional recompute Exception: {name}: {ex!r}")
 
         if changes and self.on_apply:
             try: 
@@ -5968,8 +5980,8 @@ class FolderCompareSync_class:
             if result.get('applied', False):
                 changes = result.get('changes', {})
                 if changes:
-                    log_and_flush(logging.INFO, f"Debug editor applied {len(changes)} global changes")
-                    self.add_status_message(f"Debug Global Editor applied {len(changes)} changes")
+                    log_and_flush(logging.INFO, f"Debug editor applied {len(changes)} global changes:\n{changes}")
+                    self.add_status_message(f"Debug Global Editor applied {len(changes)} changes:\n{changes}")
                     
                     # v001.0021 changed [directly recreate UI in-place instead of scheduling]
                     # Recreate UI with updated globals
