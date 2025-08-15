@@ -2607,6 +2607,7 @@ class FileCopyManager:
         
         # Log timezone information for the copy manager
         log_and_flush(logging.INFO, f"FileCopyManager initialized with timezone: {self.timestamp_manager.get_timezone_string()}")
+
     def set_dry_run_mode(self, enabled: bool):
         """
         Enable or disable dry run mode for safe operation testing.
@@ -2628,7 +2629,7 @@ class FileCopyManager:
     def _log_status(self, message: str):
         """Log status message to both operation logger and status callback."""
         if self.operation_logger:
-            self.operation_log_and_flush(logging.INFO, message)
+            self.operation_logger.info(message)
         if self.status_callback:
             self.status_callback(message)
         log_and_flush(logging.DEBUG, f"Copy operation status: {message}")
@@ -3021,13 +3022,13 @@ class FileCopyManager:
         self.set_dry_run_mode(dry_run)
         
         dry_run_text = " (DRY RUN SIMULATION)" if dry_run else ""
-        
-        self.operation_log_and_flush(logging.INFO, "=" * 80)
-        self.operation_log_and_flush(logging.INFO, f"COPY OPERATION STARTED: {operation_name}{dry_run_text}")
-        self.operation_log_and_flush(logging.INFO, f"Operation ID: {self.operation_id}")
-        self.operation_log_and_flush(logging.INFO, f"Mode: {'DRY RUN SIMULATION' if dry_run else 'NORMAL OPERATION'}")
-        self.operation_log_and_flush(logging.INFO, f"Timestamp: {datetime.now().isoformat()}")
-        self.operation_log_and_flush(logging.INFO, "=" * 80)
+
+        self.operation_logger.info("=" * 80)
+        self.operation_logger.info(f"COPY OPERATION STARTED: {operation_name}{dry_run_text}")
+        self.operation_logger.info(f"Operation ID: {self.operation_id}")
+        self.operation_logger.info(f"Mode: {'DRY RUN SIMULATION' if dry_run else 'NORMAL OPERATION'}")
+        self.operation_logger.info(f"Timestamp: {datetime.now().isoformat()}")
+        self.operation_logger.info("=" * 80)
         
         return self.operation_id
     
@@ -3044,17 +3045,17 @@ class FileCopyManager:
         if self.operation_logger:
             dry_run_text = " (DRY RUN SIMULATION)" if self.dry_run_mode else ""
             
-            self.operation_log_and_flush(logging.INFO, "=" * 80)
-            self.operation_log_and_flush(logging.INFO, f"COPY OPERATION COMPLETED{dry_run_text}")
-            self.operation_log_and_flush(logging.INFO, f"Operation ID: {self.operation_id}")
-            self.operation_log_and_flush(logging.INFO, f"Files processed successfully: {success_count}")
-            self.operation_log_and_flush(logging.INFO, f"Files failed: {error_count}")
-            self.operation_log_and_flush(logging.INFO, f"Total bytes processed: {total_bytes:,}")
-            self.operation_log_and_flush(logging.INFO, f"Total operations: {self.operation_sequence}")
+            self.operation_logger.info("=" * 80)
+            self.operation_logger.info(f"COPY OPERATION COMPLETED{dry_run_text}")
+            self.operation_logger.info(f"Operation ID: {self.operation_id}")
+            self.operation_logger.info(f"Files processed successfully: {success_count}")
+            self.operation_logger.info(f"Files failed: {error_count}")
+            self.operation_logger.info(f"Total bytes processed: {total_bytes:,}")
+            self.operation_logger.info(f"Total operations: {self.operation_sequence}")
             if self.dry_run_mode:
-                self.operation_log_and_flush(logging.INFO, "NOTE: This was a DRY RUN simulation - no actual files were modified")
-            self.operation_log_and_flush(logging.INFO, f"Timestamp: {datetime.now().isoformat()}")
-            self.operation_log_and_flush(logging.INFO, "=" * 80)
+                self.operation_logger.info("NOTE: This was a DRY RUN simulation - no actual files were modified")
+            self.operation_logger.info(f"Timestamp: {datetime.now().isoformat()}")
+            self.operation_logger.info("=" * 80)
             
             # Close the operation logger
             for handler in self.operation_logger.handlers[:]:
