@@ -8312,6 +8312,7 @@ class DeleteOrphansManager_class:
         log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: delete_method_text='{method_text}'")
 
         # ----- Display and count for DEBUG purposes
+        log_and_flush(logging.INFO, "=" * 80)
         debug_count_selected_accessible_files = 0
         debug_count_selected_accessible_folders = 0
         for path in selected_accessible:
@@ -8323,6 +8324,7 @@ class DeleteOrphansManager_class:
                 debug_count_selected_accessible_files = debug_count_selected_accessible_files + 1
                 log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED file   {debug_count_selected_accessible_files}. '{self.orphan_metadata[path]['full_path']}'")
         log_and_flush(logging.DEBUG, f"DeleteOrphansManager_class: delete_selected_files: SELECTED {debug_count_selected_accessible_files} files, SELECTED {debug_count_selected_accessible_folders} folders")
+        log_and_flush(logging.INFO, "=" * 80)
         # ----- Display and count for DEBUG purposes
         
         # Use local dry run mode instead of main app dry run mode # v001.0013 changed [use local dry run mode instead of main app dry run mode]
@@ -8463,7 +8465,7 @@ class DeleteOrphansManager_class:
                             
                         if success:
                             success_count += 1
-                            log_and_flush(logging.ERROR, f"DeleteOrphansManager_class: perform_deletion: ***delete_status: Successfully {method_text.lower()} deleted: {full_path}")
+                            log_and_flush(logging.INFO, f"DeleteOrphansManager_class: perform_deletion: ***delete_status: Successfully {method_text.lower()} deleted: {full_path}")
                         else:
                             error_count += 1
                             log_and_flush(logging.ERROR, f"DeleteOrphansManager_class: perform_deletion: ***delete_status: Failed to delete: {full_path}: {error_msg}")
