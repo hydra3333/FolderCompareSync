@@ -36,9 +36,9 @@ FILES_PER_FOLDER = 25
 
 # CREATE_LARGE_FILES True  means create files > 1Gb
 # CREATE_LARGE_FILES False means create files <= 1Gb
-CREATE_LARGE_FILES = True
+CREATE_LARGE_FILES = False
 
-DO_PAUSE = False
+DO_PAUSE = True
 
 # File sizes for performance testing
 SMALL_FILE_SIZE = 1024  # 1KB
