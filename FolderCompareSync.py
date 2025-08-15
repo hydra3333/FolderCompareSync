@@ -3,7 +3,7 @@
 FolderCompareSync - A Folder Comparison & Synchronization Tool
 
 Version:
-         v001.0023 - ensure deletions occure bottom up so folders do not get deleted before the files in them
+         v001.0023 - ensure deletions occurs bottom up so folders do not get deleted before the files in them
          v001.0022 - reorganize bottom area button layout to put copy and delete orphan buttons on same row
          v001.0021 - fix UI recreation to use in-place rebuild instead of new instance
          v001.0020 - fix threading conflict and UI recreation timing in debug global editor
