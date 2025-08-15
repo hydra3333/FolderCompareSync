@@ -3,6 +3,7 @@
 FolderCompareSync - A Folder Comparison & Synchronization Tool
 
 Version:
+         v001.0022 - reorganize bottom area button layout to put copy and delete orphan buttons on same row
          v001.0021 - fix UI recreation to use in-place rebuild instead of new instance
          v001.0020 - fix threading conflict and UI recreation timing in debug global editor
          v001.0019 - add DebugGlobalEditor_class integration with destroy/recreate UI refresh pattern
@@ -3514,7 +3515,7 @@ class FolderCompareSync_class:
             text=(
                 f"⚠ Performance Notice: Large folder operations may be slow. "
                 f"Maximum {MAX_FILES_FOLDERS:,} files/folders supported. "
-                f"SHA512 operations will take circa 2 seconds elapsed per GB of file read."
+                f"SHA512 operations will take circa 2 to 10 seconds elapsed per GB of file read."
             ),
             foreground="royalblue",
             style="Scaled.TLabel" # v001.0014 changed [use scaled label style instead of font]
@@ -3561,7 +3562,7 @@ class FolderCompareSync_class:
         ttk.Checkbutton(instruction_frame, text="SHA512", variable=self.compare_sha512, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled checkbox style]
         
         # Add instructional text for workflow guidance using configurable colors and font size
-        ttk.Label(instruction_frame, text="<- select options then click Compare", 
+        ttk.Label(instruction_frame, text="<- select options then click Compare (see sha512 note above)", 
                  foreground=INSTRUCTION_TEXT_COLOR, 
                  font=("TkDefaultFont", SCALED_INSTRUCTION_FONT_SIZE, "italic")).pack(side=tk.LEFT, padx=(20, 0))
         
@@ -3657,17 +3658,25 @@ class FolderCompareSync_class:
         # Synchronize scrolling between panes
         self.setup_synchronized_scrolling()
         
-        # Copy buttons frame
+        # Copy and delete buttons frame - all on one row # v001.0022 changed [reorganized button layout to put copy and delete orphan buttons on same row]
         copy_frame = ttk.Frame(main_frame)
-        copy_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
+        copy_frame.pack(fill=tk.X, pady=(0, 3))
+        
+        # Copy buttons pair # v001.0022 added [copy buttons pair comment]
         ttk.Button(copy_frame, text="Copy LEFT to Right", command=self.copy_left_to_right, style="RedBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(copy_frame, text="Copy RIGHT to Left", command=self.copy_right_to_left, style="LimeGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
-        delete_frame = ttk.Frame(main_frame)
-        delete_frame.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
-        ttk.Button(delete_frame, text="Delete Orphaned Files from LEFT-only", 
+        
+        # Moderate gap between button pairs # v001.0022 added [moderate gap between copy and delete button pairs]
+        separator_frame = ttk.Frame(copy_frame, width=20)
+        separator_frame.pack(side=tk.LEFT, padx=(10, 10))
+        
+        # Delete orphaned files buttons pair # v001.0022 added [delete buttons pair on same row as copy buttons]
+        ttk.Button(copy_frame, text="Delete Orphaned Files from LEFT-only", 
                       command=self.delete_left_orphans_onclick, style="PurpleBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(delete_frame, text="Delete Orphaned Files from RIGHT-only", 
+        ttk.Button(copy_frame, text="Delete Orphaned Files from RIGHT-only", 
                       command=self.delete_right_orphans_onclick, style="DarkGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 10))
+
+        # Quit button on far right
         ttk.Button(copy_frame, text="Quit", command=self.root.quit, style="BlueBold.TButton").pack(side=tk.RIGHT)
     
         # status log frame at bottom with export functionality
