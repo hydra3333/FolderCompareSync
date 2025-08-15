@@ -153,7 +153,9 @@ TREE_STATUS_WIDTH = 100            # Status column width
 TREE_STATUS_MIN_WIDTH = 80         # Minimum status column width
 
 # Tree row height configuration # v001.0015 added [tree row height control for compact display]
-TREE_ROW_HEIGHT_VERY_COMPACT = 18  # Very tight spacing # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT_VERY_PACKED = 14   # REALLY Packed them up spacing # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT_PACKED = 16        # Packed them up spacing # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT_VERY_COMPACT = 18  # Quite tight spacing # v001.0015 added [tree row height control for compact display]
 TREE_ROW_HEIGHT_COMPACT = 20       # Tight spacing # v001.0015 added [tree row height control for compact display]
 TREE_ROW_HEIGHT_NORMAL = 22        # Comfortable spacing # v001.0015 added [tree row height control for compact display]
 TREE_ROW_HEIGHT_DEFAULT = 24       # Tkinter default spacing # v001.0015 added [tree row height control for compact display]
@@ -161,7 +163,7 @@ TREE_ROW_HEIGHT_LOOSE = 26         # Relaxed spacing # v001.0015 added [tree row
 TREE_ROW_HEIGHT_VERY_LOOSE = 28    # Very relaxed spacing # v001.0015 added [tree row height control for compact display]
 
 # Active tree row height setting - change this to switch spacing globally # v001.0015 added [tree row height control for compact display]
-TREE_ROW_HEIGHT = TREE_ROW_HEIGHT_NORMAL  # Start with 22px for good balance # v001.0015 added [tree row height control for compact display]
+TREE_ROW_HEIGHT = TREE_ROW_HEIGHT_VERY_COMPACT  # v001.0015 added [tree row height control for compact display]
 
 # Font scaling configuration # v001.0014 added [font scaling system for UI text size control]
 UI_FONT_SCALE = 1                  # v001.0014 added [font scaling system for UI text size control]
