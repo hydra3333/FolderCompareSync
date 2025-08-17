@@ -209,6 +209,20 @@ FILTER_HIGHLIGHT_COLOR = "#ffffcc"    # Background color for filtered items
 
 # Filtering and sorting configuration
 MAX_FILTER_RESULTS = 200000       # Maximum items to show when filtering (performance)
+
+TIMESTAMP_TOLERANCE_CREATED_SECONDS = 0.01   # Specific tolerance for date_created comparisons  
+TIMESTAMP_TOLERANCE_MODIFIED_SECONDS = 0.01  # Specific tolerance for date_modified comparisons
+
+# Alternative tolerance presets for different scenarios
+TIMESTAMP_TOLERANCE_EXACT = 0.0              # Exact equality (unreasonable even in NTFS)
+TIMESTAMP_TOLERANCE_VERY_STRICT = 0.0001      # 1/10000th second
+TIMESTAMP_TOLERANCE_QUITE_STRICT = 0.001      # 1/1000th  second
+TIMESTAMP_TOLERANCE_REASONABLE = 0.01         # 1/100th   second
+TIMESTAMP_TOLERANCE_LENIENT = 0.1             # 1/10th    second
+TIMESTAMP_TOLERANCE_VERY_LENIENT = 1.0        # 1 second
+TIMESTAMP_TOLERANCE_FAT32_SAFE = 2.0          # 2 seconds ... for FAT32 compatibility
+# Timestamp comparison tolerance settings
+TIMESTAMP_TOLERANCE = TIMESTAMP_TOLERANCE_REASONABLE # in fractions of a second
                                                                          
 # ============================================================================
 # DELETE ORPHANS CONFIGURATION CONSTANTS
@@ -2618,8 +2632,10 @@ class FolderCompareSync_class:
         ttk.Label(instruction_frame, text="Compare Options:", style="Scaled.TLabel").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled label style]
         ttk.Checkbutton(instruction_frame, text="Existence", variable=self.compare_existence, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled checkbox style]
         ttk.Checkbutton(instruction_frame, text="Size", variable=self.compare_size, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled checkbox style]
-        ttk.Checkbutton(instruction_frame, text="Date Created", variable=self.compare_date_created, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled checkbox style]
-        ttk.Checkbutton(instruction_frame, text="Date Modified", variable=self.compare_date_modified, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled checkbox style]
+        #ttk.Checkbutton(instruction_frame, text="Date Created", variable=self.compare_date_created, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled checkbox style]
+        #ttk.Checkbutton(instruction_frame, text="Date Modified", variable=self.compare_date_modified, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled checkbox style]
+        ttk.Checkbutton(instruction_frame, text=f"Date Created (tolerance {TIMESTAMP_TOLERANCE:.6f}s)", variable=self.compare_date_created, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Checkbutton(instruction_frame, text=f"Date Modified (tolerance {TIMESTAMP_TOLERANCE:.6f}s)", variable=self.compare_date_modified, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10))
         ttk.Checkbutton(instruction_frame, text="SHA512", variable=self.compare_sha512, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 10)) # v001.0014 changed [use scaled checkbox style]
         
         # Add instructional text for workflow guidance using configurable colors and font size
@@ -3887,13 +3903,15 @@ class FolderCompareSync_class:
     def compare_items(self, left_item: Optional[FolderCompareSync_class.FileMetadata_class], 
                      right_item: Optional[FolderCompareSync_class.FileMetadata_class]) -> set[str]:
         """
-        Compare two items and return set of differences.
+        Compare two items and return set of differences with configurable timestamp difference tolerance.
         
         Purpose:
         --------
         Performs detailed comparison of file/folder metadata based on
         selected comparison criteria to identify synchronization needs.
-        
+        v002.0002 Uses configurable tolerance ("TIMESTAMP_TOLERANCE") for timestamp comparisons to
+                  handle file system precision differences and operational variations when copying.
+
         Args:
         -----
         left_item: Metadata for left side item (or None if missing)
@@ -3914,46 +3932,95 @@ class FolderCompareSync_class:
                 
         # If both items exist, compare other attributes
         if left_item and right_item and left_item.exists and right_item.exists:
+            # size comparison
             if self.compare_size.get() and left_item.size != right_item.size:
                 differences.add('size')
                 
-            if self.compare_date_created.get() and left_item.date_created != right_item.date_created:
-                differences.add('date_created')
-                # v001.0010 added [debug date created comparison with full microsecond precision]
-                if __debug__:
-                    left_display = self.format_timestamp(left_item.date_created, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
-                    right_display = self.format_timestamp(right_item.date_created, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
-                    left_raw = left_item.date_created.timestamp() if left_item.date_created else 0 # v001.0010 added [debug date created comparison with full microsecond precision]
-                    right_raw = right_item.date_created.timestamp() if right_item.date_created else 0 # v001.0010 added [debug date created comparison with full microsecond precision]
-                    diff_microseconds = abs(left_raw - right_raw) * 1_000_000 # v001.0010 added [debug date created comparison with full microsecond precision]
-                    log_and_flush(logging.DEBUG, f"DATE CREATED DIFFERENCE found for {left_item.path}:") # v001.0010 added [debug date created comparison with full microsecond precision]
-                    log_and_flush(logging.DEBUG, f"  Left display : {left_display}") # v001.0010 added [debug date created comparison with full microsecond precision]
-                    log_and_flush(logging.DEBUG, f"  Right display: {right_display}") # v001.0010 added [debug date created comparison with full microsecond precision]
-                    log_and_flush(logging.DEBUG, f"  Left raw     : {left_item.date_created}") # v001.0010 added [debug date created comparison with full microsecond precision]
-                    log_and_flush(logging.DEBUG, f"  Right raw    : {right_item.date_created}") # v001.0010 added [debug date created comparison with full microsecond precision]
-                    log_and_flush(logging.DEBUG, f"  Difference   : {diff_microseconds:.1f} microseconds") # v001.0010 added [debug date created comparison with full microsecond precision]
-                
-            if self.compare_date_modified.get() and left_item.date_modified != right_item.date_modified:
-                differences.add('date_modified')
-                # v001.0010 added [debug date modified comparison with full microsecond precision]
-                if __debug__:
-                    left_display = self.format_timestamp(left_item.date_modified, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
-                    right_display = self.format_timestamp(right_item.date_modified, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
-                    left_raw = left_item.date_modified.timestamp() if left_item.date_modified else 0 # v001.0010 added [debug date modified comparison with full microsecond precision]
-                    right_raw = right_item.date_modified.timestamp() if right_item.date_modified else 0 # v001.0010 added [debug date modified comparison with full microsecond precision]
-                    diff_microseconds = abs(left_raw - right_raw) * 1_000_000 # v001.0010 added [debug date modified comparison with full microsecond precision]
-                    log_and_flush(logging.DEBUG, f"DATE MODIFIED DIFFERENCE found for {left_item.path}:") # v001.0010 added [debug date modified comparison with full microsecond precision]
-                    log_and_flush(logging.DEBUG, f"  Left display : {left_display}") # v001.0010 added [debug date modified comparison with full microsecond precision]
-                    log_and_flush(logging.DEBUG, f"  Right display: {right_display}") # v001.0010 added [debug date modified comparison with full microsecond precision]
-                    log_and_flush(logging.DEBUG, f"  Left raw     : {left_item.date_modified}") # v001.0010 added [debug date modified comparison with full microsecond precision]
-                    log_and_flush(logging.DEBUG, f"  Right raw    : {right_item.date_modified}") # v001.0010 added [debug date modified comparison with full microsecond precision]
-                    log_and_flush(logging.DEBUG, f"  Difference   : {diff_microseconds:.1f} microseconds") # v001.0010 added [debug date modified comparison with full microsecond precision]
-                
+            # v002.0002 enhanced date_created timestamp comparison with configurable tolerance
+            if self.compare_date_created.get(): # if the optional date_created tickbox is ticked
+                if self._timestamps_differ(left_item.date_created, right_item.date_created, TIMESTAMP_TOLERANCE, 'date_created'):
+                    differences.add('date_created')
+                    
+            # v002.0002 enhanced date_modified timestamp comparison with configurable tolerance
+            if self.compare_date_modified.get(): # if the optional date_modified tickbox is ticked
+                if self._timestamps_differ(left_item.date_modified, right_item.date_modified, TIMESTAMP_TOLERANCE, 'date_modified'):
+                    differences.add('date_modified')
+
+            # content sha512 comparison
             if (self.compare_sha512.get() and left_item.sha512 and right_item.sha512 
                 and left_item.sha512 != right_item.sha512):
                 differences.add('sha512')
                 
         return differences
+    
+    def _timestamps_differ(self, left_timestamp: Optional[datetime], right_timestamp: Optional[datetime], 
+                          acceptable_timestamp_tolerance: float, timestamp_type: str) -> bool:
+        """
+        Compare two timestamps with configurable tolerance ("acceptable_timestamp_tolerance").
+        
+        Purpose:
+        --------
+        Provides tolerance-based timestamp comparison to handle file system
+        precision differences and operational timing variations gracefully.
+        
+        Args:
+        -----
+        left_timestamp: Left side timestamp
+        right_timestamp: Right side timestamp  
+        acceptable_timestamp_tolerance: Maximum acceptable difference in seconds (eg 0.01 for 1/100 of a second)
+        timestamp_type: Type of timestamp for logging ('date_created' or 'date_modified')
+        
+        Returns:
+        --------
+        bool: True if timestamps differ beyond tolerance, False if within tolerance
+        """
+        # Handle None cases
+        if left_timestamp is None and right_timestamp is None:
+            return False
+        if left_timestamp is None or right_timestamp is None:
+            return True
+            
+        # Check if tolerance is disabled (revert to exact equality)
+        if acceptable_timestamp_tolerance <= 0:
+            are_different = left_timestamp != right_timestamp
+            if __debug__ and are_different:
+                left_display = self.format_timestamp(left_timestamp, include_timezone=False) or "None"
+                right_display = self.format_timestamp(right_timestamp, include_timezone=False) or "None"
+                left_timestamp_seconds = left_timestamp.timestamp()
+                right_timestamp_seconds = right_timestamp.timestamp()
+                diff_seconds = abs(left_timestamp_seconds - right_timestamp_seconds)
+                diff_microseconds = diff_seconds * 1_000_000
+                log_and_flush(logging.DEBUG, f"TIMESTAMP DIFFERENCE (EXACT): {timestamp_type.upper()} Left : {left_display}  Right: {right_display}  ... Difference : {diff_microseconds:.1f} microseconds")
+            return are_different
+        
+        # Calculate absolute difference
+        try:
+            left_timestamp_seconds = left_timestamp.timestamp()
+            right_timestamp_seconds = right_timestamp.timestamp()
+            diff_seconds = abs(left_timestamp_seconds - right_timestamp_seconds)
+            diff_microseconds = diff_seconds * 1_000_000
+            
+            # Check if difference exceeds tolerance
+            differs = diff_seconds > acceptable_timestamp_tolerance
+            
+            # Enhanced debug logging with tolerance information
+            if __debug__:
+                left_display = self.format_timestamp(left_timestamp, include_timezone=False) or "None"
+                right_display = self.format_timestamp(right_timestamp, include_timezone=False) or "None"
+                
+                if differs:
+                    log_and_flush(logging.DEBUG, f"TIMESTAMP DIFFERENCE (EXCEEDS TOLERANCE): {timestamp_type.upper()} Left : {left_display}  Right: {right_display}  ... Difference : {diff_seconds:.6f} EXCEEDS TOLERANCE {acceptable_timestamp_tolerance:.6f}")
+                elif diff_seconds > 0:
+                    log_and_flush(logging.DEBUG, f"TIMESTAMP DIFFERENCE (WITHIN TOLERANCE): {timestamp_type.upper()} Left : {left_display}  Right: {right_display}  ... Difference : {diff_seconds:.6f} WITHIN TOLERANCE {acceptable_timestamp_tolerance:.6f}")
+
+            # Yield the result, whether it exceeds the trolderance or not
+            return differs
+            
+        except (ValueError, OSError, OverflowError) as e:
+            # Handle timestamp conversion errors gracefully
+            log_and_flush(logging.DEBUG, f"Timestamp comparison error for {timestamp_type}: {e}")
+            # Fall back to direct comparison
+            return left_timestamp != right_timestamp
         
     def update_comparison_ui(self): # v000.0002 changed - removed sorting parameters 
         """Update UI with comparison results and limit checking (no sorting)."""
