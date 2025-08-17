@@ -326,56 +326,8 @@ class FileTimestampManager_class:
     """
     A robust class to manage file timestamps on Windows systems.
     """
-    # ==========================================================================================================
-    # WINDOWS API FUNCTION BINDINGS WITH PROPER SIGNATURES
-    # ==========================================================================================================
-    # Setting argtypes and restype ensures:
-    # 1. Proper type conversion (especially important for HANDLEs on 64-bit Python)
-    # 2. Correct error handling (return values won't be truncated)
-    # 3. Better debugging (ctypes will raise errors for incorrect argument types)
-    # ==========================================================================================================
-
-    kernel32 = ctypes.windll.kernel32
-
-    # CreateFileW - Opens a file/directory handle
-    kernel32.CreateFileW.argtypes = [
-        wintypes.LPCWSTR,    # lpFileName (wide string path)
-        wintypes.DWORD,      # dwDesiredAccess
-        wintypes.DWORD,      # dwShareMode
-        wintypes.LPVOID,     # lpSecurityAttributes (usually NULL)
-        wintypes.DWORD,      # dwCreationDisposition
-        wintypes.DWORD,      # dwFlagsAndAttributes
-        wintypes.HANDLE      # hTemplateFile (usually NULL)
-    ]
-    kernel32.CreateFileW.restype = wintypes.HANDLE
-
-    # SetFileTime - Sets file timestamps
-    kernel32.SetFileTime.argtypes = [
-        wintypes.HANDLE,                 # hFile
-        ctypes.POINTER(FileTimestampManager_class.FILETIME),        # lpCreationTime (can be NULL)
-        ctypes.POINTER(FileTimestampManager_class.FILETIME),        # lpLastAccessTime (can be NULL)
-        ctypes.POINTER(FileTimestampManager_class.FILETIME)         # lpLastWriteTime (can be NULL)
-    ]
-    kernel32.SetFileTime.restype = wintypes.BOOL
-
-    # CloseHandle - Closes an open handle
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    kernel32.CloseHandle.restype = wintypes.BOOL
-
-    # GetLastError - Gets the last Windows error code
-    kernel32.GetLastError.argtypes = []
-    kernel32.GetLastError.restype = wintypes.DWORD
-
-    # Windows constants
-    INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
-    GENERIC_WRITE = 0x40000000
-    FILE_WRITE_ATTRIBUTES = 0x100  # More specific than GENERIC_WRITE for just changing attributes
-    FILE_SHARE_READ = 0x00000001
-    FILE_SHARE_WRITE = 0x00000002
-    OPEN_EXISTING = 3
-    FILE_ATTRIBUTE_NORMAL = 0x80
-    FILE_FLAG_BACKUP_SEMANTICS = 0x02000000  # Required for opening directories
-
+    
+    # class FILETIME must must must be defined before the WINDOWS API FUNCTION BINDINGS below
     class FILETIME(ctypes.Structure):
         # ==========================================================================================================
         # WINDOWS FILETIME STRUCTURE AND API SETUP
@@ -440,6 +392,57 @@ class FileTimestampManager_class:
             ("dwLowDateTime", wintypes.DWORD),   # Low 32 bits of the 64-bit time value
             ("dwHighDateTime", wintypes.DWORD),  # High 32 bits of the 64-bit time value
         ]
+
+
+    # ==========================================================================================================
+    # WINDOWS API FUNCTION BINDINGS WITH PROPER SIGNATURES
+    # ==========================================================================================================
+    # Setting argtypes and restype ensures:
+    # 1. Proper type conversion (especially important for HANDLEs on 64-bit Python)
+    # 2. Correct error handling (return values won't be truncated)
+    # 3. Better debugging (ctypes will raise errors for incorrect argument types)
+    # ==========================================================================================================
+
+    kernel32 = ctypes.windll.kernel32
+
+    # CreateFileW - Opens a file/directory handle
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,    # lpFileName (wide string path)
+        wintypes.DWORD,      # dwDesiredAccess
+        wintypes.DWORD,      # dwShareMode
+        wintypes.LPVOID,     # lpSecurityAttributes (usually NULL)
+        wintypes.DWORD,      # dwCreationDisposition
+        wintypes.DWORD,      # dwFlagsAndAttributes
+        wintypes.HANDLE      # hTemplateFile (usually NULL)
+    ]
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+
+    # SetFileTime - Sets file timestamps
+    kernel32.SetFileTime.argtypes = [
+        wintypes.HANDLE,                 # hFile
+        ctypes.POINTER(FILETIME),        # lpCreationTime (can be NULL)
+        ctypes.POINTER(FILETIME),        # lpLastAccessTime (can be NULL)
+        ctypes.POINTER(FILETIME)         # lpLastWriteTime (can be NULL)
+    ]
+    kernel32.SetFileTime.restype = wintypes.BOOL
+
+    # CloseHandle - Closes an open handle
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    # GetLastError - Gets the last Windows error code
+    kernel32.GetLastError.argtypes = []
+    kernel32.GetLastError.restype = wintypes.DWORD
+
+    # Windows constants
+    INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
+    GENERIC_WRITE = 0x40000000
+    FILE_WRITE_ATTRIBUTES = 0x100  # More specific than GENERIC_WRITE for just changing attributes
+    FILE_SHARE_READ = 0x00000001
+    FILE_SHARE_WRITE = 0x00000002
+    OPEN_EXISTING = 3
+    FILE_ATTRIBUTE_NORMAL = 0x80
+    FILE_FLAG_BACKUP_SEMANTICS = 0x02000000  # Required for opening directories
 
     @staticmethod
     def _u64_to_FILETIME(u64: int) -> FileTimestampManager_class.FILETIME:
