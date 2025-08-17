@@ -316,102 +316,6 @@ import zoneinfo
 from dateutil.tz import tzwinlocal
 # ************** Finish at program startup **************
 
-def format_timestamp(timestamp: Union[datetime, float, int, None], 
-                    include_timezone: bool = False, 
-                    include_microseconds: bool = True) -> str:
-    """
-    Universal timestamp formatting utility function.
-    
-    Purpose:
-    --------
-    Handles multiple timestamp input types and formatting options for consistent
-    timestamp display throughout the application.
-    
-    Args:
-    -----
-    timestamp: Can be datetime object, float/int epoch time, or None
-    include_timezone: Whether to include timezone info in output
-    include_microseconds: Whether to include microsecond precision
-    
-    Returns:
-    --------
-    str: Formatted timestamp string or empty string if None
-    
-    Examples:
-    ---------
-    >>> format_timestamp(datetime.now())
-    "2024-12-08 14:30:22.123456"
-    
-    >>> format_timestamp(1701234567.123456, include_microseconds=True)
-    "2023-11-29 08:02:47.123456"
-    
-    >>> format_timestamp(None)
-    ""
-    
-    >>> dt_with_tz = datetime.now(timezone.utc)
-    >>> format_timestamp(dt_with_tz, include_timezone=True)
-    "2024-12-08 14:30:22.123456 UTC"
-    """
-    if timestamp is None:
-        return ""
-    try:
-        # Convert input to datetime object
-        if isinstance(timestamp, datetime):
-            dt = timestamp
-        elif isinstance(timestamp, (int, float)):
-            # Convert epoch timestamp to datetime in local timezone
-            dt = datetime.fromtimestamp(timestamp)
-        else:
-            # Fallback for unexpected types
-            return str(timestamp)
-        
-        # Build format string based on options
-        if include_microseconds:
-            base_format = "%Y-%m-%d %H:%M:%S.%f"
-        else:
-            base_format = "%Y-%m-%d %H:%M:%S"
-        
-        # Format the datetime
-        formatted = dt.strftime(base_format)
-        
-        # Add timezone if requested and available
-        if include_timezone and dt.tzinfo is not None:
-            tz_name = dt.strftime("%Z")
-            if tz_name:  # Only add if timezone name is available
-                formatted += f" {tz_name}"
-        
-        return formatted
-    except (ValueError, OSError, OverflowError) as e:
-        # Handle invalid timestamps gracefully
-        log_and_flush(logging.DEBUG, f"Invalid timestamp formatting: {timestamp} - {e}")
-        return f"Invalid timestamp: {timestamp}"
-
-def format_size(size_bytes):
-    """
-    Format file size in human readable format.
-    
-    Purpose:
-    --------
-    Converts byte values to human-readable format with appropriate
-    units (B, KB, MB, GB, TB) for display in the UI.
-    
-    Args:
-    -----
-    size_bytes: Size in bytes
-    
-    Returns:
-    --------
-    str: Formatted size string
-    """
-    if size_bytes is None:
-        return ""
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size_bytes < 1024.0:
-            return f"{size_bytes:.1f}{unit}"
-        size_bytes /= 1024.0
-    return f"{size_bytes:.1f}TB"
-
-
 #=== START OF Common FileTimestampManager Code ==============================================================================================================
 
 class FileTimestampManager:
@@ -1093,7 +997,7 @@ class FileTimestampManager:
 
 #=== END OF Common FileTimestampManager Code ==============================================================================================================
 
-class ProgressDialog:
+class ProgressDialog_class:
     """
     Progress dialog for long-running operations with configurable display options.
     
@@ -1104,7 +1008,7 @@ class ProgressDialog:
     
     Usage:
     ------
-    progress = ProgressDialog(parent, "Scanning", "Scanning files...", max_value=1000)
+    progress = ProgressDialog_class(parent, "Scanning", "Scanning files...", max_value=1000)
     progress.update_progress(500, "Processing file 500...")
     progress.close()
     """
@@ -2133,6 +2037,103 @@ class FolderCompareSync_class:
             self.dialog.after(1500, lambda: self.details_button.config(
                 text="Hide Details ▲" if self.details_shown else "Show Details ▼"
             ))
+
+    @staticmethod
+    def format_timestamp(timestamp: Union[datetime, float, int, None], 
+                        include_timezone: bool = False, 
+                        include_microseconds: bool = True) -> str:
+        """
+        Universal timestamp formatting utility function.
+        
+        Purpose:
+        --------
+        Handles multiple timestamp input types and formatting options for consistent
+        timestamp display throughout the application.
+        
+        Args:
+        -----
+        timestamp: Can be datetime object, float/int epoch time, or None
+        include_timezone: Whether to include timezone info in output
+        include_microseconds: Whether to include microsecond precision
+        
+        Returns:
+        --------
+        str: Formatted timestamp string or empty string if None
+        
+        Examples:
+        ---------
+        >>> format_timestamp(datetime.now())
+        "2024-12-08 14:30:22.123456"
+        
+        >>> format_timestamp(1701234567.123456, include_microseconds=True)
+        "2023-11-29 08:02:47.123456"
+        
+        >>> format_timestamp(None)
+        ""
+        
+        >>> dt_with_tz = datetime.now(timezone.utc)
+        >>> format_timestamp(dt_with_tz, include_timezone=True)
+        "2024-12-08 14:30:22.123456 UTC"
+        """
+        if timestamp is None:
+            return ""
+        try:
+            # Convert input to datetime object
+            if isinstance(timestamp, datetime):
+                dt = timestamp
+            elif isinstance(timestamp, (int, float)):
+                # Convert epoch timestamp to datetime in local timezone
+                dt = datetime.fromtimestamp(timestamp)
+            else:
+                # Fallback for unexpected types
+                return str(timestamp)
+            
+            # Build format string based on options
+            if include_microseconds:
+                base_format = "%Y-%m-%d %H:%M:%S.%f"
+            else:
+                base_format = "%Y-%m-%d %H:%M:%S"
+            
+            # Format the datetime
+            formatted = dt.strftime(base_format)
+            
+            # Add timezone if requested and available
+            if include_timezone and dt.tzinfo is not None:
+                tz_name = dt.strftime("%Z")
+                if tz_name:  # Only add if timezone name is available
+                    formatted += f" {tz_name}"
+            
+            return formatted
+        except (ValueError, OSError, OverflowError) as e:
+            # Handle invalid timestamps gracefully
+            log_and_flush(logging.DEBUG, f"Invalid timestamp formatting: {timestamp} - {e}")
+            return f"Invalid timestamp: {timestamp}"
+    
+    @staticmethod
+    def format_size(size_bytes):
+        """
+        Format file size in human readable format.
+        
+        Purpose:
+        --------
+        Converts byte values to human-readable format with appropriate
+        units (B, KB, MB, GB, TB) for display in the UI.
+        
+        Args:
+        -----
+        size_bytes: Size in bytes
+        
+        Returns:
+        --------
+        str: Formatted size string
+        """
+        if size_bytes is None:
+            return ""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.1f}{unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.1f}TB"
     
     def __init__(self):
         """Initialize the main application with all components and limits."""
@@ -2919,7 +2920,7 @@ class FolderCompareSync_class:
         self.add_status_message(f"Applying filter: {wildcard}")
         
         # Create progress dialog for filtering
-        progress = ProgressDialog(self.root, "Filtering Files", f"Applying filter: {wildcard}...", max_value=100)
+        progress = ProgressDialog_class(self.root, "Filtering Files", f"Applying filter: {wildcard}...", max_value=100)
         
         try:
             # Use thread for filtering to keep UI responsive
@@ -3537,7 +3538,7 @@ class FolderCompareSync_class:
         log_and_flush(logging.INFO, "Beginning folder comparison operation")
         
         # Create progress dialog for the overall comparison process
-        progress = ProgressDialog(
+        progress = ProgressDialog_class(
             self.root, 
             "Comparing Folders", 
             "Preparing comparison...",
@@ -3668,7 +3669,7 @@ class FolderCompareSync_class:
             progress.close()
         log_and_flush(logging.DEBUG, f"Exiting FolderCompareSync_class: perform_comparison")
             
-    def build_file_list_with_progress(self, root_path: str, progress: ProgressDialog, 
+    def build_file_list_with_progress(self, root_path: str, progress: ProgressDialog_class, 
                                     start_percent: int, end_percent: int) -> Optional[dict[str, FolderCompareSync_class.FileMetadata_class]]:
         """
         Build a dictionary of relative_path -> FileMetadata with progress tracking and early limit checking.
@@ -3815,7 +3816,7 @@ class FolderCompareSync_class:
             
         return files
 
-    def compute_sha512_with_progress(self, file_path: str, progress_dialog: ProgressDialog) -> Optional[str]: # v000.0004 added - separated SHA512 computation with progress tracking
+    def compute_sha512_with_progress(self, file_path: str, progress_dialog: ProgressDialog_class) -> Optional[str]: # v000.0004 added - separated SHA512 computation with progress tracking
         """
         Compute SHA512 hash for a file with progress tracking in the UI every ~50MB.
         
@@ -3917,8 +3918,8 @@ class FolderCompareSync_class:
                 differences.add('date_created')
                 # v001.0010 added [debug date created comparison with full microsecond precision]
                 if __debug__:
-                    left_display = format_timestamp(left_item.date_created, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
-                    right_display = format_timestamp(right_item.date_created, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
+                    left_display = self.format_timestamp(left_item.date_created, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
+                    right_display = self.format_timestamp(right_item.date_created, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
                     left_raw = left_item.date_created.timestamp() if left_item.date_created else 0 # v001.0010 added [debug date created comparison with full microsecond precision]
                     right_raw = right_item.date_created.timestamp() if right_item.date_created else 0 # v001.0010 added [debug date created comparison with full microsecond precision]
                     diff_microseconds = abs(left_raw - right_raw) * 1_000_000 # v001.0010 added [debug date created comparison with full microsecond precision]
@@ -3933,8 +3934,8 @@ class FolderCompareSync_class:
                 differences.add('date_modified')
                 # v001.0010 added [debug date modified comparison with full microsecond precision]
                 if __debug__:
-                    left_display = format_timestamp(left_item.date_modified, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
-                    right_display = format_timestamp(right_item.date_modified, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
+                    left_display = self.format_timestamp(left_item.date_modified, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
+                    right_display = self.format_timestamp(right_item.date_modified, include_timezone=False) or "None" # v001.0011 changed [use centralized format_timestamp method]
                     left_raw = left_item.date_modified.timestamp() if left_item.date_modified else 0 # v001.0010 added [debug date modified comparison with full microsecond precision]
                     right_raw = right_item.date_modified.timestamp() if right_item.date_modified else 0 # v001.0010 added [debug date modified comparison with full microsecond precision]
                     diff_microseconds = abs(left_raw - right_raw) * 1_000_000 # v001.0010 added [debug date modified comparison with full microsecond precision]
@@ -4043,8 +4044,8 @@ class FolderCompareSync_class:
                 # v000.0006 added - Handle folder vs file display with timestamps
                 if result.left_item.is_folder:
                     # This is a folder - show timestamps and smart status
-                    date_created_str = format_timestamp(result.left_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                    date_modified_str = format_timestamp(result.left_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_created_str = self.format_timestamp(result.left_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = self.format_timestamp(result.left_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = ""  # Folders never have SHA512
                     
                     # Determine smart status for folders
@@ -4061,8 +4062,8 @@ class FolderCompareSync_class:
                 else:
                     # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display
                     # This is a file - show all metadata as before
-                    date_created_str = format_timestamp(result.left_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                    date_modified_str = format_timestamp(result.left_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_created_str = self.format_timestamp(result.left_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = self.format_timestamp(result.left_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = result.left_item.sha512[:16] + "..." if result.left_item.sha512 else ""
                     status = "Different" if result.is_different else "Same"
                     item_text = f"☐ {rel_path}"
@@ -4078,8 +4079,8 @@ class FolderCompareSync_class:
                 # v000.0006 added - Handle folder vs file display with timestamps
                 if result.right_item.is_folder:
                     # This is a folder - show timestamps and smart status
-                    date_created_str = format_timestamp(result.right_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                    date_modified_str = format_timestamp(result.right_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_created_str = self.format_timestamp(result.right_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = self.format_timestamp(result.right_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = ""  # Folders never have SHA512
                     
                     # Determine smart status for folders
@@ -4096,8 +4097,8 @@ class FolderCompareSync_class:
                 else:
                     # This is a file - show all metadata as before
                     # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display
-                    date_created_str = format_timestamp(result.right_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                    date_modified_str = format_timestamp(result.right_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_created_str = self.format_timestamp(result.right_item.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = self.format_timestamp(result.right_item.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = result.right_item.sha512[:16] + "..." if result.right_item.sha512 else ""
                     status = "Different" if result.is_different else "Same"
                     item_text = f"☐ {rel_path}"
@@ -4354,8 +4355,8 @@ class FolderCompareSync_class:
                         
                         # v000.0006 added - Format folder timestamps if available
                         if folder_metadata and folder_metadata.is_folder:
-                            date_created_str = format_timestamp(folder_metadata.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                            date_modified_str = format_timestamp(folder_metadata.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                            date_created_str = self.format_timestamp(folder_metadata.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                            date_modified_str = self.format_timestamp(folder_metadata.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                         
                         # v000.0006 added - Determine smart status for folders
                         if result.is_different and result.differences:
@@ -4388,8 +4389,8 @@ class FolderCompareSync_class:
                 else:
                     # Existing file - has checkbox and shows ALL metadata
                     size_str = format_size(content.size) if content.size else ""
-                    date_created_str = format_timestamp(content.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                    date_modified_str = format_timestamp(content.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_created_str = self.format_timestamp(content.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
+                    date_modified_str = self.format_timestamp(content.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = content.sha512[:16] + "..." if content.sha512 else ""
                     
                     # Determine status using proper path lookup
@@ -4716,7 +4717,7 @@ class FolderCompareSync_class:
         # Create progress dialog for copy operation with dry run indication
         progress_title = f"{'Simulating' if is_dry_run else 'Copying'} Files"
         progress_message = f"{'Simulating' if is_dry_run else 'Copying'} files from {direction_text}..."
-        progress = ProgressDialog(
+        progress = ProgressDialog_class(
             self.root,
             progress_title,
             progress_message,
@@ -5989,6 +5990,103 @@ class DeleteOrphansManager_class:
             stats['large_selection_warning'] = True
             
         return stats
+
+    @staticmethod
+    def format_timestamp(timestamp: Union[datetime, float, int, None], 
+                        include_timezone: bool = False, 
+                        include_microseconds: bool = True) -> str:
+        """
+        Universal timestamp formatting utility function.
+        
+        Purpose:
+        --------
+        Handles multiple timestamp input types and formatting options for consistent
+        timestamp display throughout the application.
+        
+        Args:
+        -----
+        timestamp: Can be datetime object, float/int epoch time, or None
+        include_timezone: Whether to include timezone info in output
+        include_microseconds: Whether to include microsecond precision
+        
+        Returns:
+        --------
+        str: Formatted timestamp string or empty string if None
+        
+        Examples:
+        ---------
+        >>> format_timestamp(datetime.now())
+        "2024-12-08 14:30:22.123456"
+        
+        >>> format_timestamp(1701234567.123456, include_microseconds=True)
+        "2023-11-29 08:02:47.123456"
+        
+        >>> format_timestamp(None)
+        ""
+        
+        >>> dt_with_tz = datetime.now(timezone.utc)
+        >>> format_timestamp(dt_with_tz, include_timezone=True)
+        "2024-12-08 14:30:22.123456 UTC"
+        """
+        if timestamp is None:
+            return ""
+        try:
+            # Convert input to datetime object
+            if isinstance(timestamp, datetime):
+                dt = timestamp
+            elif isinstance(timestamp, (int, float)):
+                # Convert epoch timestamp to datetime in local timezone
+                dt = datetime.fromtimestamp(timestamp)
+            else:
+                # Fallback for unexpected types
+                return str(timestamp)
+            
+            # Build format string based on options
+            if include_microseconds:
+                base_format = "%Y-%m-%d %H:%M:%S.%f"
+            else:
+                base_format = "%Y-%m-%d %H:%M:%S"
+            
+            # Format the datetime
+            formatted = dt.strftime(base_format)
+            
+            # Add timezone if requested and available
+            if include_timezone and dt.tzinfo is not None:
+                tz_name = dt.strftime("%Z")
+                if tz_name:  # Only add if timezone name is available
+                    formatted += f" {tz_name}"
+            
+            return formatted
+        except (ValueError, OSError, OverflowError) as e:
+            # Handle invalid timestamps gracefully
+            log_and_flush(logging.DEBUG, f"Invalid timestamp formatting: {timestamp} - {e}")
+            return f"Invalid timestamp: {timestamp}"
+    
+    @staticmethod
+    def format_size(size_bytes):
+        """
+        Format file size in human readable format.
+        
+        Purpose:
+        --------
+        Converts byte values to human-readable format with appropriate
+        units (B, KB, MB, GB, TB) for display in the UI.
+        
+        Args:
+        -----
+        size_bytes: Size in bytes
+        
+        Returns:
+        --------
+        str: Formatted size string
+        """
+        if size_bytes is None:
+            return ""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.1f}{unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.1f}TB"
     
     # ========================================================================
     # INSTANCE METHODS - DIALOG INITIALIZATION AND MANAGEMENT
@@ -6114,7 +6212,7 @@ class DeleteOrphansManager_class:
         
         # Show progress for large datasets
         if len(self.orphaned_files) > 1000:
-            progress = ProgressDialog(
+            progress = ProgressDialog_class(
                 self.dialog, 
                 "Loading Orphan Files", 
                 "Building orphan file tree...",
@@ -6852,8 +6950,8 @@ class DeleteOrphansManager_class:
                 
                 # Format file display
                 size_str = format_size(metadata['size']) if metadata['size'] else ""
-                date_created_str = format_timestamp(metadata['date_created'])
-                date_modified_str = format_timestamp(metadata['date_modified'])
+                date_created_str = self.format_timestamp(metadata['date_created'])
+                date_modified_str = self.format_timestamp(metadata['date_modified'])
                 status_str = metadata['status']
                 
                 # v001.0017 changed [enhanced file checkbox logic based on true orphan status]
@@ -7491,7 +7589,7 @@ class DeleteOrphansManager_class:
         
         # Create progress dialog
         progress_title = f"{'Simulating' if is_local_dry_run else 'Deleting'} Orphaned Files" # v001.0013 changed [use local dry run mode instead of main app dry run mode]
-        progress = ProgressDialog(
+        progress = ProgressDialog_class(
             self.parent,
             progress_title,
             f"{'Simulating' if is_local_dry_run else 'Processing'} orphaned files...", # v001.0013 changed [use local dry run mode instead of main app dry run mode]
