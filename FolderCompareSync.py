@@ -3,6 +3,10 @@
 FolderCompareSync - A Folder Comparison & Synchronization Tool
 
 Version:
+         v002.0000 - reorganised class and def for
+                     Reduced Global Namespace Pollution,
+                     Logical Grouping & Proper Encapsulation,
+                     Clear Ownership of functions
          v001.0023 - ensure deletions occurs bottom up so folders do not get deleted before the files in them
          v001.0022 - reorganize bottom area button layout to put copy and delete orphan buttons on same row
          v001.0021 - fix UI recreation to use in-place rebuild instead of new instance
