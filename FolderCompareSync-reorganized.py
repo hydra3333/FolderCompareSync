@@ -3624,7 +3624,7 @@ class FolderCompareSync_class:
                 
                 differences = self.compare_items(left_item, right_item)
                 
-                self.comparison_results[rel_path] = FolderCompareSync_class.ComparisonResult_class.ComparisonResult_class(
+                self.comparison_results[rel_path] = FolderCompareSync_class.ComparisonResult_class(
                     left_item=left_item,
                     right_item=right_item,
                     differences=differences
@@ -5430,14 +5430,14 @@ class DeleteOrphansManager_class:
             file_path_bytes = file_path.encode('utf-8') + b'\0\0'
             
             # Configure operation flags
-            flags = FOF_ALLOWUNDO  # Enable Recycle Bin
+            flags = DeleteOrphansManager_class.FOF_ALLOWUNDO  # Enable Recycle Bin
             if not show_progress:
-                flags |= FOF_SILENT | FOF_NOCONFIRMATION
+                flags |= DeleteOrphansManager_class.FOF_SILENT | DeleteOrphansManager_class.FOF_NOCONFIRMATION
             
             # Create operation structure
-            file_op = SHFILEOPSTRUCT()
+            file_op = DeleteOrphansManager_class.SHFILEOPSTRUCT()
             file_op.hwnd = None                    # No parent window
-            file_op.wFunc = FO_DELETE             # Delete operation
+            file_op.wFunc = DeleteOrphansManager_class.FO_DELETE             # Delete operation
             file_op.pFrom = c_char_p(file_path_bytes)  # Source file
             file_op.pTo = None                    # No destination (delete)
             file_op.fFlags = flags                # Operation flags
