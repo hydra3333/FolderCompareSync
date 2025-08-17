@@ -4069,7 +4069,7 @@ class FolderCompareSync_class:
                     item_text = f"☐ {rel_path}"
                 
                 # v000.0004 changed - Use folder-aware display values
-                size_str = format_size(result.left_item.size) if result.left_item.size else ""
+                size_str = self.format_size(result.left_item.size) if result.left_item.size else ""
                 item_id = self.left_tree.insert(self.root_item_left, tk.END, text=item_text,
                                               values=(size_str, date_created_str, date_modified_str, sha512_str, status))
                 self.path_to_item_left[rel_path] = item_id
@@ -4104,7 +4104,7 @@ class FolderCompareSync_class:
                     item_text = f"☐ {rel_path}"
                 
                 # v000.0006 changed - Use folder-aware display values
-                size_str = format_size(result.right_item.size) if result.right_item.size else ""
+                size_str = self.format_size(result.right_item.size) if result.right_item.size else ""
                 item_id = self.right_tree.insert(self.root_item_right, tk.END, text=item_text,
                                                values=(size_str, date_created_str, date_modified_str, sha512_str, status))
                 self.path_to_item_right[rel_path] = item_id
@@ -4388,7 +4388,7 @@ class FolderCompareSync_class:
                                         values=("", "", "", "", "Missing"), tags=('missing',))
                 else:
                     # Existing file - has checkbox and shows ALL metadata
-                    size_str = format_size(content.size) if content.size else ""
+                    size_str = self.format_size(content.size) if content.size else ""
                     date_created_str = self.format_timestamp(content.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     date_modified_str = self.format_timestamp(content.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
                     sha512_str = content.sha512[:16] + "..." if content.sha512 else ""
@@ -4745,7 +4745,7 @@ class FolderCompareSync_class:
                         file_size = Path(source_path).stat().st_size
                         strategy = FileCopyManager.determine_copy_strategy(source_path, str(Path(dest_folder) / rel_path), file_size)
                         if strategy == FileCopyManager.CopyStrategy.STAGED and file_size >= COPY_STRATEGY_THRESHOLD:
-                            size_str = format_size(file_size)
+                            size_str = self.format_size(file_size)
                             progress_text = f"{base_progress_text}\n({size_str} file copy in progress ...not frozen, just busy)"
                         else:
                             progress_text = base_progress_text
@@ -6949,7 +6949,7 @@ class DeleteOrphansManager_class:
                 metadata = content
                 
                 # Format file display
-                size_str = format_size(metadata['size']) if metadata['size'] else ""
+                size_str = self.format_size(metadata['size']) if metadata['size'] else ""
                 date_created_str = self.format_timestamp(metadata['date_created'])
                 date_modified_str = self.format_timestamp(metadata['date_modified'])
                 status_str = metadata['status']
@@ -7282,7 +7282,7 @@ class DeleteOrphansManager_class:
         stats_text = f"{selected_items} of {total_items} orphaned items selected"
         
         if stats['selected_size'] > 0:
-            size_text = format_size(stats['selected_size'])
+            size_text = self.format_size(stats['selected_size'])
             stats_text += f" ({size_text})"
             
         if stats['large_selection_warning']:
@@ -7504,7 +7504,7 @@ class DeleteOrphansManager_class:
         
         confirmation_message = (
             f"Are you SURE you want to {method_text.lower()} the selected orphaned files{dry_run_text}?\n\n"
-            f"Action: {method_text} {len(selected_accessible)} files ({format_size(total_size)}) "
+            f"Action: {method_text} {len(selected_accessible)} files ({self.format_size(total_size)}) "
             f"from {self.side.upper()} folder\n\n"
         )
         
@@ -7726,7 +7726,7 @@ class DeleteOrphansManager_class:
         if skipped_count > 0:
             message += f"Skipped: {skipped_count} files (not found)\n"
             
-        message += f"Total size processed: {format_size(total_bytes)}\n"
+        message += f"Total size processed: {self.format_size(total_bytes)}\n"
         message += f"Time elapsed: {elapsed_time:.1f} seconds\n"
         message += f"Operation ID: {operation_id}\n\n"
         
