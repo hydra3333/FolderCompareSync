@@ -809,7 +809,7 @@ class FileTimestampManager_class:
             
             # Open file/directory handle
             # Using FileTimestampManager_class.FILE_WRITE_ATTRIBUTES is more specific than GENERIC_WRITE
-            handle = kernel32.CreateFileW(
+            handle = FileTimestampManager_class.kernel32.CreateFileW(
                 file_path,
                 FileTimestampManager_class.FILE_WRITE_ATTRIBUTES,  # Only need attribute write access
                 FileTimestampManager_class.FILE_SHARE_READ | FileTimestampManager_class.FILE_SHARE_WRITE,  # Allow other processes to read/write
@@ -820,7 +820,7 @@ class FileTimestampManager_class:
             )
             
             if handle == FileTimestampManager_class.INVALID_HANDLE_VALUE:
-                error_code = kernel32.GetLastError()
+                error_code = FileTimestampManager_class.kernel32.GetLastError()
                 log_and_flush(logging.DEBUG, f"CreateFileW failed with error code: {error_code}")
                 return False
             
@@ -838,7 +838,7 @@ class FileTimestampManager_class:
             
             # Set file times
             # NULL for lpLastAccessTime means don't change access time
-            result = kernel32.SetFileTime(
+            result = FileTimestampManager_class.kernel32.SetFileTime(
                 handle,
                 creation_ft_ptr,      # Creation time
                 None,                 # Last access time (unchanged)
@@ -846,7 +846,7 @@ class FileTimestampManager_class:
             )
             
             if not result:
-                error_code = kernel32.GetLastError()
+                error_code = FileTimestampManager_class.kernel32.GetLastError()
                 log_and_flush(logging.DEBUG, f"SetFileTime failed with error code: {error_code}")
             
             return bool(result)
@@ -857,7 +857,7 @@ class FileTimestampManager_class:
         finally:
             # Always close the handle if it was opened
             if handle and handle != FileTimestampManager_class.INVALID_HANDLE_VALUE:
-                kernel32.CloseHandle(handle)
+                FileTimestampManager_class.kernel32.CloseHandle(handle)
     
     def _set_file_times_windows_fallback(self, file_path: str, 
                                         creation_time: Optional[int] = None,
