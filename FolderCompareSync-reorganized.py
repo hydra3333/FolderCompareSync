@@ -795,24 +795,24 @@ class FileTimestampManager:
             is_directory = os.path.isdir(file_path)
             
             # Set appropriate flags
-            flags = FILE_ATTRIBUTE_NORMAL
+            flags = FileTimestampManager.FILE_ATTRIBUTE_NORMAL
             if is_directory:
-                # Must use FILE_FLAG_BACKUP_SEMANTICS to open directories
-                flags = FILE_FLAG_BACKUP_SEMANTICS
+                # Must use FileTimestampManager.FILE_FLAG_BACKUP_SEMANTICS to open directories
+                flags = FileTimestampManager.FILE_FLAG_BACKUP_SEMANTICS
             
             # Open file/directory handle
-            # Using FILE_WRITE_ATTRIBUTES is more specific than GENERIC_WRITE
+            # Using FileTimestampManager.FILE_WRITE_ATTRIBUTES is more specific than GENERIC_WRITE
             handle = kernel32.CreateFileW(
                 file_path,
-                FILE_WRITE_ATTRIBUTES,  # Only need attribute write access
-                FILE_SHARE_READ | FILE_SHARE_WRITE,  # Allow other processes to read/write
+                FileTimestampManager.FILE_WRITE_ATTRIBUTES,  # Only need attribute write access
+                FileTimestampManager.FILE_SHARE_READ | FileTimestampManager.FILE_SHARE_WRITE,  # Allow other processes to read/write
                 None,  # Default security
-                OPEN_EXISTING,  # File must exist
+                FileTimestampManager.OPEN_EXISTING,  # File must exist
                 flags,
                 None  # No template file
             )
             
-            if handle == INVALID_HANDLE_VALUE:
+            if handle == FileTimestampManager.INVALID_HANDLE_VALUE:
                 error_code = kernel32.GetLastError()
                 log_and_flush(logging.DEBUG, f"CreateFileW failed with error code: {error_code}")
                 return False
@@ -849,7 +849,7 @@ class FileTimestampManager:
             return False
         finally:
             # Always close the handle if it was opened
-            if handle and handle != INVALID_HANDLE_VALUE:
+            if handle and handle != FileTimestampManager.INVALID_HANDLE_VALUE:
                 kernel32.CloseHandle(handle)
     
     def _set_file_times_windows_fallback(self, file_path: str, 
@@ -875,22 +875,22 @@ class FileTimestampManager:
             is_directory = os.path.isdir(file_path)
             
             # Set appropriate flags
-            flags = FILE_ATTRIBUTE_NORMAL
+            flags = FileTimestampManager.FILE_ATTRIBUTE_NORMAL
             if is_directory:
-                flags = FILE_FLAG_BACKUP_SEMANTICS
+                flags = FileTimestampManager.FILE_FLAG_BACKUP_SEMANTICS
             
             # Open file/directory handle (using simpler approach without type hints)
             handle = ctypes.windll.kernel32.CreateFileW(
                 file_path,
-                wintypes.DWORD(GENERIC_WRITE),
-                wintypes.DWORD(FILE_SHARE_READ | FILE_SHARE_WRITE),
+                wintypes.DWORD(FileTimestampManager.GENERIC_WRITE),
+                wintypes.DWORD(FileTimestampManager.FILE_SHARE_READ | FileTimestampManager.FILE_SHARE_WRITE),
                 None,
-                wintypes.DWORD(OPEN_EXISTING),
+                wintypes.DWORD(FileTimestampManager.OPEN_EXISTING),
                 wintypes.DWORD(flags),
                 None
             )
             
-            if handle == -1:  # Simple comparison for INVALID_HANDLE_VALUE
+            if handle == -1:  # Simple comparison for FileTimestampManager.INVALID_HANDLE_VALUE
                 return False
             
             # Prepare FILETIME as c_ulonglong (fallback method)
