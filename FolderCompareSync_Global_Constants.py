@@ -4,9 +4,52 @@ from __future__ import annotations
 # import out global imports
 from FolderCompareSync_Global_Imports import *
 
-# import our flushed_logging before other modules
-#from flushed_logging import *   # includes LoggerManager
-#from flushed_logging import log_and_flush, get_log_level, LoggerManager
+"""
+KNOW THIS: "import FolderCompareSync_Global_Constants as C"  vs  "from FolderCompareSync_Global_Constants import *"
+-------------------------------------------------------------------------------------------------------------------
+
+In Python, modules are singletons per process — they live ONCE in sys.modules.
+Because Python caches imported modules in sys.modules, any object you put in a module becomes
+a process-wide singleton. 
+Imported modules are dynamically shared by modules as long as every module imports
+that same module via "import xxx as Y".
+Hence module level global variables in an imported module are dynamically shared by modules as long as
+every module imports that same module via "import xxx as Y".
+
+When module A does:
+    import FolderCompareSync_Global_Constants as C
+Python looks in sys.modules:
+If the module has not been loaded yet, it’s imported and inserted into sys.modules["FolderCompareSync_Global_Constants"].
+Module A then binds its local name C to that single module object.
+
+When module B later does the same import:
+    import FolderCompareSync_Global_Constants as C
+Python checks sys.modules, sees it’s already loaded, and reuses the same module object.
+Module B then binds its local name C to that same object.
+
+So:
+"C in A" and "C in B" are just two different references to the same underlying module object.
+If a separate module DebugGlobalEditor modifies C.STATUS_LOG_MAX_HISTORY, both module A and module B
+see the updated value in C.STATUS_LOG_MAX_HISTORY IMMEDIATELY because they reference the same module object.
+
+What wouldn’t see changes is if module D instead did:
+    from FolderCompareSync_Global_Constants import STATUS_LOG_MAX_HISTORY
+Using "from ... import ..." COPIES the value into module D’s local globals at import time, so 
+- later updates to STATUS_LOG_MAX_HISTORY in module D will NOT propagate back into sys.modules
+- later updates to "C.STATUS_LOG_MAX_HISTORY" by other modules using "import ... as C" will NOT be seen by module D
+
+Summary:
+1. "import … as C"    ->  shared live module object (safe for on-the-fly editing).
+2. "from … import X"  ->  copies the value at import time (edits won’t propagate).
+
+Example code that shares dynamically:
+    from __future__ import annotations
+    import FolderCompareSync_Global_Constants as C     # reference constants via "C.variable_name"
+
+Example code that DOES NOT share dynamically:
+    from __future__ import annotations
+    from FolderCompareSync_Global_Constants import *   # reference constants via "variable_name" (no "C.")
+"""
 
 # ============================================================================
 # GLOBAL CONFIGURATION CONSTANTS
