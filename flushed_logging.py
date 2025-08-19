@@ -1,12 +1,11 @@
 # from __future__ imports MUST occur at the beginning of the file, annotations become strings resolved lazily
 from __future__ import annotations 
-import FolderCompareSync_Global_Constants as C
 
 # import out global imports
 from FolderCompareSync_Global_Imports import *
 
 # import out global constants first
-from FolderCompareSync_Global_Constants import *
+import FolderCompareSync_Global_Constants as C
 
 # import our flushed_logging before other modules
 #from flushed_logging import *   # includes LoggerManager

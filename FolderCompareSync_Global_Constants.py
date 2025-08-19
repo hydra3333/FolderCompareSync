@@ -4,9 +4,6 @@ from __future__ import annotations
 # import out global imports
 from FolderCompareSync_Global_Imports import *
 
-# import out global constants first
-#from FolderCompareSync_Global_Constants import *
-
 # import our flushed_logging before other modules
 #from flushed_logging import *   # includes LoggerManager
 #from flushed_logging import log_and_flush, get_log_level, LoggerManager
