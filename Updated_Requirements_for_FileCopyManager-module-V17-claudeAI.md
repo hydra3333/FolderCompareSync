@@ -255,6 +255,75 @@ def _execute_staged_strategy(src, dst, overwrite, progress_cb, cancel_event) -> 
 7. **Cleanup/rollback** as needed
 8. **Report results** with network-specific metrics
 
+#### Clarity for processes in Copying and Verifying
+
+To reduce risk of confusion arising from multiple possible approaches,
+the following explanations explore in some detail how the "copy" and "verfy" may work
+in terms of means and fallbacks and must be read in conjunction with and subject to
+the rest of this document. 
+
+Where conflicts occur or clarity is inadequate, please query the developer for assessments and decisions.
+
+```
+A) Local HDD -> HDD (NTFS, same machine)
+---------------------------------------
+1. Copy first
+1.1. Copy using a native copy with progress/callbacks: Windows native CopyFileExW API (via ctypes) because it:
+- Does the actual copy using the OS (fast, kernel-level, buffered).
+- Preserves metadata
+- Crucially: accepts a callback function that Windows calls periodically with progress info.
+- That callback gives you Total file size, Bytes copied so far, Whether the copy is paused or cancelled etc 
+So, for local drive-to-drive copies (both HDDs, SSDs, or mixed), CopyFileExW is preferred because we
+want a fast windows-optimized we copy function which facilitates a progress bar during the copy.
+
+2. Verify with a windowed mmap compare.
+2.1 In the pre-copy UI, have mutually exclusive checkboxes or radio buttons
+(i) verify no files
+(ii) verify every file after each copy (the default), and 
+(iii) verify only files < 1GB after each copy (using a global constant instead of a fixed 1GB threshold)
+
+2.2 After copying, walk the files in fixed-size windows (e.g., 8–64 MiB), comparing windowed chunks,
+(i.e. omit a hashing scheme) and compare each window during the windowed mmap compare.
+(perhaps maybe permits early failing when aa window mismatch occurs).
+Fallback: if a mmap window read fails (e.g., on exotic FS), then automatically fall back to plain buffered compare for a window.
+This gives OS-paged reads (4 KiB pages) without loading the whole file, works well on memory-constrained PCs,
+and is faster than read() the entire file into Python buffers for large files, as well as avoids "==" on
+full bytes objects for big files which forces full file reads/materialization in RAM and can thrash memory.
+
+2.3 If later in the development cycle want to implement a hash method (perhaps ?blake3?, refer B.1.2 below and use the same type of hash),
+allow in the structure provision for computing the source hash during the windowed mmap copy and then in post-copy for
+computing the target hash with a separate windowed mmap parse of the closed-then-reopened target, then compare the hashes. 
+
+2.4 Progress bar: advance by the window size after each compare window; easy to wire (into tqdm or) your own UI eg tkinter.
+
+B) Across networks / NAS / SMB
+------------------------------
+1. Copy first
+1.1. Copy using (non-mmap) chunked I/O or whatever the best copy method is under network circumstances. 
+1.1.1 Over networks/SMB/NAS, we could still use CopyFileExW (Windows lets it stream), 
+1.1.2 HOWEVER in this networking case the CopyFileExW method requires an additional costly-for-large-networked-files full-file-read:
+[read source, write target, re-read-source for verify, re-read-target for verify, compare computed hash]
+vs chunked I/O copying whilst calculating the source hash on the fly which has 
+[read source and calculate hash on the fly, write target, re-read-target for verify, compare computed hash]
+
+1.2 during copying of source->target, perform progressive calculation of the source hash using ?blake3?
+(?BLAKE3? was said to be much faster than SHA-512?) or whatever is fastest on a >=5yo cpu given that the sole aim is
+to ensure the copied target file has content identical to the source, using whatever the best copy method
+is under network circumstances. 
+
+2. Verify with chunked I/O
+2.1 In the pre-copy UI, have mutually exclusive checkboxes or radio buttons
+(i) verify no files
+(ii) verify every file after each copy (the default), and 
+(iii) verify only files < 1GB after each copy (using a global constant instead of a fixed 1GB threshold)
+
+2.3 For post-copy hashing calculation of the target, prefer buffered chunked I/O over mmap for
+target verification (e.g., 1–8 MiB chunks) to avoid pathological page-fault latency over the network stack.
+Then compare the hashes. Or suggest a better method.
+
+2.4 Progress bar: advance by the window size after each compare window; easy to wire into our own UI eg tkinter.
+```
+
 ### Progress Integration
 
 #### Copy Progress:
