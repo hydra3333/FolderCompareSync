@@ -1,0 +1,26 @@
+Hello. Attached is a document which is a draft technical specification for a change to a program which is python3.13+ to run under windows 10+.
+The goals for the document are different to the goals for the change.
+The goals for the document are:
+1. to make the specification as clear as possible for the developer, with as much explanation and technical detail as reasonably possible that
+would assist a developer in understanding the requirements in detail, the intricacies involved, and approaches needed and in particular when
+describing processes eg for copying files, verifying files, etc.  Adding pseudo-code or similar as examples is permissable.
+2. Use of language is a balance between too much and too little, where too little can undesirably lose detail and
+context - we need to create and preserve good context and detail and meaning and also amend inaccuracies. In this case we need 
+a lot more than the minimum language so as to preserve those, avoiding both excessive brevity
+3. do not remove clarification, explanation or examples which in turn may reduce clarity (i.e. less verbiage is not always better)
+4. enhance clarity with as much detail as possible, and where things are incorrect or amgibuous then change them to be better
+5. clearly state the technical change goals as well as the mandatory requirements for the change up-front and ensure that
+the content of the document aligns with those
+6. to ensure the structure of the document is well ordered in terms of what would help a developer understand the change and implement it
+7. to provide technical examples and references where possible for complex matters, eg where Windows system/kernel calls (or similar) are made
+and use system constants etc
+
+Is this clear enough on how to expand and enhance and develop and amend the proposed document ?
+
+The attached draft technical specification document is somewhat out of date and needs to be reconciled with and guided by
+- GENERAL GOALS, REQUIREMENTS, COPY, VERIFY, METHODS, GOALS, MANDATORY REQUIREMENTS
+- Guiding queries and answers
+resulting in a new (eg v01) draft document in a new artifact, for review and further discussion and change.
+
+Having reviewed these and not yet producing an updated document, would it help to upload the
+latest relevant  pre-change python code modules for you to review ?

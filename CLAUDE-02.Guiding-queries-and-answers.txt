@@ -1,0 +1,408 @@
+The following sets of queries and answers were part of a discussion for clarification.
+These are intended to guide delvelopment of the cntent of the technical specification document.
+
+Queries and Answers - Set #1
+----------------------------
+Query:
+The methods doc says STAGED applies if “network *and/or* size ≥ threshold.” The plan says strategy is based on size and location but doesn’t pin down the exact branching order or tie-breakers. 
+Add a deterministic matrix (Local+Small → DIRECT; Local+Large → ?; Network+AnySize → STAGED). If you intend *Local+Large* to be STAGED (for memory/throughput), say so explicitly.
+Answer:  
+(a)If (file size < the threshold) AND no network drive letters involved, then use DIRECT.
+(b) if (file size >= the threshold) OR any network drive letters are involved then use STAGED
+(c) I do not think there are any other cases
+
+Query:
+Clarify detection (UNC path `\\server\share`, drive letters mapped to remote, `GetDriveType` = `DRIVE_REMOTE`).
+Also note subtle cases like DFS, WSL paths, or SMB over loopback. This affects strategy selection.
+Answer:
+(a) It means drive letters mapped to a remote drive/folder
+(b) I do not believe the program would accept nor function with UNC paths like `\\server\share` nor other things
+
+Query:
+The plan adds `SIZE` as a verification mode (size-only), which the methods doc doesn’t mention.
+Decide if `SIZE` should exist (useful for “quick mode”) and, if yes, document it in the master rules and UI (likely hidden/advanced)
+Answer:
+In the attachment "general-copy.verify methods", it says which verification method is applicable to and is associated with each type of copy (DIRECT or STAGED). Is that clear enough ?
+
+Query:
+In the methods doc, STAGED primarily means “network/large → chunked + hashing.”
+In the plan, “staged” sometimes also implies explicit temp-backup/restore steps.
+Decide whether *staging/backup* is always used or only when overwriting existing targets, and state the disk-space implications.
+Specify exactly how rollback works for overwrites (temp name → atomic replace? rename original aside?) and for new files. 
+Define cleanup guarantees on crash/cancel, and how you handle partial files.
+Answer:
+There are 2 separate things going on there,
+(a) the meaning of STAGED copy/verify in the methods doc applies
+(b) DIRECT and STAGED copy/verify are somewhat independent of backup/rollback but there is now a revised scheme outlined below.
+There was a whole discussion of backup/rollback methods which looks to have been glossed over in the spec.
+Upon reconsideration, the revised ROLLBACK methods are now:
+1. for DIRECT copy/verify (revised):
+If the target exists, always save its timestamps then create a temp/backup of the target before overwrite using atomic rename.
+If the copy fails or the verify fails or is cancelled then
+(b) if the target did not exist then simply delete the bad copy if it exists
+(a) delete the bad copy if it exists and restore from the backup if it exists and reset timestamps on the target to their original values which were on the target
+After successful copy/verify then delet the backup (I think there may already be an option to the recycle bin or permanently, I do not recall)
+2. for STAGED copy/verify (revised):
+If the target exists, always save its timestamps then create a temp/backup of the target before overwrite using atomic rename.
+If the copy fails or the verify fails or is cancelled then
+(b) if the target did not exist then simply delete the bad copy if it exists
+(a) delete the bad copy if it exists and restore from the backup if it exists and reset timestamps on the target to their original values which were on the target
+After successful copy/verify then delet the backup (I think there may already be an option to the recycle bin or permanently, I do not recall)
+
+Query:
+Timestamp/metadata scope. Both mention SetFileTime; define whether you also need to preserve attributes, ACLs, owner/SID, ADS, and reparse points/symlinks.
+If not, say “out of scope.”
+If yes, add flags/steps (and limits on network shares).
+Answer:
+In scope is Date-Created and Date-modified, all other metadata and attributes are out of scope.
+Acknowledged that one or more of ACLs, owner/SID, ADS, read-only, and reparse points/symlinks may cause issues with copying/verifying and will be treated as failed copies.
+
+Query:
+CopyFileExW on NTFS may not preserve sparseness.
+I note Detect if the source file has the FILE_ATTRIBUTE_SPARSE_FILE attribute and if yes, explicitly re-create sparseness in the target (via FSCTL calls or some other windows-specific method).
+Amswer:
+Yes we should add detection logic to both DIRECT and STAGED staged and for specific details perhaps search the internet for proven reliable merhods/code of doing siuch copying.
+
+NEW or UPDATED requirement: where a source file size is over a certain maximum size threshold defined in a well named global constant (20GB initially, increaed from previously), 
+then we will not copy the file and instead yield a FILE > xxGB SO WILL NOT COPY type of warning and status messages.
+
+Query:
+The plan notes fallback to buffered byte compare if BLAKE3 is unavailable. Make that explicit in the rules doc, including performance expectations and progress behavior.
+Answer:
+yes please do that.
+
+Query:
+You have the event/callback model in the plan; add a requirement for worst-case cancel latency (e.g., ≤ 100 ms or ≤ one chunk/window) to guide chunk/window sizes.
+Answer:
+OK yes, although I am unsure what values those should be.
+Perhaps you could search the internet and/or you knowledge base and perhaps
+- suggest average times for SSD/HARD DRIVES/USB-drives/networked-drive-letters
+- suggest reasonable maximums for DIRECT (SSD/HARD DRIVES/USB-drives) based on perhaps 5x the worst cases or something ?  I am unsure how it could be applied in DIRECT method though.
+- suggest reasonable maximums for STAGED based on the averages for DIRECT and the average for networked (assuming 100Mbits/sec and an older PC with Win10 and hard drive) based on perhaps 5x the worst cases or something ?
+- document those things and brief reasoning for suggesting the individual maximum values ?
+How does that sound ?
+
+Query:
+The plan says “drop-in,” but the minimal public surface and return types should be summarized in one place (method names, args, return objects, exceptions).
+Include a “breaking changes: none” statement if true.
+Answer:
+OK yes do that.  First please consider the methods doc and the to-be-updated spec and whether any change is required and then document that.
+
+Query:
+Add measurable targets e.g.
+local copy throughput no worse than X% of robocopy /COPY:DAT,
+network copy total reads = 3× file size,
+verification false-positive rate = 0,
+UI progress update cadence 20–60 Hz.
+Answer:
+I think that's difficult to do ahead of time, in the past copies were very much slower than I anticipated and little could be done to improve it.
+Although we could add as goals:
+- maximal local copy throughput though efficient yet robust coding/calls in the relevant sections of code
+- minimised network copy total reads
+- verification false-positive rate = 0
+- UI progress update cadence 0.2–60 Hz
+
+NEW or UPDATED requirement:  provide commented-out debug statements in sections of code where
+there is a requirement for speed (and document it there) 
+eg during copy or verify or hash computation loops etc, only un-commenting these during debugging if and as required
+
+Query:
+Locked files (sharing violations), 
+long paths (\\?\), 
+path case differences, 
+existing read-only targets, 
+low-space scenarios (esp. with backup staging), 
+and partial network failures (SMB reconnect).
+Answer:
+Locked files (sharing violations) - treat as a copy failure
+long paths (\\?\) - reject UNC's with clear and informative and warning status messages
+path case differences - adopt NTFS approach ignoring case differences for comparisons etc but leaving them in filenames
+existing read-only targets - treat as a copy failure
+low-space scenarios (esp. with backup staging) - great pickup !  can we check on local drives and pop-up/status-message+fail ... no sure about that with network drives letters if possible do so.
+and partial network failures (SMB reconnect).
+
+Query:
+Verification modes: The plan lists SIZE as a mode, the methods doc does not—resolve by either adding it to methods or removing it from plan.
+Answer:
+adjust it to suit what's in methods doc.
+
+Query:
+Meaning of “STAGED”: Methods => strategy class (network/large). Plan sometimes => plus backup/restore flow. Decide whether “staged” always includes backup or only when overwriting. 
+Answer:
+OK, overwriting is now a thing of the past.
+Now, for both DIRECT and STAGED the backup/restore prevails where the target is renamed before copy etc.
+Backup/restore is only really valid if the target already exists, unless you ave a different perspective and on it.
+
+Query:
+Defaults surfaced vs implied: The plan pins defaults (16 MiB windows, 4 MiB network chunks, 1 GiB verify threshold),
+while the methods doc gives ranges/“notionally 1GB.” 
+Choose exact defaults and publish them once. 
+Answer:
+Yes, let's at least initally choose these in global variables unless you consider the matter and advise other numbers for reasons you would raise
+- 64 MiB for DIRECT window verification chunks
+- 4 MiB STAGED (network etc) chunks
+- 2 GiB verify-or-not threshold
+- 20 GiB maximum size threshold copy copying
+Are there others that we need to verify here ?
+
+Ok how about these answers, do they help you ?  Any more clarifications needed ? Feel free to ask.
+(don't make a start on a new doc yet).
+
+
+Query:
+The methods doc says STAGED applies if “network *and/or* size ≥ threshold.” The plan says strategy is based on size and location but doesn’t pin down the exact branching order or tie-breakers. 
+Add a deterministic matrix (Local+Small → DIRECT; Local+Large → ?; Network+AnySize → STAGED). If you intend *Local+Large* to be STAGED (for memory/throughput), say so explicitly.
+Answer:  
+(a)If (file size < the threshold) AND no network drive letters involved, then use DIRECT.
+(b) if (file size >= the threshold) OR any network drive letters are involved then use STAGED
+(c) I do not think there are any other cases
+
+Query:
+Clarify detection (UNC path `\\server\share`, drive letters mapped to remote, `GetDriveType` = `DRIVE_REMOTE`).
+Also note subtle cases like DFS, WSL paths, or SMB over loopback. This affects strategy selection.
+Answer:
+(a) It means drive letters mapped to a remote drive/folder
+(b) I do not believe the program would accept nor function with UNC paths like `\\server\share` nor other things
+
+Query:
+The plan adds `SIZE` as a verification mode (size-only), which the methods doc doesn’t mention.
+Decide if `SIZE` should exist (useful for “quick mode”) and, if yes, document it in the master rules and UI (likely hidden/advanced)
+Answer:
+In the attachment "general-copy.verify methods", it says which verification method is applicable to and is associated with each type of copy (DIRECT or STAGED). Is that clear enough ?
+
+Query:
+In the methods doc, STAGED primarily means “network/large → chunked + hashing.”
+In the plan, “staged” sometimes also implies explicit temp-backup/restore steps.
+Decide whether *staging/backup* is always used or only when overwriting existing targets, and state the disk-space implications.
+Specify exactly how rollback works for overwrites (temp name → atomic replace? rename original aside?) and for new files. 
+Define cleanup guarantees on crash/cancel, and how you handle partial files.
+Answer:
+There are 2 separate things going on there,
+(a) the meaning of STAGED copy/verify in the methods doc applies
+(b) DIRECT and STAGED copy/verify are somewhat independent of backup/rollback but there is now a revised scheme outlined below.
+There was a whole discussion of backup/rollback methods which looks to have been glossed over in the spec.
+Upon reconsideration, the revised ROLLBACK methods are now:
+1. for DIRECT copy/verify (revised):
+If the target exists, always save its timestamps then create a temp/backup of the target before overwrite using atomic rename.
+If the copy fails or the verify fails or is cancelled then
+(b) if the target did not exist then simply delete the bad copy if it exists
+(a) delete the bad copy if it exists and restore from the backup if it exists and reset timestamps on the target to their original values which were on the target
+After successful copy/verify then delet the backup (I think there may already be an option to the recycle bin or permanently, I do not recall)
+2. for STAGED copy/verify (revised):
+If the target exists, always save its timestamps then create a temp/backup of the target before overwrite using atomic rename.
+If the copy fails or the verify fails or is cancelled then
+(b) if the target did not exist then simply delete the bad copy if it exists
+(a) delete the bad copy if it exists and restore from the backup if it exists and reset timestamps on the target to their original values which were on the target
+After successful copy/verify then delet the backup (I think there may already be an option to the recycle bin or permanently, I do not recall)
+
+Query:
+Timestamp/metadata scope. Both mention SetFileTime; define whether you also need to preserve attributes, ACLs, owner/SID, ADS, and reparse points/symlinks.
+If not, say “out of scope.”
+If yes, add flags/steps (and limits on network shares).
+Answer:
+In scope is Date-Created and Date-modified, all other metadata and attributes are out of scope.
+Acknowledged that one or more of ACLs, owner/SID, ADS, read-only, and reparse points/symlinks may cause issues with copying/verifying and will be treated as failed copies.
+
+Query:
+CopyFileExW on NTFS may not preserve sparseness.
+I note Detect if the source file has the FILE_ATTRIBUTE_SPARSE_FILE attribute and if yes, explicitly re-create sparseness in the target (via FSCTL calls or some other windows-specific method).
+Amswer:
+Yes we should add detection logic to both DIRECT and STAGED staged and for specific details perhaps search the internet for proven reliable merhods/code of doing siuch copying.
+
+NEW or UPDATED requirement: where a source file size is over a certain maximum size threshold defined in a well named global constant (20GB initially, increaed from previously), 
+then we will not copy the file and instead yield a FILE > xxGB SO WILL NOT COPY type of warning and status messages.
+
+Query:
+The plan notes fallback to buffered byte compare if BLAKE3 is unavailable. Make that explicit in the rules doc, including performance expectations and progress behavior.
+Answer:
+yes please do that.
+
+Query:
+You have the event/callback model in the plan; add a requirement for worst-case cancel latency (e.g., ≤ 100 ms or ≤ one chunk/window) to guide chunk/window sizes.
+Answer:
+OK yes, although I am unsure what values those should be.
+Perhaps you could search the internet and/or you knowledge base and perhaps
+- suggest average times for SSD/HARD DRIVES/USB-drives/networked-drive-letters
+- suggest reasonable maximums for DIRECT (SSD/HARD DRIVES/USB-drives) based on perhaps 5x the worst cases or something ?  I am unsure how it could be applied in DIRECT method though.
+- suggest reasonable maximums for STAGED based on the averages for DIRECT and the average for networked (assuming 100Mbits/sec and an older PC with Win10 and hard drive) based on perhaps 5x the worst cases or something ?
+- document those things and brief reasoning for suggesting the individual maximum values ?
+How does that sound ?
+
+Query:
+The plan says “drop-in,” but the minimal public surface and return types should be summarized in one place (method names, args, return objects, exceptions).
+Include a “breaking changes: none” statement if true.
+Answer:
+OK yes do that.  First please consider the methods doc and the to-be-updated spec and whether any change is required and then document that.
+
+Query:
+Add measurable targets e.g.
+local copy throughput no worse than X% of robocopy /COPY:DAT,
+network copy total reads = 3× file size,
+verification false-positive rate = 0,
+UI progress update cadence 20–60 Hz.
+Answer:
+I think that's difficult to do ahead of time, in the past copies were very much slower than I anticipated and little could be done to improve it.
+Although we could add as goals:
+- maximal local copy throughput though efficient yet robust coding/calls in the relevant sections of code
+- minimised network copy total reads
+- verification false-positive rate = 0
+- UI progress update cadence 0.2–60 Hz
+
+NEW or UPDATED requirement:  provide commented-out debug statements in sections of code where
+there is a requirement for speed (and document it there) 
+eg during copy or verify or hash computation loops etc, only un-commenting these during debugging if and as required
+
+Query:
+Locked files (sharing violations), 
+long paths (\\?\), 
+path case differences, 
+existing read-only targets, 
+low-space scenarios (esp. with backup staging), 
+and partial network failures (SMB reconnect).
+Answer:
+Locked files (sharing violations) - treat as a copy failure
+long paths (\\?\) - reject UNC's with clear and informative and warning status messages
+path case differences - adopt NTFS approach ignoring case differences for comparisons etc but leaving them in filenames
+existing read-only targets - treat as a copy failure
+low-space scenarios (esp. with backup staging) - great pickup !  can we check on local drives and pop-up/status-message+fail ... no sure about that with network drives letters if possible do so.
+and partial network failures (SMB reconnect).
+
+Query:
+Verification modes: The plan lists SIZE as a mode, the methods doc does not—resolve by either adding it to methods or removing it from plan.
+Answer:
+adjust it to suit what's in methods doc.
+
+Query:
+Meaning of “STAGED”: Methods => strategy class (network/large). Plan sometimes => plus backup/restore flow. Decide whether “staged” always includes backup or only when overwriting. 
+Answer:
+OK, overwriting is now a thing of the past.
+Now, for both DIRECT and STAGED the backup/restore prevails where the target is renamed before copy etc.
+Backup/restore is only really valid if the target already exists, unless you ave a different perspective and on it.
+
+Query:
+Defaults surfaced vs implied: The plan pins defaults (16 MiB windows, 4 MiB network chunks, 1 GiB verify threshold),
+while the methods doc gives ranges/“notionally 1GB.” 
+Choose exact defaults and publish them once. 
+Answer:
+Yes, let's at least initally choose these in global variables unless you consider the matter and advise other numbers for reasons you would raise
+- 64 MiB for DIRECT window verification chunks
+- 4 MiB STAGED (network etc) chunks
+- 2 GiB verify-or-not threshold
+- 20 GiB maximum size threshold copy copying
+Are there others that we need to verify here ?    
+
+Queries and Answers - Set #2
+----------------------------
+Query:
+Exact constant names & initial values
+Proposed (so we can wire everything consistently in code and UI):
+Answer:
+slightly modified ...
+FILECOPY_COPY_STRATEGY_THRESHOLD_BYTES = 2 * 1024**3 (2 GiB) — your new DIRECT/STAGED threshold.
+FILECOPY_MAXIMUM_COPY_FILE_SIZE_BYTES = 20 * 1024**3 (20 GiB) — hard stop with user-facing message.
+FILECOPY_MMAP_WINDOW_BYTES = 64 * 1024**2 (64 MiB) — DIRECT verify window (see cancel notes below).
+FILECOPY_NETWORK_CHUNK_BYTES = 4 * 1024**2 (4 MiB) — STAGED copy/verify chunk.
+FILECOPY_VERIFY_THRESHOLD_BYTES = 2 * 1024**3 (2 GiB) # if 'lt_threshold' selected, — UI “none | all | lt_threshold (default)”, threshold = 2 GiB.
+# next is probably not a global constant but a global variable perhaps ?
+FILECOPY_VERIFY_POLICY = 'lt_threshold' — UI “none | all | lt_threshold (default)”, threshold = FILECOPY_VERIFY_THRESHOLD_BYTES
+
+Query:
+Current code has COPY_STRATEGY_THRESHOLD = 200 MB and lots of other constants; we’ll update and keep naming uniform (“*_BYTES”). 
+Answer:
+Yes Thanks. Note the naming to identify where it is generally used.
+
+Query:
+Cancel-latency targets → chunk/window sizes
+You asked for practical numbers. Without doing a web survey, here’s a quick, defensible rule of thumb based on throughput math ...
+Suggest: FILECOPY_MMAP_WINDOW_BYTES = 16 MiB for snappy cancels; bump to 64 MiB only if you prefer fewer progress ticks.
+Suggest: NETWORK_CHUNK_BYTES = 2–4 MiB to keep cancel ≤ 160–320 ms on slow networks; pick 2 MiB if you want ≤ 200 ms.
+Answer:
+Initally, 
+For DIRECT lets use FILECOPY_MMAP_WINDOW_BYTES = 64 Megabytes (MiB).
+For STAGED, lets use FILECOPY_NETWORK_CHUNK_BYTES = 4 Megabytes (MiB).
+And put your notes and advice on it in comments immediately above those global variables to inform maintainers.
+
+Query:
+UNC path policy vs engine capability
+You said UNC won’t be accepted. Engine already detects UNC as network and would proceed.
+Do you want:
+A) hard reject UNC at UI validation (preferred), and
+B) engine safety net that refuses UNC with a clear error (in case of future non-UI callers)?
+I’d recommend both, to keep behavior predictable.
+Answer:
+Quite right, lets do both A) and B).
+If they want to use a UNC network path, they can successfully map a drive letter themselves beforehand.
+
+Query:
+Recycle Bin vs permanent backup deletion
+For the “delete backup after success” step — should that be permanent delete,
+or an option to send to Recycle Bin?
+(The latter is nicer for safety but slower and requires shell API.)
+Your note suggests there “may already be an option”—do you want us to keep it simple (permanent) or add a boolean global like DELETE_BACKUPS_TO_RECYCLE_BIN?
+Answer:
+Hmm ... For simplicity lets decide that once a file has been successfully copied and verified then
+there's no going backward so delete the backup permanently since that is the last step in the success chain.
+
+Query:
+Low-space checks
+You asked to “check local free space and fail with a message; maybe not possible on network.”
+Proposal:
+For local targets: require free_space ≥ new_file_size + backup_size(if any) + margin (margin: 64 MiB).
+For network targets: try GetDiskFreeSpaceExW; if it fails, proceed but warn that free-space could not be verified.
+(We should make this a preflight step; currently I don’t see an enforced requirement in code).
+Answer:
+Yes please to the proposal ... and 
+a) make the FILECOPY_FREE_DISK_SPACE_MARGIN a global variable initially 64 MiB.
+b) please document it well in the code block or function.
+
+Query:
+Sparse handling default
+Until sparse-preserving copy is implemented, do you want:
+a) Silent content-only copy, or
+b) Warn when source is sparse (so user knows disk usage could balloon)?
+I’d recommend: detect FILECOPY_ATTRIBUTE_SPARSE_FILE_WARNING → warn once per file and proceed content-identical.
+Answer:
+Yes to b) detect global constant FILECOPY_ATTRIBUTE_SPARSE_FILE_WARNING initially True → warn once per file and proceed content-identical (if that is what you meant)
+
+Query:
+UI variable alignment
+The app still exposes overwrite_mode = True by default in the GUI class,
+which conflicts with your “overwrite is a thing of the past; always backup-rename first.”
+We should flip that UX text and semantics to “Replace with backup/rollback” (no “overwrite” language).
+Answer:
+I think we should remove it from the UI et al, and have no mention of it in constants, code nor comments.
+
+Query:
+Path length & UNC messaging
+You plan to reject UNC; also consider adding \\?\ normalization for long local paths so we don’t accidentally fail on long names while still banning UNC.
+Do you want that normalization?
+Answer:
+Yes as long as it does not interfere in any way with the vast majority of uses which will be with drive letters.
+
+Query:
+BLAKE3 fallback wording
+You said “yes, make fallback explicit.”
+Plan is: 
+STAGED verify = BLAKE3;
+if BLAKE3 missing, buffered byte-compare (same chunk size and progress cadence).
+We’ll document that the fallback increases reads but keeps correctness.
+Answer:
+Yes please.
+
+Query:
+Confirmations I need from you are:
+1. Final picks for MMAP_WINDOW_BYTES (16 MiB vs 64 MiB) and NETWORK_CHUNK_BYTES (2 MiB vs 4 MiB) given the cancel-latency trade-offs.
+   ... Hopefully answered above.
+2. Whether to hard-reject UNC in both UI and engine.
+   ... Hopefully answered above.
+3. Backup deletion: permanent vs Recycle Bin option.
+   ... Hopefully answered above.
+4. Low-space enforcement: adopt the preflight rule above?
+   ... Hopefully answered above.
+5. Sparse files: warn-and-proceed for now?
+   ... Hopefully answered above.
+6. Approve the constant names and values list in point (1).
+   ... Hopefully answered above.
+7. OK to rename the UI’s “overwrite” option to reflect backup/rollback semantics.
+   ... Hopefully answered above.
+
