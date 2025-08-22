@@ -13,69 +13,96 @@
 
 ## 2. Technical Change Goals
 
-**R.1: Safe Copying with Comprehensive Error Handling**
+**G.1: Safe Copying with Notification and Status Returns**
 - All copy operations must return detailed status information including error codes, messages, and recovery suggestions
 - User cancellation support with graceful cleanup and rollback
 - Comprehensive error classification (network, permission, space, corruption, etc.)
 
-**R.2: Complete Metadata Preservation**
+**G.2: Complete Date-Time Metadata Preservation**
 - Preserve Windows file timestamps (Created/Modified) with sub-second precision
 - Support for setting/resetting timestamps post-operation for workflow flexibility
 - Timestamp validation and verification capabilities
 
-**R.3: High-Performance Implementation**
+**G.3: Efficient (Fast) Copying, Verifying, and Hash Calculation**
 - Native Windows API utilization (`CopyFileExW`, memory-mapped I/O) for maximum throughput
 - Intelligent chunking strategies optimized for different storage types (SSD/HDD/Network)
 - Minimized redundant I/O operations through progressive hashing and verification
 
-**R.4: Real-time Progress Reporting**
+**G.4: Progress Updates via Tkinter**
 - Tkinter-integrated progress callbacks with configurable update frequencies
 - Granular progress reporting at chunk/window level for responsive cancellation
 - Multi-level progress (per-file and overall operation progress)
 
-**R.5: Comprehensive Verification System**
+**G.5: Very Efficient (Fast) Verification with Rollback Mechanism**
 - Multiple verification modes: none, all files, size-threshold based
 - Content verification using BLAKE3 hashing with fallback to byte comparison
 - Verification false-positive rate of zero through robust implementation
+- Immediate rollback mechanism when verification detects problems
 
-**R.6: Configurable Operation Parameters**
+**G.6: Well Named Global Parameters for Control**
 - Well-named global constants for all thresholds, chunk sizes, and operational parameters
 - Runtime configurability for different deployment scenarios
 - Performance tuning capabilities through parameter adjustment
 
-**R.7: Atomic Rollback Mechanisms**
+**G.7: Safety of Target Files with Guaranteed Rollback**
 - Guaranteed restoration of original file state on any operation failure
 - Atomic rename operations for backup/restore procedures
 - No corrupted partial files remain after failed operations
 
-**R.8: API Compatibility Preservation**
+**G.8: Drop-in Compatible Replacement FileCopyManager_class**
 - Existing method signatures maintained: `copy_file(src, dst, overwrite=True)`
 - Return object compatibility with current `CopyOperationResult` structure
 - Preserved integration patterns with UI progress systems
 
-**R.9: Comprehensive Code Documentation**
+**G.9: Well Commented Code at Function and Code Block Level**
 - Function-level docstrings with purpose, arguments, returns, and usage examples
 - Code block comments for complex algorithms and Windows API interactions
 - Developer guidance for maintenance and extension
 
-**R.10: Performance-Critical Code Optimization**
+**G.10: Best Practice Coding for Speed-Essential Operations**
 - Optimized tight loops for copying, verification, and hashing operations
 - Commented-out debug statements in performance-critical sections
 - Best practice implementations for memory usage and I/O efficiency
 
 ## 3. Mandatory Requirements
 
+**M01:** Must support **two copy strategies**: Direct and Staged
+
+**M02:** **Direct Copy** is fast, kernel-assisted, and optimized for local transfers, aimed at local non-networked files < specified gigabytes (global constant)
+
+**M03:** **Staged Copy** is chunked, hash-driven, and optimized for networked files or where any file to be copied is >= specified gigabytes (global constant)
+
+**M04:** Must provide **robust verification** options: verify all, verify none, verify only files < specified gigabytes (global constant)
+
+**M05:** Must guarantee **rollback safety**: no corrupted partials remain after failure
+
+**M06:** Must integrate with **Tkinter progress reporting**
+
+**M07:** Must preserve metadata (timestamps, attributes)
+
+**M08:** Must use **configurable constants** for thresholds and chunk/window sizes etc.
+
+**M09:** Must be fully commented and maintainable
+
+**M10:** Rollback ensures that **only verified files appear in the destination**
+
+**M11:** Tkinter provides real-time **progress feedback** at both per-file and overall levels
+
+**M12:** Any existing "overwrite" function is to be removed as deprecated, files will be copied and verified and all files will have capability to be rolled back
+
+**M13:** Abstract global constants (including Windows-related constants) into the global constants module which exposes them as "C." via "import xxx as C"
+
+**M14:** Abstract imports into global imports module which has code to expose them
+
 ### 3.1 Copy Strategy Implementation
 
-**Two Required Strategies:**
-
-**DIRECT Copy Strategy:**
-- **When Used:** File size < 2GB AND no network drive letters involved
+**DIRECT Copy Strategy (M01, M02):**
+- **When Used:** File size < 2GB AND no network drive letters involved  
 - **Method:** Windows `CopyFileExW` API with progress callbacks
 - **Verification:** Memory-mapped window comparison (64MB windows)
 - **Optimization:** Kernel-level, buffered operations for maximum local performance
 
-**STAGED Copy Strategy:** 
+**STAGED Copy Strategy (M01, M03):** 
 - **When Used:** File size >= 2GB OR any network drive letters involved
 - **Method:** Chunked I/O with progressive BLAKE3 hash calculation
 - **Verification:** Hash comparison with fallback to byte comparison
@@ -91,35 +118,49 @@
 
 **Implementation Note:** Strategy selection occurs in `determine_copy_strategy()` method using `GetDriveType` Windows API calls for accurate drive type detection.
 
-### 3.3 Verification Policy Support
+### 3.3 Verification Policy Support (M04)
 
-**Three Required Verification Modes:**
+**Three Required Verification Modes with UI Integration:**
 1. **none:** Skip all verification (fastest, use with caution)
-2. **all:** Verify every copied file regardless of size (most secure)
+2. **all:** Verify every copied file regardless of size (most secure) 
 3. **lt_threshold:** Verify only files < 2GB (default, balanced approach)
+
+**UI Requirements:** Pre-copy UI must have 3 mutually exclusive radio buttons:
+- (i) verify no files
+- (ii) verify every file after each copy (**the default**)
+- (iii) verify only files < {specified size in nominated global constant, notionally 1GB} after each copy
+
+**Technical Implementation:** These radio buttons control the `FILECOPY_VERIFY_POLICY` global constant and are used by both DIRECT and STAGED strategies to determine verification behavior.
 
 **Configuration:** Set via `FILECOPY_VERIFY_POLICY` global constant
 
-### 3.4 Rollback Safety Requirements
+### 3.4 Rollback Safety Requirements (M05, M10, M12)
 
 **Mandatory Rollback Behavior:**
 - **All strategies** must implement identical rollback procedures
-- **Existing files:** Always create backup before overwrite using atomic rename
+- **Existing files:** Always create backup before overwrite using atomic rename (M12: no overwrite mode)
 - **Failure scenarios:** Delete corrupted copy + restore backup + reset timestamps
 - **New files:** Simply delete corrupted copy if creation fails
 - **Success:** Permanently delete backup after verification passes
+- **M10 Compliance:** Only verified files appear in destination - failed copies are rolled back
 
-### 3.5 Integration Requirements
+### 3.5 Integration Requirements (M06, M11, M13, M14)
 
-**Tkinter Progress Reporting:**
+**Tkinter Progress Reporting (M06, M11):**
 - Real-time progress updates at configurable intervals (0.2-60 Hz)
 - Cancellation support with maximum 500ms response time
 - Multi-level progress (file and operation level)
 
-**Global Constants Integration:**
+**Global Constants Integration (M08, M13):**
 - All operational parameters controlled via `FolderCompareSync_Global_Constants`
+- Accessed as "C.CONSTANT_NAME" via "import FolderCompareSync_Global_Constants as C"
 - Runtime configurability for performance tuning
 - Clear constant naming convention with `FILECOPY_` prefix
+- Windows-related constants abstracted into global constants module
+
+**Global Imports Integration (M14):**
+- All imports abstracted into `FolderCompareSync_Global_Imports` module
+- Centralized import management with exposure mechanisms
 
 **Exception Handling:**
 - Comprehensive error classification and reporting
