@@ -489,6 +489,41 @@ FILECOPY_DRIVE_REMOTE = 4                                # Drive type constants
 
 ### 8.1 DIRECT Strategy Implementation
 
+**Enhanced Network Detection Process Flow:**
+
+**Step 1: Primary Drive Type Detection**
+- Uses Windows `GetDriveType()` API to identify traditional network drives
+- Reliable for SMB/CIFS shares mapped with `net use` commands
+- Returns `DRIVE_REMOTE` (4) for standard network drives
+
+**Step 2: Cloud Storage Pattern Recognition**  
+- Checks path against configurable cloud storage patterns
+- Case-insensitive matching for common cloud sync folders
+- Covers OneDrive, Google Drive, Dropbox, Box, iCloud Drive, Amazon Drive
+- Pattern list is configurable and extensible
+
+**Step 3: Symbolic Link Resolution**
+- Resolves junction points, symbolic links, and mount points
+- Checks if resolved path points to UNC location (`\\server\share`)
+- Handles enterprise environments with complex folder structures
+- Also re-checks resolved path against cloud storage patterns
+
+**Step 4: Strategy Override Logic**
+- If any detection layer identifies network/cloud location → STAGED strategy
+- Network detection overrides file size thresholds
+- Provides consistent behavior regardless of file size for network locations
+
+**Detection Reliability:**
+- **High reliability:** Traditional network drives, major cloud storage services
+- **Medium reliability:** Exotic cloud storage, enterprise storage with local caching
+- **Low reliability:** Application-specific virtual drives, complex enterprise storage
+
+**Fallback Behavior:**
+- Detection failures default to local file handling (DIRECT strategy)
+- Non-critical detection errors logged for debugging
+- Operations continue normally even if detection partially fails
+- Conservative approach prioritizes functionality over perfect detection
+
 **Algorithmic Flow - EXAMPLE ONLY:**
 ```python
 def _execute_direct_strategy(src: str, dst: str, overwrite: bool,
@@ -667,41 +702,6 @@ def determine_copy_strategy(source_path: str, target_path: str, file_size: int) 
     return CopyStrategy.DIRECT
 ```
 
-**Enhanced Network Detection Process Flow:**
-
-**Step 1: Primary Drive Type Detection**
-- Uses Windows `GetDriveType()` API to identify traditional network drives
-- Reliable for SMB/CIFS shares mapped with `net use` commands
-- Returns `DRIVE_REMOTE` (4) for standard network drives
-
-**Step 2: Cloud Storage Pattern Recognition**  
-- Checks path against configurable cloud storage patterns
-- Case-insensitive matching for common cloud sync folders
-- Covers OneDrive, Google Drive, Dropbox, Box, iCloud Drive, Amazon Drive
-- Pattern list is configurable and extensible
-
-**Step 3: Symbolic Link Resolution**
-- Resolves junction points, symbolic links, and mount points
-- Checks if resolved path points to UNC location (`\\server\share`)
-- Handles enterprise environments with complex folder structures
-- Also re-checks resolved path against cloud storage patterns
-
-**Step 4: Strategy Override Logic**
-- If any detection layer identifies network/cloud location → STAGED strategy
-- Network detection overrides file size thresholds
-- Provides consistent behavior regardless of file size for network locations
-
-**Detection Reliability:**
-- **High reliability:** Traditional network drives, major cloud storage services
-- **Medium reliability:** Exotic cloud storage, enterprise storage with local caching
-- **Low reliability:** Application-specific virtual drives, complex enterprise storage
-
-**Fallback Behavior:**
-- Detection failures default to local file handling (DIRECT strategy)
-- Non-critical detection errors logged for debugging
-- Operations continue normally even if detection partially fails
-- Conservative approach prioritizes functionality over perfect detection
-
 **Windows API Integration - CopyFileExW Implementation - EXAMPLE ONLY:**
 ```python
 def _copy_with_windows_api(src: str, dst: str, progress_cb, cancel_event) -> CopyResult:
@@ -777,6 +777,64 @@ def _copy_with_windows_api(src: str, dst: str, progress_cb, cancel_event) -> Cop
 ```
 
 ### 8.2 STAGED Strategy Implementation
+
+**When Used:**
+- File size >= 2GB (refer global constant) OR any network drive letters involved either in source or target
+- **Enhanced:** Any cloud storage locations detected via pattern matching (OneDrive, Google Drive, Dropbox, etc.)
+- **Enhanced:** Any paths resolved through symbolic links/junctions that point to network or cloud locations
+- Optimized for networked files and for large file handling, where minimising additional I/O involved in hash calculation becomes a serious factor
+
+**Technical Method - Detailed Implementation:**
+
+**1. Copy Phase: Chunked I/O with Progressive Hash Calculation**
+- **Chunk Size:** Network-optimized 4MB chunks (via global constant `FILECOPY_NETWORK_CHUNK_BYTES`)
+- **Rationale for Non-CopyFileExW Approach:** While Windows CopyFileExW could handle network copies, it requires additional costly full-file reads for verification:
+  - Traditional approach: [1. read source, 2. write target, 3. re-read source for verify, 4. re-read target for verify, 5. compare hashes] = 4x file size network transfer
+  - STAGED approach: [1. read source + calculate hash during copy, 2. write target, 3. re-read target for verify, 4. compare hashes] = 3x file size network transfer, hence a massive I/O and time saving with large files
+- **Progressive Hash Calculation:**
+  - Primary: BLAKE3 hashing (significantly faster than SHA-512 on modern CPUs)
+  - Fallback: SHA-256 if BLAKE3 unavailable
+  - Hash calculated incrementally during each 4MB (derived from a global constant) chunk read from source
+  - Single-pass source reading eliminates redundant network I/O
+- **Process Flow:**
+  1. Open source file for reading, temporary target file for writing
+  2. Initialize BLAKE3 hasher
+  3. Read 4MB (derived from a global constant) chunks from source sequentially
+  4. Update hash with each chunk immediately after read
+  5. Write chunk to temporary target file
+  6. Update progress bar after each chunk (responsive cancellation estimated approximately every ~320ms on 100Mbps networks)
+  7. Finalize source hash after complete file processing
+- **Network Optimization:** 4MB (derived from a global constant) chunks balance network efficiency with cancellation responsiveness
+- **Cloud Storage Optimization:** Chunk size works well with cloud provider rate limiting and sync mechanisms
+
+**2. Verification Phase: Chunked Hash Calculation of Target**
+- **Chunk Size:** 1-8MB (derived from a global constant) chunks for target verification (via configurable constant, default 4MB (derived from a global constant))
+- **Method Rationale:** Buffered chunked I/O preferred over mmap for network files to avoid pathological page-fault latency over network stack
+- **Process Flow:**
+  1. Open temporary target file for reading
+  2. Initialize matching hasher (BLAKE3 or SHA-256 to match source)
+  3. Read chunks sequentially from temporary target
+  4. Update hash with each chunk
+  5. Update progress bar after each chunk
+  6. Finalize target hash
+  7. Compare source hash vs target hash for verification
+- **Fallback Verification:** If hash comparison fails or hash calculation errors occur:
+  1. Fall back to byte-by-byte comparison using same chunked approach
+  2. Log hash failure for debugging
+  3. Ensure verification still completes reliably
+
+**3. Performance Benefits:**
+- **Reduced Network Traffic:** 25% reduction in network I/O compared to traditional verify approaches
+- **Memory Efficient:** Large files never fully materialized in memory
+- **Responsive Cancellation:** User can cancel within estimated 320ms on typical 100Mbps networks
+- **Hash Speed:** BLAKE3 provides superior performance on modern multi-core CPUs
+- **Cloud Storage Benefits:** Reduced sync conflicts and better handling of cloud provider throttling
+- **Enterprise Network Optimization:** Handles complex network topologies with symbolic links and junctions
+
+**4. Progress Reporting:**
+- Copy phase: Progress updates every 4MB (derived from a global constant) chunk processed (both read and hash calculation)
+- Verification phase: Progress updates every 4MB (derived from a global constant) of target hash calculation
+- Dual progress indication: separate bars for copy phase and verify phase
 
 **Algorithmic Flow - EXAMPLE ONLY:**
 ```python
