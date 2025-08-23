@@ -43,7 +43,7 @@ the attached detailed technical specification.
 
 **FILES ATTACHED:**
 - CLAUDE-01.GENERAL GOALS, REQUIREMENTS, COPY, VERIFY, METHODS, GOALS, MANDATORY REQUIREMENTS.txt (self explanatory)
-- CLAUDE-file_copy_manager_refactor_spec_v09.md (Technical specification document containing detailed requirements)
+- CLAUDE-file_copy_manager_refactor_spec_v13.md (Technical specification document containing detailed requirements)
 - FileCopyManager_class.py (current implementation to update)
 - FolderCompareSync_Global_Constants.py (needs new constants)
 - FolderCompareSync_Global_Imports.py (needs Windows API bindings)
