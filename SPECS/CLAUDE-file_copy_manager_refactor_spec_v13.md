@@ -1,4 +1,4 @@
-# FileCopyManager Refactor — Technical Specification v12
+# FileCopyManager Refactor — Technical Specification v13
 
 ## 1. Executive Summary
 
