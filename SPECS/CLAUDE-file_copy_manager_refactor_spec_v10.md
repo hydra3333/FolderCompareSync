@@ -66,6 +66,11 @@
 - Commented-out debug statements in performance-critical sections
 - Best practice implementations for I/O efficiency since I/O is very likely to be the primary performance limiting factor
 
+**G.11: What functions belong in which modules**
+- This document may  reference specific files to update (FileCopyManager_class.py, FolderCompareSync_Global_Constants.py, etc.) but the specification
+may not  clearly map requirements to these specific modules. The specification shows examples but may not specify which code belongs in which files.
+- **Guidance:** the developer should choose what belongs where with significant due regard to the main purpose of each module and the nature of what already exists in each module.
+
 ## 3. Mandatory Requirements
 
 **M01:** Must support **two copy strategies**: Direct and Staged
@@ -750,8 +755,9 @@ def _copy_with_progressive_hash(src: str, dst: str, progress_cb, cancel_event) -
   - Memory usage (conservative for older systems)
   - I/O efficiency (fewer system calls)
   - Cancellation responsiveness (~500ms latency on typical 150MB/s HDDs)
+  - **GUIDANCE** the program will start at default 64 MiB and over time and usage and feedback that choice be reviewed.
 - **Adjustable Range:** 8MB minimum to 256MB maximum for different system configurations
-- **Memory Constraint Handling:** Automatically reduce window size if system memory < 2GB available
+- **Memory Constraint Handling:** In future development we will consider a feature to Automatically reduce window size if system memory < 2GB available; probably not though.
 
 **9.1.2 Detailed Process Flow**
 ```python
