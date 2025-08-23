@@ -130,19 +130,19 @@ noting that
 
 **Progress Reporting Integration (M06, M11):**
 - Near Real-time progress updates during copy operations
-- Separate progress indicators for copy phase and verification phase  
-- Cancel button must be responsive within 500ms during all operations
+- Separate progress indicators for copy phase and verification phase in the status messages area 
+- Cancel button must be responsive and aim for within 500ms (possibly configurable, refer to global constant(s)) during all operations
 - Status messages must indicate which strategy (DIRECT/STAGED) is being used
 
 ## 5. Copy Strategy Implementation Details
 
 ### 5.1 Strategy Selection Matrix
 
-| File Location | File Size | Strategy Applied |
+| File Location |   File Size   | Strategy Applied |
 |---------------|-----------|------------------|
-| Local drives, < 2GB | Small | DIRECT |
-| Local drives, >= 2GB | Large | STAGED |
-| Network drives, any size | Any | STAGED |
+| Local drives, < 2GB     | Small | DIRECT |
+| Local drives, >= 2GB     | Large | STAGED |
+| Any Network drives, any size     | Any | STAGED |
 
 **Implementation Note:** Strategy selection occurs in `determine_copy_strategy()` method using `GetDriveType` Windows API calls for accurate drive type detection.
 
