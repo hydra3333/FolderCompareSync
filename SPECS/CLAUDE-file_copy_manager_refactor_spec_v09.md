@@ -144,12 +144,14 @@ noting that
 | Local drives, >= 2GB     | Large | STAGED |
 | Any Network drives, any size     | Any | STAGED |
 
-**Implementation Note:** Strategy selection occurs in `determine_copy_strategy()` method using `GetDriveType` Windows API calls for accurate drive type detection.
+**Implementation Notes:** 
+The `2GB` derives fomr a global constant.
+Strategy selection occurs in `determine_copy_strategy()` method using `GetDriveType` Windows API calls for accurate drive type detection.
 
 ### 5.2 DIRECT Strategy Specifications (M01, M02)
 
 **When Used:**
-- File size < 2GB AND no network drive letters involved
+- File size < 2GB (a global constant) AND no network drive letters involved
 - Both source and target are on local drives (SSD/HDD on same machine)
 
 **Technical Method - Detailed Implementation:**
@@ -167,35 +169,37 @@ noting that
 - Copy operation targets secure temporary file in target directory
 - Rationale: For local SSD/HDD copies, CopyFileExW provides optimal performance through OS-level optimization
 
-**2. Verification Phase: Windowed Memory-Mapped Comparison**
-- **Window Size:** Configurable 8-64 MiB windows (default 64 MiB via `FILECOPY_MMAP_WINDOW_BYTES`)
+**2. Verification Phase: Windowed mmap Memory-Mapped Comparison**
+- **mmap Window Size:** Configurable 8-64 MiB windows (default 64 MiB via global constant `FILECOPY_MMAP_WINDOW_BYTES`)
 - **Memory Efficiency:** Uses OS-paged reads (4KB pages) without loading entire files into memory
 - **Process Flow:**
-  1. Open both source and temporary files with read-only memory mapping
+  1. Open both source and temporary files with read-only Windows mmap memory mapping
   2. Compare files in fixed-size windows sequentially from start to end
   3. Each window comparison uses direct memory comparison for maximum speed
   4. **Early Failure Detection:** Stop immediately on first window mismatch
   5. Update progress bar after each window comparison (responsive cancellation)
-- **Fallback Mechanism:** If mmap fails on any window (exotic filesystems, access issues):
+- **Fallback Mechanism:** If mmap fails on any window (access issues, disk issues, windows issues, etc):
   1. Automatically fall back to buffered file read/compare for that specific window
   2. Continue with mmap for subsequent windows
   3. Log fallback occurrence for debugging
+  4. If fallback window copy fails, then the copy is considered to be a fail
+  5. If more than 5 (a configurable global constant) mmap window copies within the same file fail *in sequence*, then the copy is considered to be a fail
 - **Performance Benefits:**
   - Faster than reading entire files into Python buffers for large files
   - Avoids memory thrashing on memory-constrained systems
-  - Enables responsive cancellation every 64MB (approximately 500ms on typical HDDs)
-- **Hash Provision:** Structure includes commented placeholders for future BLAKE3 hash implementation matching STAGED strategy approach
+  - Enables responsive cancellation every 64MB (global constant `FILECOPY_MMAP_WINDOW_BYTES`) (approximately 500ms on typical HDDs)
+- **Hash Provision:** Copy/Verify Structure includes commented-out placeholders for future BLAKE3 hash implementation matching STAGED strategy approach
 
 **3. Progress Reporting:**
-- Copy phase: Near Real-time callbacks from Windows API (sub-second updates)
-- Verification phase: Progress updates after each 64MB window comparison
-- Responsive cancellation within 500ms during both phases
+- Copy phase: Near Real-time callbacks from Windows API 
+- Verification phase: Progress updates after each 64MB (global constant `FILECOPY_MMAP_WINDOW_BYTES`) window comparison
+- Responsive cancellation generally within 500ms during both phases
 
 ### 5.3 STAGED Strategy Specifications (M01, M03)
 
 **When Used:**
-- File size >= 2GB OR any network drive letters involved
-- Optimized for networked files and large file handling
+- File size >= 2GB (refer global constant) OR any network drive letters involved either in source or target
+- Optimized for networked files and for large file handling, where minimising additional I/O involved in hash calculation becomes a serious factor
 
 **Technical Method - Detailed Implementation:**
 
