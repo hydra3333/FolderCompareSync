@@ -5,11 +5,11 @@
 **Primary Objective:** Replace the existing `FileCopyManager_class` with an enhanced implementation that provides robust, high-performance file copying with comprehensive verification, rollback capabilities, and Windows-optimized strategies for Python 3.13+ on Windows 10+.
 
 **Critical Design Goals:**
-- **Drop-in compatibility:** Maintain existing API surface for seamless integration with `FolderCompareSync_class`
-- **Performance optimization:** Intelligent strategy selection based on file size and location characteristics
-- **Data integrity:** Zero tolerance for corrupted files through comprehensive verification
+- **Performance optimization:** Intelligent copy/verify strategy selection based on file size and location characteristics
+- **Data integrity:** Zero tolerance for corrupted files through comprehensive verification and rollback
 - **Operational safety:** Guaranteed rollback mechanisms with atomic operations
-- **Developer clarity:** Extensive documentation, pseudo-code, and technical examples
+- **Developer/Maintainer clarity:** Extensive documentation in terms of well-commented code for classes, functions, and code blocks
+- **Drop-in compatibility:** Maintain existing API surfaces where possible (some change may be required) for relatively seamless integration with other modules
 
 ## 2. Technical Change Goals
 
@@ -19,18 +19,18 @@
 - Comprehensive error classification (network, permission, space, corruption, etc.)
 
 **G.2: Complete Date-Time Metadata Preservation**
-- Preserve Windows file timestamps (Created/Modified) with full (sub-second) precision
-- Support for setting/resetting timestamps post-operation for workflow flexibility
+- Preserve Windows file timestamps (Created/Modified) with full precision
+- Support for setting/resetting timestamps post-operation for identical files and rollback restoration as appropriate
 - Timestamp validation and verification capabilities
 
 **G.3: Efficient (Fast) Copying, Verifying, and Hash Calculation**
-- Native Windows API utilization (`CopyFileExW`, memory-mapped I/O) for maximum throughput for specified file categories
+- Native Windows API utilization (`CopyFileExW`, memory-mapped I/O) for maximum throughput for specified file categories with callabacks for progress display
 - Intelligent chunking strategies optimized for different storage types (SSD/HDD/Network) and specified file categories
 - Minimized redundant I/O operations through progressive BLAKE3 hashing during copying and verification for specified file categories
 
 **G.4: Progress Updates via Tkinter**
-- Tkinter-integrated progress callbacks with configurable update frequencies
-- Granular progress reporting at chunk/window level for responsive cancellation
+- Tkinter-integrated progress calls and/or callbacks with configurable update frequencies
+- Granular progress reporting at chunk/window level for responsive cancellation, deigned to cater for configurable update frequencies
 - Multi-level progress (per-file and overall operation progress)
 
 **G.5: Very Efficient (Fast) Verification with Rollback Mechanism**
@@ -40,18 +40,19 @@
 - Immediate rollback mechanism when verification detects problems
 
 **G.6: Well Named Global Parameters for Control**
-- Well-named global constants for all thresholds, chunk sizes, and operational parameters
+- Well-named global constants for all thresholds, chunk sizes, and operational parameters, each commencing with a common identifier to clarify which function it is mainly associated with
 - Runtime configurability for different deployment scenarios
 - Performance tuning capabilities through parameter adjustment
 
 **G.7: Safety of Target Files with Guaranteed Rollback**
-- Guaranteed preservation of original target files during all copy operations
-- Secure temporary file approach eliminates corruption risk during copy phase
+- Guaranteed preservation of original target files during all copy operations incorporating a robust restore approach
+- Secure temporary files approach minimises corruption risk during copy/restore phase
 - Atomic rename operations for final file placement
-- Simple, reliable rollback: delete temporary file only (original never touched)
+- Simple, reliable rollback: delete temporary files only (original never touched)
+- Existing overwrite functionality must be deprecated and removed
 
 **G.8: Drop-in Compatible Replacement FileCopyManager_class**
-- Existing method signatures maintained: `copy_file(src, dst, overwrite=True)`
+- Existing method signatures maintained where practicable: `copy_file(src, dst, overwrite=True)` may have `overwrite=True` removed
 - Return object compatibility with current `CopyOperationResult` structure
 - Preserved integration patterns with UI progress systems
 
@@ -61,9 +62,9 @@
 - Developer guidance for maintenance and extension
 
 **G.10: Best Practice Coding for Speed-Essential Operations**
-- Optimized tight loops for copying, verification, and hashing operations
+- Optimized tight loops for copying, verification, and hashing operations to ensure that best possible speed is the goal in these code blocks
 - Commented-out debug statements in performance-critical sections
-- Best practice implementations for memory usage and I/O efficiency
+- Best practice implementations for I/O efficiency since I/O is very likely to be the primary performance limiting factor
 
 ## 3. Mandatory Requirements
 
@@ -73,7 +74,7 @@
 
 **M03:** **Staged Copy** is chunked, hash-driven, and optimized for networked files or where any file to be copied is >= specified gigabytes (global constant)
 
-**M04:** Must provide **robust verification** options: verify all, verify none, verify only files < specified gigabytes (global constant)
+**M04:** Must provide **robust verification** options: verify none, verify only files < specified gigabytes, verify all (global constant)
 
 **M05:** Must guarantee **rollback safety**: original target files are never corrupted during copy operations
 
@@ -87,7 +88,7 @@
 
 **M10:** Rollback ensures that **only verified files appear in the destination** with zero risk of data loss
 
-**M11:** Tkinter provides real-time **progress feedback** at both per-file and overall levels
+**M11:** Tkinter provides near real-time **progress feedback** at both per-file and overall levels
 
 **M12:** Any existing "overwrite" function is to be removed as deprecated, files will be copied and verified and all files will have capability to be rolled back
 
@@ -102,14 +103,14 @@
 **Mandatory UI Component (M04):** Pre-copy UI must have 3 mutually exclusive radio buttons for verification policy selection:
 
 1. **"Verify no files"** - Skip all verification (fastest, use with caution)
-2. **"Verify every file after each copy"** - Verify all copied files regardless of size (**default selection**)
-3. **"Verify only files < [threshold] after each copy"** - Verify only files under specified size threshold (configurable via global constant, initially 2GB)
+2. **"Verify only files < [threshold] after each copy"** - Verify only files under specified size threshold (configurable via global constant, initially 2GB) (**default selection**)
+3. **"Verify every file after each copy"** - Verify all copied files regardless of size (very slow for large files)
 
 ### 4.2 UI Implementation Requirements
 
 **Technical Integration:**
 - Radio button selection controls the `FILECOPY_VERIFY_POLICY` global constant
-- Default selection must be "verify every file after each copy" for maximum safety
+- Default selection must be "Verify only files < x.x GB after each copy (balanced)" for balanced safety
 - Threshold value in option 3 should be dynamically populated from `FILECOPY_VERIFY_THRESHOLD_BYTES`
 - Radio button state must be preserved across UI sessions
 - Clear labeling to help users understand performance vs safety trade-offs
@@ -118,14 +119,17 @@
 ```
 Verification Options:
 ○ Verify no files (fastest)
-● Verify every file after each copy (recommended) 
-○ Verify only files < 2.0 GB after each copy (balanced)
+● Verify only files < 2.0 GB after each copy (balanced)
+○ Verify every file after each copy (very slow with large files; maximum safety) 
 ```
+noting that
+- the `2 GB` value in the example derives from a global constant
+- the radio button which is on by default derives from a global constant
 
 ### 4.3 UI Integration Points
 
 **Progress Reporting Integration (M06, M11):**
-- Real-time progress updates during copy operations
+- Near Real-time progress updates during copy operations
 - Separate progress indicators for copy phase and verification phase  
 - Cancel button must be responsive within 500ms during all operations
 - Status messages must indicate which strategy (DIRECT/STAGED) is being used
@@ -159,7 +163,7 @@ Verification Options:
   - Bytes copied so far
   - Current transfer rate
   - Copy pause/cancel status
-- Callback enables real-time progress bar updates in Tkinter UI
+- Callback enables near real-time progress bar updates in Tkinter UI
 - Copy operation targets secure temporary file in target directory
 - Rationale: For local SSD/HDD copies, CopyFileExW provides optimal performance through OS-level optimization
 
@@ -183,7 +187,7 @@ Verification Options:
 - **Hash Provision:** Structure includes commented placeholders for future BLAKE3 hash implementation matching STAGED strategy approach
 
 **3. Progress Reporting:**
-- Copy phase: Real-time callbacks from Windows API (sub-second updates)
+- Copy phase: Near Real-time callbacks from Windows API (sub-second updates)
 - Verification phase: Progress updates after each 64MB window comparison
 - Responsive cancellation within 500ms during both phases
 
@@ -323,11 +327,11 @@ FILECOPY_VERIFY_THRESHOLD_BYTES = 2 * 1024**3            # 2 GiB - Verify size l
 # - Large files (ISOs, backups) can skip verification for performance
 # - User-configurable based on specific use case requirements
 
-FILECOPY_VERIFY_POLICY = 'all'                           # none | all | lt_threshold (default: all)
-# Rationale: Maximum safety as default setting
-# - 'all': Verify every file regardless of size (recommended)
+FILECOPY_VERIFY_POLICY = 'lt_threshold' # none | lt_threshold | all (default: lt_threshold)
+# Rationale: balanced safety as default setting
 # - 'none': Skip all verification (use with caution, fastest performance)
-# - 'lt_threshold': Verify only files under FILECOPY_VERIFY_THRESHOLD_BYTES
+# - 'lt_threshold': Verify only files under FILECOPY_VERIFY_THRESHOLD_BYTES (balanced; default)
+# - 'all': Verify every file regardless of size (very slow for large files)
 
 # System Resource Management
 FILECOPY_FREE_DISK_SPACE_MARGIN = 64 * 1024**2           # 64 MiB - Safety margin
@@ -1808,11 +1812,11 @@ def benchmark_copy_strategies():
 1. **Verification Mode Radio Buttons**
    - Implement 3 mutually exclusive radio buttons in pre-copy UI
    - Connect radio button selection to `FILECOPY_VERIFY_POLICY`
-   - Ensure default selection is "verify every file after each copy"
+   - Ensure default selection is "Verify only files < [threshold] after each copy"
    - Add dynamic threshold display from global constants
 
 2. **Progress Integration (M06, M11)**
-   - Implement real-time progress reporting
+   - Implement near real-time progress reporting
    - Add multi-level progress (file and operation level)
    - Ensure responsive cancellation within 500ms
 
@@ -1878,7 +1882,7 @@ The specification addresses all mandatory requirements (M01-M14) while providing
 
 **UI Integration Highlights:**
 - **Three verification radio buttons** provide user control over verification policy
-- **Default "verify all" selection** ensures maximum safety out of the box
+- **Default "Verify only files < [threshold] after each copy" selection** ensures balanced safety out of the box
 - **Dynamic threshold display** keeps users informed of current settings
-- **Real-time progress reporting** provides responsive user feedback
-- **Sub-500ms cancellation** ensures responsive user interaction
+- **Near Real-time progress reporting** provides responsive user feedback
+- **Sub-500ms cancellation** initial setting, ensures responsive user interaction
