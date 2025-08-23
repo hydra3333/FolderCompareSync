@@ -1,19 +1,22 @@
-I need you to perform incremental updates to a Python FileCopyManager_class.py module and related modules
+I need you to perform updates to a Python FileCopyManager_class.py module and related modules
 to implement enhanced file copying and verification and rollback capabilities based on
 the attached detailed technical specification.
 
 **WHAT TO DO:** 
 - Read the attached technical specification for change
-- Ensure alignment with the goals and compliance with the mandatory requirements
+- Ensure your actions and the code are in alignment with the goals and compliance with the mandatory requirements
 - Use the techical specification to inform coding and commenting, particularly in regard to specified technical process flows
+- All modules are to be generated in new artifacts; existing artifacts are never to be updated unless specifically requested
+- 
 
 **APPROACH:**
 - ensure code uses the latest python techniques, inbuilts and structures etc available in python 3.13+ under Windows 10 / Windows 11
-- Update existing FileCopyManager_class.py module incrementally
+- Update existing FileCopyManager_class.py module
 - Maintain existing API compatibility and integration patterns where pragmatic, recognising some change may be needed (eg where overwrite capability is removed) 
 - Preserve working error handling and logging and provide debug logging (per existing logging patetrns) except for inside tight performance loops (eg copying, verifying, hashing)
 - Add new functionality alongside existing code where pragmatic
 - Keep all code readable and well-commented
+- Update other modules as required
 
 **KEY REQUIREMENTS:**
 0. As outlined in the technical specification :-
@@ -51,12 +54,13 @@ the attached detailed technical specification.
 - FolderCompareSync_class.py (for UI integration points)
 - ProgressDialog_class.py (for displaying progress of copies etc)
 
-Please analyze the specification and current code,
-then provide incremental updates to achieve the technical requirements
-while maintaining existing functionality and readability.
+Please analyze the specification and current code, then 
+- provide update modules to achieve the technical requirements
+while maintaining existing functionality and readability,
+and ENSURE that no relevant functionally is accidentally omitted.
 All modules are to be displayed in their own new artifact.
-Very great care must be exercised to ennsure that an update to a module does not
-lose nor forget relevant code and that an updated artifact contains all relevant code.
+Very great care must be exercised to ensure that an update to a module does not
+lose nor forget any relevant code and that an updated module does contain all relevant code.
 
 Before you do any coding, 
 (a) confirm to me whether or not you understand this and the attachments

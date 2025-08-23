@@ -1,0 +1,110 @@
+CODE CHANGE RULES and GENERAL PROGRAM ARCHITECTURE RULES - PLEASE ALWAYS FOLLOW THESE
+
+We must ALWAYS explicitly ensure when creating/updating code and when running the
+program - and verify after all code changes, 
+perhaps through a review and through implementing a verification def which is called
+after (re)building any data structures eg say after a compare or a sort, that:
+
+GENERAL PROGRAM ARCHITECTURE RULES
+----------------------------------
+### (1) Folder Tree Structure Preservation
+- The Folder tree structures NEVER changes after a compare unless by purposeful removal or addition 
+- Folders in the folder trees in both the LEFT and the RIGHT must stay and be displayed in their hierarchy, including missing ones.
+
+### (2) Row Correspondence Maintenance  
+- Row correspondence is maintained for files and folders across the folder trees in the LEFT and the RIGHT
+- When folders and files in "Folder A" (including "missing" ones) are shown on the LEFT then the corresponding files in "Folder A" (including "missing" ones) are shown on the RIGHT follow the same order 
+- Both matching entries in LEFT and RIGHT appear as a pair and are guaranteed to always appear in the same row.
+
+### (3) Future Sorting Rules (if implemented)
+If in the future we choose to implement file sorting by varying optional criteria then it is mandatory that:
+- **(a)** only files within each folder level will get sorted 
+- **(b)** files sort among their "siblings" in the same parent folder
+- **(c)** row correspondence is maintained for files and folders and within each folder across both halves LEFT and RIGHT
+- **(d)** scrolling is still synchronized across the 2 halves so that files/folders are always shown in the same row when scrolling up and down
+- **(e)** file/folder pairs across the 2 display trees always display together as a stable pair on one row even when sorted
+- **(f)** Example behavior: If clicking "Size" in LEFT tree, Documents/ folder files reorder by size, Images/ folder files reorder by size, RIGHT tree files follow the same reordering to maintain row alignment, but folders themselves (Documents/, Images/) stay in original positions
+
+### (4) Core Tool Purpose Preservation
+This approach:
+- Maintains directory navigation structure
+- Keeps the tool's core comparison purpose intact 
+- Preserves left and right comparison alignment within each folder across both halves 
+- Makes it easy for the end user to compare folder trees
+- Allows for useful sorting of files within each directory ensuring directory/file comparison structure appears consistent, with row correspondence, to the end user
+
+---
+## MANDATORY CODE CHANGE RULES WHICH MUST BE MAINTAINED ACROSS ALL CHANGES AND VERSIONS:
+
+### Overview
+This is the change scheme named "CODE CHANGE RULES" for making code modifications in a clear, traceable way.
+
+### Rules:
+
+#### **Rule 1: Version Number Updates**
+- Always update the version and revision number "vxxxx.yyyy" in the comments near the top of the main Program
+- Example: Initially Version v000.0004 is bumped up to v000.0005, where the 0004 is changed to the next new number in sequence for this code change
+
+#### **Rule 2: Code Quality and Comments**
+- All code must be well commented and meaningful 
+- Keep/amend existing comments of clarification as appropriate 
+- Remove obsolete comments
+
+#### **Rule 3: Variable/Function Name Preservation**
+- Do not change existing variable names or def names or class names or import names etc unless good reason exists to do so
+- Good reasons: purpose or meaning has changed, or for increased clarification
+- A change of name for the reason of a preference in variable naming is not necessarily desirable unless it increases clarity
+
+#### **Rule 4: Artifact Creation Rules - CRITICAL**
+- **No full code display** - do NOT show me the updated full program unless specifically requested
+- **Instead of showing me updated full program code, only show me the new/changed/deleted def's etc into new downloadable artifacts** except in the case ... when a module
+has a substantial number of changes across multiple defs, then it is permissable and even highly desirable to show the fully updated module in its entierety in a new artifact
+- Where code at the "top level" in a module is changed then the block of changed code should be displayed with 10 lines of existing unchanged code either
+side to assist me in locating that change in the program
+
+#### **Rule 5: Structure Documentation**
+- After showing me updated code according to these rules or other specific request, then also show me in a new downloadable artifact a full structure tree of def's etc
+- Format like this EXAMPLE denoting where new/changed/deleted def's are in the module in sequence and in relative depth to each other via multi level indentation:
+```
+Def and Class Relative Positions:
+=Root level code block outside of def or class
+_u64_to_FILETIME()
+_FILETIME_to_u64()
+class FileTimestampManager 
+	├── __init__()
+	├── def_01()
+	├── def_02()
+    │   ├── imaginary_01()
+    │   ├── imaginary_02() # ****UPDATED****
+    │   ├── class MissingFolder
+    │   │   ├──  __init__()
+    │   │   └── nested_imaginary_01() # ****UPDATED****
+    │   └── imaginary_03()
+    ├── Crikey_01()
+    │   ├── Crikey_02()
+    │   └── Crikey_03() # ****UPDATED****
+	├── def_03()
+	└── def_04() # ****NEW****
+class class_05 # ****NEW****
+	├── __init__() # ****NEW****
+	└── def_06() # ****NEW****
+main()
+=Root level code block outside of def or class
+```
+
+### Benefits:
+- Preserves visibility of original code
+- Easy to review changes
+- Clearly marks all modifications  
+- Helps identify proper code indentation during code maintenance
+- Shows exact scope of each change
+- Minimal output when showing proposed changes
+- **Each function/method in its own artifact for clarity and maintainability**
+
+#### OBSOLETE RULES WHICH ARE OPTIONAL AND DO NOT NEED BE FOLLOWED:
+**Rule Obsolete.1: Line-by-Line Change Marking** 
+- Clearly mark every added or changed line of code with one of these texts **AT THE END OF EVERY ADDED OR CHANGED LINE**:
+  - `# vxxxx.yyyy added [brief relevant description, or common change identifying text]`
+  - `# vxxxx.yyyy changed [brief relevant description, or common change identifying text]`
+- Use whatever new number matches from applying rule 1
+
