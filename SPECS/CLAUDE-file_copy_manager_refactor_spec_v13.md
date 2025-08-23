@@ -1,4 +1,4 @@
-# FileCopyManager Refactor — Technical Specification v13
+# FileCopyManager Refactor — Technical Specification v14
 
 ## 1. Executive Summary
 
@@ -105,6 +105,9 @@ may not  clearly map requirements to these specific modules. The specification s
 **M14:** Abstract imports into global imports module which has code to expose them
 
 **M15:** Add Windows API bindings and their related Constants to FolderCompareSync_Global_Constants.py since they are more like definitions with their own specific Constants
+
+**M16:** All python code blocks in the technical specification document are to be treated as examples ONLY and are NOT authoritative,
+since zero or more code blocks may possibly be obsolete as compared to the latest requirements in the specification
 
 ## 4. User Interface Requirements
 
