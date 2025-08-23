@@ -491,15 +491,21 @@ FILECOPY_DRIVE_REMOTE = 4                                # Drive type constants
 
 **Algorithmic Flow - EXAMPLE ONLY:**
 ```python
-# NOTE that overwrite is deprecated and should be removed ...
 def _execute_direct_strategy(src: str, dst: str, overwrite: bool,
                              progress_cb, cancel_event) -> CopyOperationResult:
     """
     DIRECT strategy implementation using Windows CopyFileExW API.
     Optimized for local drives with kernel-level performance and secure rollback.
+    
+    Enhanced with comprehensive network detection to ensure proper strategy selection.
     """
     
-    # Phase 1: Preflight Validation and Timestamp Capture
+    # Phase 1: Enhanced Network Detection Validation
+    if _is_network_or_cloud_location(src) or _is_network_or_cloud_location(dst):
+        # Redirect to STAGED strategy for network/cloud locations
+        return _execute_staged_strategy(src, dst, overwrite, progress_cb, cancel_event)
+    
+    # Phase 2: Preflight Validation and Timestamp Capture
     source_timestamps = None
     target_timestamps = None
     temp_file_path = None
@@ -517,29 +523,29 @@ def _execute_direct_strategy(src: str, dst: str, overwrite: bool,
         except Exception as e:
             return _create_error_result(f"Failed to read target timestamps: {e}")
     
-    # Phase 2: Preflight Space Check
+    # Phase 3: Preflight Space Check
     if not _check_sufficient_space(src, dst):
         return _create_error_result("Insufficient disk space")
     
-    # Phase 3: Create secure temporary file path
+    # Phase 4: Create secure temporary file path
     dst_dir = Path(dst).parent
     dst_name = Path(dst).name
     temp_file_path = str(dst_dir / f"{dst_name}.tmp_{uuid.uuid4().hex[:8]}")
     
-    # Phase 4: Windows CopyFileExW Copy to Temporary File
+    # Phase 5: Windows CopyFileExW Copy to Temporary File
     copy_result = _copy_with_windows_api(src, temp_file_path, progress_cb, cancel_event)
     if not copy_result.success:
         _cleanup_temp_file(temp_file_path)
         return copy_result
     
-    # Phase 5: Verification (if enabled by radio button selection)
+    # Phase 6: Verification (if enabled by radio button selection)
     if _should_verify_file(Path(src).stat().st_size):
         verify_result = _verify_by_mmap_windows(src, temp_file_path, progress_cb, cancel_event)
         if not verify_result:
             _cleanup_temp_file(temp_file_path)
             return _create_error_result("Content verification failed")
     
-    # Phase 6: Atomic file placement sequence
+    # Phase 7: Atomic file placement sequence
     backup_path = None
     if Path(dst).exists():
         backup_path = f"{dst}.backup_{uuid.uuid4().hex[:8]}"
@@ -547,17 +553,154 @@ def _execute_direct_strategy(src: str, dst: str, overwrite: bool,
     
     os.rename(temp_file_path, dst)  # Atomic: temp → final location
     
-    # Phase 7: Apply source timestamps
+    # Phase 8: Apply source timestamps
     timestamp_result = timestamp_manager.set_file_timestamps(dst, *source_timestamps)
     if not timestamp_result:
         _log_warning("Timestamp preservation failed after successful copy")
     
-    # Phase 8: Success cleanup - delete the renamed original target
+    # Phase 9: Success cleanup - delete the renamed original target
     if backup_path and Path(backup_path).exists():
         os.remove(backup_path)  # Delete renamed original target (M12)
     
     return _create_success_result(copy_result, "DIRECT")
+
+def _is_network_or_cloud_location(path: str) -> bool:
+    """
+    Comprehensive network and cloud storage detection.
+    
+    Multi-layered detection approach:
+    1. Traditional network drive detection via GetDriveType
+    2. Cloud storage pattern matching
+    3. Symbolic link resolution for hidden network paths
+    4. UNC path detection after resolution
+    
+    Returns:
+        bool: True if location should use STAGED strategy
+    """
+    
+    try:
+        # Layer 1: Traditional network drive detection
+        drive = Path(path).drive or Path(path).parts[0]
+        if drive:
+            drive_type = kernel32.GetDriveTypeW(drive)
+            if drive_type == C.FILECOPY_DRIVE_REMOTE:
+                return True
+        
+        # Layer 2: Cloud storage folder detection (if enabled)
+        if C.FILECOPY_ENABLE_CLOUD_DETECTION and _is_cloud_storage_path(path):
+            return True
+        
+        # Layer 3: Symbolic link/junction resolution (if enabled)
+        if C.FILECOPY_ENABLE_SYMLINK_RESOLUTION:
+            try:
+                resolved_path = os.path.realpath(path)
+                if resolved_path.startswith('\\\\'):
+                    return True
+                
+                # Also check resolved path for cloud storage patterns
+                if C.FILECOPY_ENABLE_CLOUD_DETECTION and _is_cloud_storage_path(resolved_path):
+                    return True
+                    
+            except Exception:
+                # If resolution fails, continue with other detection methods
+                pass
+        
+        return False
+        
+    except Exception as e:
+        # On detection failure, default to False (use DIRECT strategy)
+        # Log the failure for debugging but don't fail the operation
+        _log_debug(f"Network detection failed for {path}: {e}")
+        return False
+
+def _is_cloud_storage_path(path: str) -> bool:
+    """
+    Detect cloud storage folders using pattern matching.
+    
+    Args:
+        path: File or directory path to check
+        
+    Returns:
+        bool: True if path appears to be in cloud storage folder
+    """
+    
+    if not path:
+        return False
+    
+    path_upper = path.upper()
+    
+    # Check against configured cloud storage patterns
+    for pattern in C.FILECOPY_CLOUD_STORAGE_PATTERNS:
+        if pattern in path_upper:
+            return True
+    
+    return False
+
+def determine_copy_strategy(source_path: str, target_path: str, file_size: int) -> CopyStrategy:
+    """
+    Enhanced strategy determination with comprehensive network detection.
+    
+    Strategy Selection Logic:
+    1. Network or cloud location (either source or target) → STAGED
+    2. File size >= threshold → STAGED  
+    3. Otherwise → DIRECT
+    
+    Args:
+        source_path: Source file path
+        target_path: Target file path  
+        file_size: File size in bytes
+        
+    Returns:
+        CopyStrategy: DIRECT or STAGED
+    """
+    
+    # Priority 1: Network or cloud location detection
+    if (_is_network_or_cloud_location(source_path) or 
+        _is_network_or_cloud_location(target_path)):
+        return CopyStrategy.STAGED
+    
+    # Priority 2: Large file size threshold
+    if file_size >= C.FILECOPY_COPY_STRATEGY_THRESHOLD_BYTES:
+        return CopyStrategy.STAGED
+    
+    # Default: Local small files use DIRECT strategy
+    return CopyStrategy.DIRECT
 ```
+
+**Enhanced Network Detection Process Flow:**
+
+**Step 1: Primary Drive Type Detection**
+- Uses Windows `GetDriveType()` API to identify traditional network drives
+- Reliable for SMB/CIFS shares mapped with `net use` commands
+- Returns `DRIVE_REMOTE` (4) for standard network drives
+
+**Step 2: Cloud Storage Pattern Recognition**  
+- Checks path against configurable cloud storage patterns
+- Case-insensitive matching for common cloud sync folders
+- Covers OneDrive, Google Drive, Dropbox, Box, iCloud Drive, Amazon Drive
+- Pattern list is configurable and extensible
+
+**Step 3: Symbolic Link Resolution**
+- Resolves junction points, symbolic links, and mount points
+- Checks if resolved path points to UNC location (`\\server\share`)
+- Handles enterprise environments with complex folder structures
+- Also re-checks resolved path against cloud storage patterns
+
+**Step 4: Strategy Override Logic**
+- If any detection layer identifies network/cloud location → STAGED strategy
+- Network detection overrides file size thresholds
+- Provides consistent behavior regardless of file size for network locations
+
+**Detection Reliability:**
+- **High reliability:** Traditional network drives, major cloud storage services
+- **Medium reliability:** Exotic cloud storage, enterprise storage with local caching
+- **Low reliability:** Application-specific virtual drives, complex enterprise storage
+
+**Fallback Behavior:**
+- Detection failures default to local file handling (DIRECT strategy)
+- Non-critical detection errors logged for debugging
+- Operations continue normally even if detection partially fails
+- Conservative approach prioritizes functionality over perfect detection
 
 **Windows API Integration - CopyFileExW Implementation - EXAMPLE ONLY:**
 ```python
