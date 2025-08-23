@@ -2,7 +2,10 @@
 
 ## 1. Executive Summary
 
-**Primary Objective:** Replace the existing `FileCopyManager_class` with an enhanced implementation that provides robust, high-performance file copying with comprehensive verification, rollback capabilities, and Windows-optimized strategies for Python 3.13+ on Windows 10+.
+**Primary Objective:**
+Replace the existing `FileCopyManager_class` with an enhanced implementation that provides robust,
+high-performance file copying with comprehensive verification,
+rollback capabilities, and Windows-optimized strategies for Python 3.13+ on Windows 10+.
 
 **Critical Design Goals:**
 - **Performance optimization:** Intelligent copy/verify strategy selection based on file size and location characteristics
@@ -75,9 +78,79 @@ may not  clearly map requirements to these specific modules. The specification s
 
 **M01:** Must support **two copy strategies**: Direct and Staged
 
-**M02:** **Direct Copy** is fast, kernel-assisted, and optimized for local transfers, aimed at local non-networked files < specified gigabytes (global constant)**M03:** **Staged Copy** is chunked, hash-driven, and optimized for networked files or where any file to be copied is >= specified gigabytes (global constant)
+**M02:** **Direct Copy** is fast, kernel-assisted, and optimized for local transfers, aimed at local non-networked files < specified gigabytes (global constant)
 
-**M04:** Must provide **robust verification** options: verify none, verify only files < specified gigabytes, verify all (global constant)**M05:** Must guarantee **rollback safety**: original target files are never corrupted during copy operations**M06:** Must integrate with **Tkinter progress reporting****M07:** Must preserve metadata (timestamps, attributes)**M08:** Must use **configurable constants** for thresholds and chunkwindow sizes etc.**M09:** Must be fully commented and maintainable**M10:** Rollback ensures that **only verified files appear in the destination** with zero risk of data loss**M11:** Tkinter provides near real-time **progress feedback** at both per-file and overall levels**M12:** Any existing "overwrite" function is deprecated and should be removed, files will be copied and verified and all files will have capability to be rolled back**M13:** Abstract global constants (including Windows-related constants) into the global constants module which exposes them as "C." via "import xxx as C"**M14:** Abstract imports into global imports module which has code to expose them**M15:** Add Windows API bindings and their related Constants to FolderCompareSync_Global_Constants.py since they are more like definitions with their own specific Constants## 4. User Interface Requirements### 4.1 Verification Mode Radio Buttons**Mandatory UI Component (M04):** Pre-copy UI must have 3 mutually exclusive radio buttons for verification policy selection:1. **"Verify no files"** - Skip all verification (fastest, use with caution)2. **"Verify only files < [threshold] after each copy"** - Verify only files under specified size threshold (configurable via global constant, initially 2GB) (**default selection**)3. **"Verify every file after each copy"** - Verify all copied files regardless of size (very slow for large files)### 4.2 UI Implementation Requirements**Technical Integration:**- Radio button selection controls the `FILECOPY_VERIFY_POLICY` global constant- Default selection must be "Verify only files < x.x GB after each copy (balanced)" for balanced safety- Threshold value in option 3 should be dynamically populated from `FILECOPY_VERIFY_THRESHOLD_BYTES`- Radio button state must be preserved across UI sessions- Clear labeling to help users understand performance vs safety trade-offs**Display Format Example:**```Verification Options:○ Verify no files (fastest)● Verify only files < 2.0 GB after each copy (balanced)○ Verify every file after each copy (very slow with large files; maximum safety) ```noting that- the `2 GB` value in the example derives from a global constant- the radio button which is on by default derives from a global constant### 4.3 UI Integration Points**Progress Reporting Integration (M06, M11):**- Near Real-time progress updates during copy operations- Separate progress indicators for copy phase and verification phase in the status messages area - Cancel button must be responsive and aim for within 500ms (possibly configurable, refer to global constant(s)) during all operations- Status messages must indicate which strategy (DIRECTSTAGED) is being used## 5. Copy Strategy Implementation Details### 5.1 Strategy Selection Matrix| File Location | File Size | Strategy Applied ||---------------|-----------|------------------|| Local drives, < 2GB | Small | DIRECT || Local drives, >= 2GB     | Large | STAGED |
+**M03:** **Staged Copy** is chunked, hash-driven, and optimized for networked files or where any file to be copied is >= specified gigabytes (global constant)
+
+**M04:** Must provide **robust verification** options: verify none, verify only files < specified gigabytes, verify all (global constant)
+
+**M05:** Must guarantee **rollback safety**: original target files are never corrupted during copy operations
+
+**M06:** Must integrate with **Tkinter progress reporting**
+
+**M07:** Must preserve metadata (timestamps, attributes)
+
+**M08:** Must use **configurable constants** for thresholds and chunkwindow sizes etc.
+
+**M09:** Must be fully commented and maintainable
+
+**M10:** Rollback ensures that **only verified files appear in the destination** with zero risk of data loss
+
+**M11:** Tkinter provides near real-time **progress feedback** at both per-file and overall levels
+
+**M12:** Any existing "overwrite" function is deprecated and should be removed, files will be copied and verified and all files will have capability to be rolled back
+
+**M13:** Abstract global constants (including Windows-related constants) into the global constants module which exposes them as "C." via "import xxx as C"
+
+**M14:** Abstract imports into global imports module which has code to expose them
+
+**M15:** Add Windows API bindings and their related Constants to FolderCompareSync_Global_Constants.py since they are more like definitions with their own specific Constants
+
+## 4. User Interface Requirements
+
+### 4.1 Verification Mode Radio Buttons
+
+**Mandatory UI Component (M04):** Pre-copy UI must have 3 mutually exclusive radio buttons for verification policy selection:
+1. **"Verify no files"** - Skip all verification (fastest, use with caution)
+2. **"Verify only files < [threshold] after each copy" **
+   - Verify only files under specified size threshold (configurable via global constant, initially 2GB) (**default selection**)
+3. **"Verify every file after each copy"** - Verify all copied files regardless of size (very slow for large files)
+
+### 4.2 UI Implementation Requirements
+
+**Technical Integration:** - Radio button selection controls the `FILECOPY_VERIFY_POLICY` global constant
+   - Default selection must be "Verify only files < x.x GB after each copy (balanced)" for balanced safety
+   - Threshold value in option 3 should be dynamically populated from `FILECOPY_VERIFY_THRESHOLD_BYTES`
+   - Radio button state must be preserved across UI sessions
+   - Clear labeling to help users understand performance vs safety trade-offs
+   
+**Display Format Example:**
+```
+Verification Options:
+○ Verify no files (fastest)
+● Verify only files < 2.0 GB after each copy (balanced)
+○ Verify every file after each copy (very slow with large files; maximum safety) 
+```
+noting that
+   - the `2 GB` value in the example derives from a global constant
+   - the radio button which is on by default derives from a global constant
+   
+### 4.3 UI Integration Points
+
+**Progress Reporting Integration (M06, M11):**
+   - Near Real-time progress updates during copy operations
+   - Separate progress indicators for copy phase and verification phase in the status messages area
+   - Cancel button must be responsive and aim for within 500ms (possibly configurable, refer to global constant(s)) during all operations
+   - Status messages must indicate which strategy (DIRECTSTAGED) is being used
+   
+## 5. Copy Strategy Implementation Details
+
+### 5.1 Strategy Selection Matrix
+
+| File Location | File Size | Strategy Applied |
+|---------------|-----------|------------------|
+| Local drives, < 2GB | Small | DIRECT |
+| Local drives, >= 2GB     | Large | STAGED |
 | Any Network drives, any size     | Any | STAGED |
 | Cloud storage locations, any size     | Any | STAGED |
 
@@ -145,16 +218,64 @@ Common cloud storage services are detected through path analysis:
 ### 5.2 DIRECT Strategy Specifications (M01, M02)
 
 **When Used:**
-- File size < 2GB (a global constant) AND no network drive letters involved- Both source and target are on local drives (SSDHDD on same machine)**Technical Method - Detailed Implementation:****1. Copy Phase: Windows CopyFileExW API Implementation**- Uses Windows native `CopyFileExW` API via ctypes for maximum performance- Provides kernel-level, buffered operations optimized for local drive-to-drive transfers- Preserves all file metadata automatically during copy operation- Accepts callback function that Windows calls periodically with detailed progress information: - Total file size in bytes - Bytes copied so far - Current transfer rate - Copy pausecancel status- Callback enables near real-time progress bar updates in Tkinter UI- Copy operation targets secure temporary file in target directory- Rationale: For local SSDHDD copies, CopyFileExW provides optimal performance through OS-level optimization**2. Verification Phase: Windowed mmap Memory-Mapped Comparison**- **mmap Window Size:** Configurable 8-64 MiB windows (default 64 MiB via global constant `FILECOPY_MMAP_WINDOW_BYTES`)- **Memory Efficiency:** Uses OS-paged reads (4KB pages) without loading entire files into memory- **Process Flow:** 1. Open both source and temporary files with read-only Windows mmap memory mapping 2. Compare files in fixed-size windows sequentially from start to end 3. Each window comparison uses direct memory comparison for maximum speed 4. **Early Failure Detection:** Stop immediately on first window mismatch 5. Update progress bar after each window comparison (responsive cancellation)- **Fallback Mechanism:** If mmap fails on any window (access issues, disk issues, windows issues, etc): 1. Automatically fall back to buffered file readcompare for that specific window 2. Continue with mmap for subsequent windows 3. Log fallback occurrence for debugging 4. If fallback window copy fails, then the copy is considered to be a fail 5. If more than 5 (a configurable global constant) mmap window copies within the same file fail *in sequence*, then the copy is considered to be a fail- **Performance Benefits:** - Faster than reading entire files into Python buffers for large files - Avoids memory thrashing on memory-constrained systems - Enables responsive cancellation every 64MB (global constant `FILECOPY_MMAP_WINDOW_BYTES`) (approximately 500ms on typical HDDs)- **Hash Provision:** CopyVerify Structure includes commented-out placeholders for future BLAKE3 hash implementation matching STAGED strategy approach**3. Progress Reporting:**- Copy phase: Near Real-time callbacks from Windows API - Verification phase: Progress updates after each 64MB (global constant `FILECOPY_MMAP_WINDOW_BYTES`) window comparison- Responsive cancellation generally within 500ms during both phases### 5.3 STAGED Strategy Specifications (M01, M03)**When Used:**- File size >= 2GB (refer global constant) OR any network drive letters involved either in source or target
-- Optimized for networked files and for large file handling, where minimising additional I/O involved in hash calculation becomes a serious factor
+   - File size < 2GB (a global constant) AND no network drive letters involved- Both source and target are on local drives (SSDHDD on same machine)
+
+**Technical Method - Detailed Implementation:**
+
+**1. Copy Phase: Windows CopyFileExW API Implementation**
+   - Uses Windows native `CopyFileExW` API via ctypes for maximum performance
+   - Provides kernel-level, buffered operations optimized for local drive-to-drive transfers
+   - Preserves all file metadata automatically during copy operation
+   - Accepts callback function that Windows calls periodically with detailed progress information: 
+      - Total file size in bytes
+	  - Bytes copied so far 
+	  - Current transfer rate 
+	  - Copy pausecancel status
+	  - Callback enables near real-time progress bar updates in Tkinter UI
+	  - Copy operation targets secure temporary file in target directory
+   - Rationale: For local SSDHDD copies, CopyFileExW provides optimal performance through OS-level optimization
+
+**2. Verification Phase: Windowed mmap Memory-Mapped Comparison**
+   - **mmap Window Size:** Configurable 8-64 MiB windows (default 64 MiB via global constant `FILECOPY_MMAP_WINDOW_BYTES`)
+   - **Memory Efficiency:** Uses OS-paged reads (4KB pages) without loading entire files into memory
+   - **Process Flow:** 
+       1. Open both source and temporary files with read-only Windows mmap memory mapping 
+	   2. Compare files in fixed-size windows sequentially from start to end 
+	   3. Each window comparison uses direct memory comparison for maximum speed 
+	   4. **Early Failure Detection:** Stop immediately on first window mismatch 
+	   5. Update progress bar after each window comparison (responsive cancellation)
+   - **Fallback Mechanism:** If mmap fails on any window (access issues, disk issues, windows issues, etc): 
+       1. Automatically fall back to buffered file readcompare for that specific window 
+	   2. Continue with mmap for subsequent windows 
+	   3. Log fallback occurrence for debugging 
+	   4. If fallback window copy fails, then the copy is considered to be a fail 
+	   5. If more than 5 (a configurable global constant) mmap window copies within the same file fail *in sequence*, then the copy is considered to be a fail
+   - **Performance Benefits:** 
+       - Faster than reading entire files into Python buffers for large files 
+       - Avoids memory thrashing on memory-constrained systems 
+	   - Enables responsive cancellation every 64MB (global constant `FILECOPY_MMAP_WINDOW_BYTES`) (approximately 500ms on typical HDDs)
+   - **Hash Provision:** CopyVerify Structure includes commented-out placeholders for future BLAKE3 hash implementation matching STAGED strategy approach
+   
+**3. Progress Reporting:**
+   - Copy phase: Near Real-time callbacks from Windows API
+   - Verification phase: Progress updates after each 64MB (global constant `FILECOPY_MMAP_WINDOW_BYTES`) window comparison
+   - Responsive cancellation generally within 500ms during both phases
+
+### 5.3 STAGED Strategy Specifications (M01, M03)
+
+**When Used:**
+   - File size >= 2GB (refer global constant) OR any network drive letters involved either in source or target
+   - Optimized for networked files and for large file handling, where minimising additional I/O involved in hash calculation becomes a serious factor
 
 **Technical Method - Detailed Implementation:**
 
 **1. Copy Phase: Chunked I/O with Progressive Hash Calculation**
 - **Chunk Size:** Network-optimized 4MB chunks (via global constant `FILECOPY_NETWORK_CHUNK_BYTES`)
 - **Rationale for Non-CopyFileExW Approach:** While Windows CopyFileExW could handle network copies, it requires additional costly full-file reads for verification:
-  - Traditional approach: [1. read source, 2. write target, 3. re-read source for verify, 4. re-read target for verify, 5. compare hashes] = 4x file size network transfer
-  - STAGED approach: [1. read source + calculate hash during copy, 2. write target, 3. re-read target for verify, 4. compare hashes] = 3x file size network transfer, hence a massive I/O and time saving with large files
+  - Traditional approach: 
+    [1. read source, 2. write target, 3. re-read source for verify, 4. re-read target for verify, 5. compare hashes] = 4x file size network transfer
+  - STAGED approach: 
+    [1. read source + calculate hash during copy, 2. write target, 3. re-read target for verify, 4. compare hashes] = 3x file size network transfer, hence a massive I/O and time saving with large files
 - **Progressive Hash Calculation:**
   - Primary: BLAKE3 hashing (significantly faster than SHA-512 on modern CPUs)
   - Fallback: SHA-256 if BLAKE3 unavailable
@@ -243,22 +364,309 @@ as it eliminates the window of vulnerability where a target file could be left i
 
 ```python
 # Copy Strategy Control (M01, M02, M03, M13)
-FILECOPY_COPY_STRATEGY_THRESHOLD_BYTES = 2 * 1024**3      # 2 GiB - DIRECT vs STAGED
+FILECOPY_COPY_STRATEGY_THRESHOLD_BYTES = 2 * 1024**3      
+# 2 GiB - DIRECT vs STAGED
 # Rationale: 2GB threshold balances local optimization vs network efficiency
-# - Files < 2GB: Local CopyFileExW + mmap verification optimal# - Files >= 2GB: Chunked approach reduces memory pressure and enables better progress reporting
-
-FILECOPY_MAXIMUM_COPY_FILE_SIZE_BYTES = 20 * 1024**3     # 20 GiB - Hard size limit
+# - Files < 2GB: Local CopyFileExW + mmap verification optimal
+# - Files >= 2GB: Chunked approach reduces memory pressure and enables better progress reporting
+FILECOPY_MAXIMUM_COPY_FILE_SIZE_BYTES = 20 * 1024**3     
+# 20 GiB - Hard size limit
 # Rationale: Prevents runaway operations on extremely large files
 # - Protects against accidental VM disk images, database files
 # - Can be increased for specialized use cases
-
 # Performance Tuning - DIRECT Strategy (M08)
-FILECOPY_MMAP_WINDOW_BYTES = 64 * 1024**2                # 64 MiB - Verification windows
+FILECOPY_MMAP_WINDOW_BYTES = 64 * 1024**2                
+# 64 MiB - Verification windows
 # Rationale: Optimal balance for memory-mapped verification
 # - Memory usage: Conservative for 4GB+ systems (1.6% of 4GB RAM)
 # - I/O efficiency: Reduces system calls while maintaining responsiveness
 # - Cancellation latency: ~400ms on 150MB/s HDDs, ~130ms on 500MB/s SSDs
-# - Memory constraint handling: Auto-reduces to 32MB on systems with <2GB RAM# Alternative values: 32MB (memory-constrained), 128MB (high-performance systems)# Performance Tuning - STAGED Strategy (M08)FILECOPY_NETWORK_CHUNK_BYTES = 4 * 1024**2 # 4 MiB - Network IO chunks# Rationale: Network-optimized chunk size for SMBNAS scenarios# - Network efficiency: Balances throughput vs latency on 100Mbps+ networks# - Cancellation responsiveness: ~320ms on 100Mbps, ~80ms on 400Mbps networks# - SMB optimization: Aligns with typical SMB protocol buffer sizes# - Hash calculation: Optimal granularity for BLAKE3 progressive hashing# - Memory usage: Low memory footprint (4MB active buffer)# Alternative values: 1MB (slower networks), 8MB (gigabit+ networks)# Verification Configuration (M04)FILECOPY_VERIFY_THRESHOLD_BYTES = 2 * 1024**3 # 2 GiB - Verify size limit# Rationale: "Balanced" verification mode threshold# - Matches copy strategy threshold for consistency# - Covers majority of user files (documents, images, videos)# - Large files (ISOs, backups) can skip verification for performance# - User-configurable based on specific use case requirementsFILECOPY_VERIFY_POLICY = 'lt_threshold' # none | lt_threshold | all (default: lt_threshold)# Rationale: balanced safety as default setting# - 'none': Skip all verification (use with caution, fastest performance)# - 'lt_threshold': Verify only files under FILECOPY_VERIFY_THRESHOLD_BYTES (balanced; default)# - 'all': Verify every file regardless of size (very slow for large files)# System Resource ManagementFILECOPY_FREE_DISK_SPACE_MARGIN = 64 * 1024**2 # 64 MiB - Safety margin# Rationale: Prevents disk full scenarios during copy operations# - Accounts for filesystem overhead and metadata# - Provides buffer for concurrent system operations# - Windows: Allows for NTFS journal and system file growthFILECOPY_ATTRIBUTE_SPARSE_FILE_WARNING = True # Warn on sparse files# Rationale: User notification for potential storage impact# - Sparse files expand to full size when copied to non-sparse target# - Critical for VM disk images, database files with sparse allocation# - Prevents unexpected disk space consumption# Error Handling and RecoveryFILECOPY_BLAKE3_FALLBACK_ENABLED = True # Enable byte comparison fallback# Rationale: Guaranteed verification even if hashing fails# - BLAKE3 library may be missing on some systems# - Hash calculation can fail due to memory pressure or file corruption# - Byte comparison provides definitive verification result# - Performance cost acceptable for reliabilityFILECOPY_UNC_PATH_REJECTION_STRICT = True # Reject UNC paths# Rationale: Prevent unsupported network path operations# - UNC paths (\\server\share) often have permission complexities# - Drive mapping provides better Windows integration# - Clearer error handling and user guidanceFILECOPY_LONG_PATH_NORMALIZATION = True # Enable \\?\ prefix support# Rationale: Windows long path support (>260 characters)# - Automatic \\?\ prefix for paths exceeding MAX_PATH# - Enables copying of deeply nested directory structures# - Essential for modern development environments (node_modules, etc.)# Windows API Constants (M13)FILECOPY_COPY_FILE_RESTARTABLE = 0x00000002 # CopyFileExW flags# Rationale: Enables resume capability for interrupted operations# - Large file copies can be resumed if interrupted by system restart# - Improves reliability for lengthy copy operationsFILECOPY_PROGRESS_CONTINUE = 0 # Progress callback returnsFILECOPY_PROGRESS_CANCEL = 1 # User cancellation# Rationale: Windows API standard return codes for progress callbacks# - Enables responsive user cancellation during CopyFileExW operations# - Integrates with Windows progress reporting infrastructureFILECOPY_ERROR_REQUEST_ABORTED = 1235 # Windows error codes# Rationale: Specific Windows error code for user-cancelled operations# - Distinguishes user cancellation from system errors# - Enables appropriate user feedback and error handlingFILECOPY_DRIVE_REMOTE = 4 # Drive type constants# Rationale: Windows GetDriveType return value for network drives# - Enables automatic strategy selection based on drive type# - Network drives automatically use STAGED strategy regardless of file size```**Constants Tuning Guidelines:****Memory-Constrained Systems (< 4GB RAM):**- FILECOPY_MMAP_WINDOW_BYTES = 32 * 1024**2 (32MB)- Reduces memory pressure while maintaining verification benefits**High-Performance Systems (16GB+ RAM, SSD storage):**- FILECOPY_MMAP_WINDOW_BYTES = 128 * 1024**2 (128MB)- Maximizes IO efficiency for large file operations**Slow Network Environments (< 50Mbps):**- FILECOPY_NETWORK_CHUNK_BYTES = 1 * 1024**2 (1MB)- Reduces latency and improves cancellation responsiveness**High-Speed Network Environments (Gigabit+):**- FILECOPY_NETWORK_CHUNK_BYTES = 8 * 1024**2 (8MB)- Maximizes network throughput for large file transfers**Conservative Verification (Limited CPU):**- FILECOPY_VERIFY_THRESHOLD_BYTES = 512 * 1024**2 (512MB)- Reduces verification overhead for slower systems**Performance-Oriented (Fast CPU, Time-Critical):**- FILECOPY_VERIFY_POLICY = 'lt_threshold'- FILECOPY_VERIFY_THRESHOLD_BYTES = 4 * 1024**3 (4GB)- Balances integrity checking with copy speed## 8. Detailed Copy Algorithm Specifications### 8.1 DIRECT Strategy Implementation**Enhanced Network Detection Process Flow:****Step 1: Primary Drive Type Detection**- Uses Windows `GetDriveType()` API to identify traditional network drives- Reliable for SMBCIFS shares mapped with `net use` commands- Returns `DRIVE_REMOTE` (4) for standard network drives**Step 2: Cloud Storage Pattern Recognition** - Checks path against configurable cloud storage patterns- Case-insensitive matching for common cloud sync folders- Covers OneDrive, Google Drive, Dropbox, Box, iCloud Drive, Amazon Drive- Pattern list is configurable and extensible**Step 3: Symbolic Link Resolution**- Resolves junction points, symbolic links, and mount points- Checks if resolved path points to UNC location (`\\server\share`)- Handles enterprise environments with complex folder structures- Also re-checks resolved path against cloud storage patterns**Step 4: Strategy Override Logic**- If any detection layer identifies networkcloud location → STAGED strategy- Network detection overrides file size thresholds- Provides consistent behavior regardless of file size for network locations**Detection Reliability:**- **High reliability:** Traditional network drives, major cloud storage services- **Medium reliability:** Exotic cloud storage, enterprise storage with local caching- **Low reliability:** Application-specific virtual drives, complex enterprise storage**Fallback Behavior:**- Detection failures default to local file handling (DIRECT strategy)- Non-critical detection errors logged for debugging- Operations continue normally even if detection partially fails- Conservative approach prioritizes functionality over perfect detection**Algorithmic Flow - EXAMPLE ONLY:**```pythondef _execute_direct_strategy(src: str, dst: str, overwrite: bool, progress_cb, cancel_event) -> CopyOperationResult: """ DIRECT strategy implementation using Windows CopyFileExW API. Optimized for local drives with kernel-level performance and secure rollback.  Enhanced with comprehensive network detection to ensure proper strategy selection. """  # Phase 1: Enhanced Network Detection Validation if _is_network_or_cloud_location(src) or _is_network_or_cloud_location(dst): # Redirect to STAGED strategy for networkcloud locations return _execute_staged_strategy(src, dst, overwrite, progress_cb, cancel_event)  # Phase 2: Preflight Validation and Timestamp Capture source_timestamps = None target_timestamps = None temp_file_path = None  try: source_timestamps = timestamp_manager.get_file_timestamps(src) except Exception as e: return _create_error_result(f"Failed to read source timestamps: {e}")  if Path(dst).exists(): if not overwrite: # NOTE that overwrite is deprecated and should be removed ... return _create_error_result("Overwrite disabled, target exists") try: target_timestamps = timestamp_manager.get_file_timestamps(dst) except Exception as e: return _create_error_result(f"Failed to read target timestamps: {e}")  # Phase 3: Preflight Space Check if not _check_sufficient_space(src, dst): return _create_error_result("Insufficient disk space")  # Phase 4: Create secure temporary file path dst_dir = Path(dst).parent dst_name = Path(dst).name temp_file_path = str(dst_dir  f"{dst_name}.tmp_{uuid.uuid4().hex[:8]}")  # Phase 5: Windows CopyFileExW Copy to Temporary File copy_result = _copy_with_windows_api(src, temp_file_path, progress_cb, cancel_event) if not copy_result.success: _cleanup_temp_file(temp_file_path) return copy_result  # Phase 6: Verification (if enabled by radio button selection) if _should_verify_file(Path(src).stat().st_size): verify_result = _verify_by_mmap_windows(src, temp_file_path, progress_cb, cancel_event) if not verify_result: _cleanup_temp_file(temp_file_path) return _create_error_result("Content verification failed")  # Phase 7: Atomic file placement sequence backup_path = None if Path(dst).exists(): backup_path = f"{dst}.backup_{uuid.uuid4().hex[:8]}" os.rename(dst, backup_path) # Atomic: original → backup  os.rename(temp_file_path, dst) # Atomic: temp → final location  # Phase 8: Apply source timestamps timestamp_result = timestamp_manager.set_file_timestamps(dst, *source_timestamps) if not timestamp_result: _log_warning("Timestamp preservation failed after successful copy")  # Phase 9: Success cleanup - delete the renamed original target if backup_path and Path(backup_path).exists(): os.remove(backup_path) # Delete renamed original target (M12)  return _create_success_result(copy_result, "DIRECT")def _is_network_or_cloud_location(path: str) -> bool: """ Comprehensive network and cloud storage detection.  Multi-layered detection approach: 1. Traditional network drive detection via GetDriveType 2. Cloud storage pattern matching 3. Symbolic link resolution for hidden network paths 4. UNC path detection after resolution  Returns: bool: True if location should use STAGED strategy """  try: # Layer 1: Traditional network drive detection drive = Path(path).drive or Path(path).parts[0] if drive: drive_type = kernel32.GetDriveTypeW(drive) if drive_type == C.FILECOPY_DRIVE_REMOTE: return True  # Layer 2: Cloud storage folder detection (if enabled) if C.FILECOPY_ENABLE_CLOUD_DETECTION and _is_cloud_storage_path(path): return True  # Layer 3: Symbolic linkjunction resolution (if enabled) if C.FILECOPY_ENABLE_SYMLINK_RESOLUTION: try: resolved_path = os.path.realpath(path) if resolved_path.startswith('\\\\'): return True  # Also check resolved path for cloud storage patterns if C.FILECOPY_ENABLE_CLOUD_DETECTION and _is_cloud_storage_path(resolved_path): return True  except Exception: # If resolution fails, continue with other detection methods pass  return False  except Exception as e: # On detection failure, default to False (use DIRECT strategy) # Log the failure for debugging but don't fail the operation _log_debug(f"Network detection failed for {path}: {e}") return Falsedef _is_cloud_storage_path(path: str) -> bool: """ Detect cloud storage folders using pattern matching.  Args: path: File or directory path to check  Returns: bool: True if path appears to be in cloud storage folder """  if not path: return False  path_upper = path.upper()  # Check against configured cloud storage patterns for pattern in C.FILECOPY_CLOUD_STORAGE_PATTERNS: if pattern in path_upper: return True  return Falsedef determine_copy_strategy(source_path: str, target_path: str, file_size: int) -> CopyStrategy: """ Enhanced strategy determination with comprehensive network detection.  Strategy Selection Logic: 1. Network or cloud location (either source or target) → STAGED 2. File size >= threshold → STAGED  
+# - Memory constraint handling: Auto-reduces to 32MB on systems with <2GB RAM
+# Alternative values: 32MB (memory-constrained), 128MB (high-performance systems)
+# Performance Tuning - STAGED Strategy (M08)
+FILECOPY_NETWORK_CHUNK_BYTES = 4 * 1024**2
+# 4 MiB - Network IO chunks
+# Rationale: Network-optimized chunk size for SMBNAS scenarios
+# - Network efficiency: Balances throughput vs latency on 100Mbps+ networks
+# - Cancellation responsiveness: ~320ms on 100Mbps, ~80ms on 400Mbps networks
+# - SMB optimization: Aligns with typical SMB protocol buffer sizes
+# - Hash calculation: Optimal granularity for BLAKE3 progressive hashing
+# - Memory usage: Low memory footprint (4MB active buffer)
+# Alternative values: 1MB (slower networks), 8MB (gigabit+ networks)
+# Verification Configuration (M04)
+FILECOPY_VERIFY_THRESHOLD_BYTES = 2 * 1024**3 
+# 2 GiB - Verify size limit
+# Rationale: "Balanced" verification mode threshold
+# - Matches copy strategy threshold for consistency
+# - Covers majority of user files (documents, images, videos)
+# - Large files (ISOs, backups) can skip verification for performance
+# - User-configurable based on specific use case requirements
+FILECOPY_VERIFY_POLICY = 'lt_threshold' 
+# none | lt_threshold | all (default: lt_threshold)
+# Rationale: balanced safety as default setting
+# - 'none': Skip all verification (use with caution, fastest performance)
+# - 'lt_threshold': Verify only files under FILECOPY_VERIFY_THRESHOLD_BYTES (balanced; default)
+# - 'all': Verify every file regardless of size (very slow for large files)
+# System Resource Management
+FILECOPY_FREE_DISK_SPACE_MARGIN = 64 * 1024**2 
+# 64 MiB - Safety margin
+# Rationale: Prevents disk full scenarios during copy operations
+# - Accounts for filesystem overhead and metadata
+# - Provides buffer for concurrent system operations
+# - Windows: Allows for NTFS journal and system file growth
+FILECOPY_ATTRIBUTE_SPARSE_FILE_WARNING = True 
+# Warn on sparse files
+# Rationale: User notification for potential storage impact
+# - Sparse files expand to full size when copied to non-sparse target
+# - Critical for VM disk images, database files with sparse allocation
+# - Prevents unexpected disk space consumption
+# Error Handling and Recovery
+FILECOPY_BLAKE3_FALLBACK_ENABLED = True 
+# Enable byte comparison fallback
+# Rationale: Guaranteed verification even if hashing fails
+# - BLAKE3 library may be missing on some systems
+# - Hash calculation can fail due to memory pressure or file corruption
+# - Byte comparison provides definitive verification result
+# - Performance cost acceptable for reliability
+FILECOPY_UNC_PATH_REJECTION_STRICT = True 
+# Reject UNC paths
+# Rationale: Prevent unsupported network path operations
+# - UNC paths (\\server\share) often have permission complexities
+# - Drive mapping provides better Windows integration
+# - Clearer error handling and user guidance
+FILECOPY_LONG_PATH_NORMALIZATION = True 
+# Enable \\?\ prefix support
+# Rationale: Windows long path support (>260 characters)
+# - Automatic \\?\ prefix for paths exceeding MAX_PATH
+# - Enables copying of deeply nested directory structures
+# - Essential for modern development environments (node_modules, etc.)
+# Windows API Constants (M13)
+FILECOPY_COPY_FILE_RESTARTABLE = 0x00000002 
+# CopyFileExW flags
+# Rationale: Enables resume capability for interrupted operations
+# - Large file copies can be resumed if interrupted by system restart
+# - Improves reliability for lengthy copy operations
+FILECOPY_PROGRESS_CONTINUE = 0 
+# Progress callback returns
+FILECOPY_PROGRESS_CANCEL = 1 
+# User cancellation
+# Rationale: Windows API standard return codes for progress callbacks
+# - Enables responsive user cancellation during CopyFileExW operations
+# - Integrates with Windows progress reporting infrastructure
+FILECOPY_ERROR_REQUEST_ABORTED = 1235 
+# Windows error codes
+# Rationale: Specific Windows error code for user-cancelled operations
+# - Distinguishes user cancellation from system errors
+# - Enables appropriate user feedback and error handling
+FILECOPY_DRIVE_REMOTE = 4 
+# Drive type constants
+# Rationale: Windows GetDriveType return value for network drives
+# - Enables automatic strategy selection based on drive type
+# - Network drives automatically use STAGED strategy regardless of file size
+```
+
+**Constants Tuning Guidelines:****Memory-Constrained Systems (< 4GB RAM):**
+
+- FILECOPY_MMAP_WINDOW_BYTES = 32 * 1024**2 (32MB)- Reduces memory pressure while maintaining verification benefits **High-Performance Systems (16GB+ RAM, SSD storage):**
+- FILECOPY_MMAP_WINDOW_BYTES = 128 * 1024**2 (128MB)- Maximizes IO efficiency for large file operations **Slow Network Environments (< 50Mbps):**
+- FILECOPY_NETWORK_CHUNK_BYTES = 1 * 1024**2 (1MB)- Reduces latency and improves cancellation responsiveness **High-Speed Network Environments (Gigabit+):**
+- FILECOPY_NETWORK_CHUNK_BYTES = 8 * 1024**2 (8MB)- Maximizes network throughput for large file transfers **Conservative Verification (Limited CPU):**
+- FILECOPY_VERIFY_THRESHOLD_BYTES = 512 * 1024**2 (512MB)- Reduces verification overhead for slower systems **Performance-Oriented (Fast CPU, Time-Critical):**
+- FILECOPY_VERIFY_POLICY = 'lt_threshold'- FILECOPY_VERIFY_THRESHOLD_BYTES = 4 * 1024**3 (4GB)- Balances integrity checking with copy speed
+
+##  8. Detailed Copy Algorithm Specifications
+
+### 8.1 DIRECT Strategy Implementation
+
+**Enhanced Network Detection Process Flow:**
+
+**Step 1: Primary Drive Type Detection**
+- Uses Windows `GetDriveType()` API to identify traditional network drives
+- Reliable for SMB/CIFS shares mapped with `net use` commands
+- Returns `DRIVE_REMOTE` (4) for standard network drives
+
+**Step 2: Cloud Storage Pattern Recognition**  
+- Checks path against configurable cloud storage patterns
+- Case-insensitive matching for common cloud sync folders
+- Covers OneDrive, Google Drive, Dropbox, Box, iCloud Drive, Amazon Drive
+- Pattern list is configurable and extensible
+
+**Step 3: Symbolic Link Resolution**
+- Resolves junction points, symbolic links, and mount points
+- Checks if resolved path points to UNC location (`\\server\share`)
+- Handles enterprise environments with complex folder structures
+- Also re-checks resolved path against cloud storage patterns
+
+**Step 4: Strategy Override Logic**
+- If any detection layer identifies network/cloud location → STAGED strategy
+- Network detection overrides file size thresholds
+- Provides consistent behavior regardless of file size for network locations
+
+**Detection Reliability:**
+- **High reliability:** Traditional network drives, major cloud storage services
+- **Medium reliability:** Exotic cloud storage, enterprise storage with local caching
+- **Low reliability:** Application-specific virtual drives, complex enterprise storage
+
+**Fallback Behavior:**
+- Detection failures default to local file handling (DIRECT strategy)
+- Non-critical detection errors logged for debugging
+- Operations continue normally even if detection partially fails
+- Conservative approach prioritizes functionality over perfect detection
+
+**Algorithmic Flow - EXAMPLE ONLY:**
+```python
+def _execute_direct_strategy(src: str, dst: str, overwrite: bool,
+                             progress_cb, cancel_event) -> CopyOperationResult:
+    """
+    DIRECT strategy implementation using Windows CopyFileExW API.
+    Optimized for local drives with kernel-level performance and secure rollback.
+    
+    Enhanced with comprehensive network detection to ensure proper strategy selection.
+    """
+    
+    # Phase 1: Enhanced Network Detection Validation
+    if _is_network_or_cloud_location(src) or _is_network_or_cloud_location(dst):
+        # Redirect to STAGED strategy for network/cloud locations
+        return _execute_staged_strategy(src, dst, overwrite, progress_cb, cancel_event)
+    
+    # Phase 2: Preflight Validation and Timestamp Capture
+    source_timestamps = None
+    target_timestamps = None
+    temp_file_path = None
+    
+    try:
+        source_timestamps = timestamp_manager.get_file_timestamps(src)
+    except Exception as e:
+        return _create_error_result(f"Failed to read source timestamps: {e}")
+    
+    if Path(dst).exists():
+        if not overwrite:
+            return _create_error_result("Overwrite disabled, target exists")
+        try:
+            target_timestamps = timestamp_manager.get_file_timestamps(dst)
+        except Exception as e:
+            return _create_error_result(f"Failed to read target timestamps: {e}")
+    
+    # Phase 3: Preflight Space Check
+    if not _check_sufficient_space(src, dst):
+        return _create_error_result("Insufficient disk space")
+    
+    # Phase 4: Create secure temporary file path
+    dst_dir = Path(dst).parent
+    dst_name = Path(dst).name
+    temp_file_path = str(dst_dir / f"{dst_name}.tmp_{uuid.uuid4().hex[:8]}")
+    
+    # Phase 5: Windows CopyFileExW Copy to Temporary File
+    copy_result = _copy_with_windows_api(src, temp_file_path, progress_cb, cancel_event)
+    if not copy_result.success:
+        _cleanup_temp_file(temp_file_path)
+        return copy_result
+    
+    # Phase 6: Verification (if enabled by radio button selection)
+    if _should_verify_file(Path(src).stat().st_size):
+        verify_result = _verify_by_mmap_windows(src, temp_file_path, progress_cb, cancel_event)
+        if not verify_result:
+            _cleanup_temp_file(temp_file_path)
+            return _create_error_result("Content verification failed")
+    
+    # Phase 7: Atomic file placement sequence
+    backup_path = None
+    if Path(dst).exists():
+        backup_path = f"{dst}.backup_{uuid.uuid4().hex[:8]}"
+        os.rename(dst, backup_path)  # Atomic: original → backup
+    
+    os.rename(temp_file_path, dst)  # Atomic: temp → final location
+    
+    # Phase 8: Apply source timestamps
+    timestamp_result = timestamp_manager.set_file_timestamps(dst, *source_timestamps)
+    if not timestamp_result:
+        _log_warning("Timestamp preservation failed after successful copy")
+    
+    # Phase 9: Success cleanup - delete the renamed original target
+    if backup_path and Path(backup_path).exists():
+        os.remove(backup_path)  # Delete renamed original target (M12)
+    
+    return _create_success_result(copy_result, "DIRECT")
+
+def _is_network_or_cloud_location(path: str) -> bool:
+    """
+    Comprehensive network and cloud storage detection.
+    
+    Multi-layered detection approach:
+    1. Traditional network drive detection via GetDriveType
+    2. Cloud storage pattern matching
+    3. Symbolic link resolution for hidden network paths
+    4. UNC path detection after resolution
+    
+    Returns:
+        bool: True if location should use STAGED strategy
+    """
+    
+    try:
+        # Layer 1: Traditional network drive detection
+        drive = Path(path).drive or Path(path).parts[0]
+        if drive:
+            drive_type = kernel32.GetDriveTypeW(drive)
+            if drive_type == C.FILECOPY_DRIVE_REMOTE:
+                return True
+        
+        # Layer 2: Cloud storage folder detection (if enabled)
+        if C.FILECOPY_ENABLE_CLOUD_DETECTION and _is_cloud_storage_path(path):
+            return True
+        
+        # Layer 3: Symbolic link/junction resolution (if enabled)
+        if C.FILECOPY_ENABLE_SYMLINK_RESOLUTION:
+            try:
+                resolved_path = os.path.realpath(path)
+                if resolved_path.startswith('\\\\'):
+                    return True
+                
+                # Also check resolved path for cloud storage patterns
+                if C.FILECOPY_ENABLE_CLOUD_DETECTION and _is_cloud_storage_path(resolved_path):
+                    return True
+                    
+            except Exception:
+                # If resolution fails, continue with other detection methods
+                pass
+        
+        return False
+        
+    except Exception as e:
+        # On detection failure, default to False (use DIRECT strategy)
+        # Log the failure for debugging but don't fail the operation
+        _log_debug(f"Network detection failed for {path}: {e}")
+        return False
+
+def _is_cloud_storage_path(path: str) -> bool:
+    """
+    Detect cloud storage folders using pattern matching.
+    
+    Args:
+        path: File or directory path to check
+        
+    Returns:
+        bool: True if path appears to be in cloud storage folder
+    """
+    
+    if not path:
+        return False
+    
+    path_upper = path.upper()
+    
+    # Check against configured cloud storage patterns
+    for pattern in C.FILECOPY_CLOUD_STORAGE_PATTERNS:
+        if pattern in path_upper:
+            return True
+    
+    return False
+
+def determine_copy_strategy(source_path: str, target_path: str, file_size: int) -> CopyStrategy:
+    """
+    Enhanced strategy determination with comprehensive network detection.
+    
+    Strategy Selection Logic:
+    1. Network or cloud location (either source or target) → STAGED
+    2. File size >= threshold → STAGED  
     3. Otherwise → DIRECT
     
     Args:
@@ -360,64 +768,67 @@ def _copy_with_windows_api(src: str, dst: str, progress_cb, cancel_event) -> Cop
 ### 8.2 STAGED Strategy Implementation
 
 **When Used:**
-- File size >= 2GB (refer global constant) OR any network drive letters involved either in source or target
-- **Enhanced:** Any cloud storage locations detected via pattern matching (OneDrive, Google Drive, Dropbox, etc.)
-- **Enhanced:** Any paths resolved through symbolic links/junctions that point to network or cloud locations
-- Optimized for networked files and for large file handling, where minimising additional I/O involved in hash calculation becomes a serious factor
+   - File size >= 2GB (refer global constant) OR any network drive letters involved either in source or target
+   - **Enhanced:** Any cloud storage locations detected via pattern matching (OneDrive, Google Drive, Dropbox, etc.)
+   - **Enhanced:** Any paths resolved through symbolic links/junctions that point to network or cloud locations
+   - Optimized for networked files and for large file handling, where minimising additional I/O involved in hash calculation becomes a serious factor
 
 **Technical Method - Detailed Implementation:**
 
 **1. Copy Phase: Chunked I/O with Progressive Hash Calculation**
-- **Chunk Size:** Network-optimized 4MB chunks (via global constant `FILECOPY_NETWORK_CHUNK_BYTES`)
-- **Rationale for Non-CopyFileExW Approach:** While Windows CopyFileExW could handle network copies, it requires additional costly full-file reads for verification:
-  - Traditional approach: [1. read source, 2. write target, 3. re-read source for verify, 4. re-read target for verify, 5. compare hashes] = 4x file size network transfer
-  - STAGED approach: [1. read source + calculate hash during copy, 2. write target, 3. re-read target for verify, 4. compare hashes] = 3x file size network transfer, hence a massive I/O and time saving with large files
-- **Progressive Hash Calculation:**
-  - Primary: BLAKE3 hashing (significantly faster than SHA-512 on modern CPUs)
-  - Fallback: SHA-256 if BLAKE3 unavailable
-  - Hash calculated incrementally during each 4MB (derived from a global constant) chunk read from source
-  - Single-pass source reading eliminates redundant network I/O
-- **Process Flow:**
-  1. Open source file for reading, temporary target file for writing
-  2. Initialize BLAKE3 hasher
-  3. Read 4MB (derived from a global constant) chunks from source sequentially
-  4. Update hash with each chunk immediately after read
-  5. Write chunk to temporary target file
-  6. Update progress bar after each chunk (responsive cancellation estimated approximately every ~320ms on 100Mbps networks)
-  7. Finalize source hash after complete file processing
-- **Network Optimization:** 4MB (derived from a global constant) chunks balance network efficiency with cancellation responsiveness
-- **Cloud Storage Optimization:** Chunk size works well with cloud provider rate limiting and sync mechanisms
+   - **Chunk Size:** Network-optimized 4MB chunks (via global constant `FILECOPY_NETWORK_CHUNK_BYTES`)
+   - **Rationale for Non-CopyFileExW Approach:** While Windows CopyFileExW could handle network copies, it requires additional costly full-file reads for verification:
+     - Traditional approach:
+	   [1. read source, 2. write target, 3. re-read source for verify, 4. re-read target for verify, 5. compare hashes] = 4x file size network transfer
+     - STAGED approach: 
+	   [1. read source + calculate hash during copy, 2. write target, 3. re-read target for verify, 4. compare hashes] = 3x file size network transfer, hence a massive I/O and time saving with large files
+   - **Progressive Hash Calculation:**
+     - Primary: BLAKE3 hashing (significantly faster than SHA-512 on modern CPUs)
+     - Fallback: SHA-256 if BLAKE3 unavailable
+     - Hash calculated incrementally during each 4MB (derived from a global constant) chunk read from source
+     - Single-pass source reading eliminates redundant network I/O
+   - **Process Flow:**
+     1. Open source file for reading, temporary target file for writing
+     2. Initialize BLAKE3 hasher
+     3. Read 4MB (derived from a global constant) chunks from source sequentially
+     4. Update hash with each chunk immediately after read
+     5. Write chunk to temporary target file
+     6. Update progress bar after each chunk (responsive cancellation estimated approximately every ~320ms on 100Mbps networks)
+     7. Finalize source hash after complete file processing
+   - **Network Optimization:** 4MB (derived from a global constant) chunks balance network efficiency with cancellation responsiveness
+   - **Cloud Storage Optimization:** Chunk size works well with cloud provider rate limiting and sync mechanisms
 
 **2. Verification Phase: Chunked Hash Calculation of Target**
-- **Chunk Size:** 1-8MB (derived from a global constant) chunks for target verification (via configurable constant, default 4MB (derived from a global constant))
-- **Method Rationale:** Buffered chunked I/O preferred over mmap for network files to avoid pathological page-fault latency over network stack
-- **Process Flow:**
-  1. Open temporary target file for reading
-  2. Initialize matching hasher (BLAKE3 or SHA-256 to match source)
-  3. Read chunks sequentially from temporary target
-  4. Update hash with each chunk
-  5. Update progress bar after each chunk
-  6. Finalize target hash
-  7. Compare source hash vs target hash for verification
-- **Fallback Verification:** If hash comparison fails or hash calculation errors occur:
-  1. Fall back to byte-by-byte comparison using same chunked approach
-  2. Log hash failure for debugging
-  3. Ensure verification still completes reliably
+   - **Chunk Size:** 1-8MB (derived from a global constant) chunks for target verification (via configurable constant, default 4MB (derived from a global constant))
+   - **Method Rationale:** Buffered chunked I/O preferred over mmap for network files to avoid pathological page-fault latency over network stack
+   - **Process Flow:**
+     1. Open temporary target file for reading
+     2. Initialize matching hasher (BLAKE3 or SHA-256 to match source)
+     3. Read chunks sequentially from temporary target
+     4. Update hash with each chunk
+     5. Update progress bar after each chunk
+     6. Finalize target hash
+     7. Compare source hash vs target hash for verification
+   - **Fallback Verification:** If hash comparison fails or hash calculation errors occur:
+     1. Fall back to byte-by-byte comparison using same chunked approach
+     2. Log hash failure for debugging
+     3. Ensure verification still completes reliably
 
 **3. Performance Benefits:**
-- **Reduced Network Traffic:** 25% reduction in network I/O compared to traditional verify approaches
-- **Memory Efficient:** Large files never fully materialized in memory
-- **Responsive Cancellation:** User can cancel within estimated 320ms on typical 100Mbps networks
-- **Hash Speed:** BLAKE3 provides superior performance on modern multi-core CPUs
-- **Cloud Storage Benefits:** Reduced sync conflicts and better handling of cloud provider throttling
-- **Enterprise Network Optimization:** Handles complex network topologies with symbolic links and junctions
+   - **Reduced Network Traffic:** 25% reduction in network I/O compared to traditional verify approaches
+   - **Memory Efficient:** Large files never fully materialized in memory
+   - **Responsive Cancellation:** User can cancel within estimated 320ms on typical 100Mbps networks
+   - **Hash Speed:** BLAKE3 provides superior performance on modern multi-core CPUs
+   - **Cloud Storage Benefits:** Reduced sync conflicts and better handling of cloud provider throttling
+   - **Enterprise Network Optimization:** Handles complex network topologies with symbolic links and junctions
 
 **4. Progress Reporting:**
-- Copy phase: Progress updates every 4MB (derived from a global constant) chunk processed (both read and hash calculation)
-- Verification phase: Progress updates every 4MB (derived from a global constant) of target hash calculation
-- Dual progress indication: separate bars for copy phase and verify phase
+   - Copy phase: Progress updates every 4MB (derived from a global constant) chunk processed (both read and hash calculation)
+   - Verification phase: Progress updates every 4MB (derived from a global constant) of target hash calculation
+   - Dual progress indication: separate bars for copy phase and verify phase
 
 **Algorithmic Flow - EXAMPLE ONLY:**
+
 ```python
 # NOTE that overwrite is deprecated and should be removed ...
 def _execute_staged_strategy(src: str, dst: str, overwrite: bool, # NOTE that overwrite is deprecated and should be removed ...
@@ -512,37 +923,26 @@ def _execute_staged_strategy(src: str, dst: str, overwrite: bool, # NOTE that ov
         return _create_error_result(f"Copy operation failed: {e}")
 ```
 
-**Progressive Hash Copy Implementation - EXAMPLE ONLY:**
+??? missing ALL OF SECTION 9 ???
+
+
+## 10. Advanced Error Handling and Edge Cases
+
+### 10.1 UNC Path Rejection Implementation - example only
+
 ```python
-def _copy_with_progressive_hash(src: str, dst: str, progress_cb, cancel_event) -> CopyResult:
+def _validate_paths(src: str, dst: str) -> ValidationResult:
     """
-    Chunked copy with simultaneous source hash calculation.
+    Comprehensive path validation with UNC rejection.
     
-    Benefits:
-    - Single read pass through source file
-    - Progressive hash calculation during copy
-    - Reduced total I/O compared to copy-then-hash approach
-    - Network-optimized chunk sizes
+    Implements dual-layer UNC rejection:
+    - UI level: Prevent UNC path entry
+    - Engine level: Safety net for programmatic calls
     """
     
-    chunk_size = C.FILECOPY_NETWORK_CHUNK_BYTES
-    total_size = Path(src).stat().st_size
-    bytes_copied = 0
-    
-    # Initialize BLAKE3 hasher (with fallback)
-    try:
-        import blake3
-        hasher = blake3.blake3()
-        hash_algorithm = "BLAKE3"
-    except ImportError:
-        # Fallback to hashlib implementation
-        import hashlib
-        hasher = hashlib.sha256()  # Or sha512 based on preference
-        hash_algorithm = "SHA256"
-    
-    try:
-        with open(src, 'rb') as src_file, open(dst, 'wb') as dst_file:
-            while bytes_copied < total_size: # Check cancellation if cancel_event and cancel_event.is_set(): return CopyResult(success=False, cancelled=True)  # Read chunk from source remaining = total_size - bytes_copied current_chunk_size = min(chunk_size, remaining) chunk = src_file.read(current_chunk_size)  if not chunk: # EOF reached unexpectedly break  # Write to destination dst_file.write(chunk)  # Update hash hasher.update(chunk)  # Update progress bytes_copied += len(chunk) if progress_cb: progress_percentage = (bytes_copied  total_size) * 100 progress_cb(bytes_copied, total_size, progress_percentage)  # Finalize hash computed_hash = hasher.hexdigest()  return CopyResult( success=True,  bytes_copied=bytes_copied, computed_hash=computed_hash, hash_algorithm=hash_algorithm )  except Exception as e: return CopyResult(success=False, error=f"Copy operation failed: {e}")```## 9. Comprehensive Verification Algorithms - Detailed Technical Implementation### 9.1 Memory-Mapped Window Verification (DIRECT Strategy) - Overview Technical Specification**Purpose:** High-performance local file verification using OS-optimized memory mapping with intelligent fallback mechanisms.**Technical Implementation Details:****9.1.1 Window Configuration and Sizing**- **Default Window Size:** 64 MiB (configurable via `FILECOPY_MMAP_WINDOW_BYTES`)- **Rationale:** 64MB provides optimal balance between: - Memory usage (conservative for older systems) - IO efficiency (fewer system calls) - Cancellation responsiveness (~500ms latency on typical 150MBs HDDs) - **GUIDANCE** the program will start at default 64 MiB and over time and usage and feedback that choice be reviewed.- **Adjustable Range:** 8MB minimum to 256MB maximum for different system configurations- **Memory Constraint Handling:** In future development we will consider a feature to Automatically reduce window size if system memory < 2GB available; probably not though.**9.1.2 Detailed Process Flow**```pythondef _verify_by_mmap_windows(src: str, dst: str, progress_cb, cancel_event) -> bool: """ Comprehensive memory-mapped window verification with fallback support.  Technical Process: 1. Validate file sizes match (quick pre-check) 2. Handle empty files (immediate success) 3. Open both files with read-only memory mapping 4. Process files in sequential windows from start to end 5. Compare each window using direct memory comparison 6. Implement automatic fallback on mmap failures 7. Provide responsive progress reporting and cancellation """```**9.1.3 Memory Mapping Advantages**- **OS-Paged Reads:** Utilizes 4KB OS page reads without full file materialization- **Memory Efficiency:** Large files never fully loaded into RAM (critical for memory-constrained systems)- **Early Failure Detection:** Comparison stops immediately on first window mismatch- **Cache Optimization:** OS handles memory caching automatically for optimal performance- **Virtual Memory Benefits:** Leverages OS virtual memory management for large files**9.1.4 Intelligent Fallback Mechanism**```python# Fallback triggers:# - Exotic filesystem incompatibilities (network filesystems, encrypted volumes)# - Memory mapping failures (insufficient virtual address space)# - File locking conflicts (antivirus interference)# - Permission issues (read-only files, access denied)if mmap_fails_for_window: # Automatic fallback to buffered comparison for THIS window only success = _buffered_window_compare(src_file, dst_file, offset, window_size) # Continue with mmap for subsequent windows continue_with_mmap = True```**9.1.5 Progress Reporting and Cancellation**- **Progress Updates:** After each 64MB window comparison- **Cancellation Responsiveness:** Check cancel event before each window- **Performance Metrics:** Track windows processed, bytes verified, elapsed time- **Memory Usage:** Monitor and report memory mapping efficiency**9.1.6 Error Handling and Recovery**- **File Size Mismatches:** Immediate failure with detailed size information- **Mapping Failures:** Automatic fallback with logging for debugging- **Comparison Errors:** Detailed reporting of mismatch location and window- **Resource Cleanup:** Guaranteed memory mapping cleanup on success or failure### 9.2 Hash Verification with BLAKE3 (STAGED Strategy) - Overview Technical Specification**Purpose:** Network-optimized hash-based verification using progressive calculation and chunked IO for maximum efficiency.**9.2.1 Hash Algorithm Selection and Performance**- **Primary Algorithm:** BLAKE3 - **Speed:** 3-5x faster than SHA-512 on modern multi-core CPUs - **Security:** Cryptographically secure with 256-bit output - **Parallelization:** Utilizes multiple CPU cores automatically - **Memory Efficiency:** Low memory footprint during computation- **Fallback Algorithm:** SHA-256 (if BLAKE3 unavailable) - **Compatibility:** Available in Python standard library - **Reliability:** Well-tested, widely supported - **Performance:** Adequate for network-limited scenarios**9.2.2 Progressive Hash Calculation During Copy**```pythondef _copy_with_progressive_hash(src: str, temp_dst: str, progress_cb, cancel_event): """ Single-pass copy with simultaneous hash calculation.  Network Efficiency Benefits: - Eliminates redundant source file reads over network - Reduces total network IO from 4x to 3x file size - Calculates source hash during mandatory copy operation - No additional network latency for source verification """  chunk_size = C.FILECOPY_NETWORK_CHUNK_BYTES # 4MB default hasher = blake3.blake3() # or hashlib.sha256() fallback  while copying: chunk = src_file.read(chunk_size) hasher.update(chunk) # Progressive hash calculation temp_dst_file.write(chunk) # Progress update every 4MB (~320ms on 100Mbps networks)```**9.2.3 Target Hash Calculation with Chunked IO**- **Chunk Size:** 4MB chunks (matching copy phase for consistency)- **Method Rationale:** Buffered IO preferred over mmap for network files - **Network Optimization:** Avoids pathological page-fault latency over network stack - **SMBNAS Compatibility:** Better performance with network filesystem protocols - **Memory Predictability:** Consistent memory usage regardless of file size- **Process Flow:** 1. Open temporary target file for sequential reading 2. Initialize hasher matching copy phase algorithm 3. Read and hash in 4MB chunks with progress reporting 4. Compare final hash against source hash from copy phase**9.2.4 Hash Comparison and Verification**```pythondef _verify_hash_comparison(source_hash: str, target_hash: str, algorithm: str) -> bool: """ Secure hash comparison with timing attack protection.  Verification Process: 1. Compare hash lengths (basic validation) 2. Perform constant-time comparison (security best practice) 3. Log verification results with algorithm and hash details 4. Return boolean successfailure result """  if len(source_hash) != len(target_hash): return False  # Constant-time comparison prevents timing attacks return hmac.compare_digest(source_hash.encode(), target_hash.encode())```**9.2.5 Fallback Verification for Hash Failures**```python# Hash calculation fallback triggers:# - BLAKE3 import failure (missing library)# - Hash calculation exceptions (memory issues, file corruption)# - Hash comparison mismatches (potential false positives)if hash_verification_fails: # Automatic fallback to byte-by-byte comparison return _chunked_byte_comparison(src, temp_dst, chunk_size, progress_cb) # Uses same 4MB chunking for consistency # Provides definitive verification result # Logs hash failure details for debugging```### 9.3 Verification Policy Implementation - User Control Interface**9.3.1 Three-Mode Verification System**Based on mandatory UI radio button requirements (M04):1. **"Verify no files" Mode:** - Skip all verification operations - Fastest copy performance - Use with caution - no integrity checking - Recommended only for trusted local operations2. **"Verify every file after each copy" Mode (DEFAULT):** - Apply verification to all files regardless of size - Maximum data integrity assurance - Uses appropriate method (mmap for DIRECT, hash for STAGED) - Recommended setting for maximum safety3. **"Verify only files < [threshold] after each copy" Mode:** - Verify files under specified size threshold (default 2GB) - Balance between performance and safety - Large files skip verification (performance optimization) - Threshold configurable via `FILECOPY_VERIFY_THRESHOLD_BYTES`**9.3.2 Implementation Logic - example only**```pythondef _should_verify_file(file_size: int, copy_strategy: str) -> bool: """ Determine verification requirement based on user policy and file characteristics.  Decision Matrix: - Policy 'none': Never verify - Policy 'all': Always verify - Policy 'lt_threshold': Verify if file_size < threshold - Invalid policy: Default to 'all' for safety """  verify_policy = C.FILECOPY_VERIFY_POLICY  if verify_policy == 'none': return False elif verify_policy == 'all': return True elif verify_policy == 'lt_threshold': return file_size < C.FILECOPY_VERIFY_THRESHOLD_BYTES else: # Safety default: verify everything if policy corrupted return True```**9.3.3 Performance Impact and User Guidance**- **Verification Overhead:** Typically 15-30% additional time for local files- **Network Verification:** Minimal overhead due to progressive hashing approach- **User Education:** Clear labeling explains performance vs safety trade-offs- **Threshold Guidance:** 2GB default balances verification coverage with performance## 10. Advanced Error Handling and Edge Cases### 10.1 UNC Path Rejection Implementation - example only```pythondef _validate_paths(src: str, dst: str) -> ValidationResult: """ Comprehensive path validation with UNC rejection.  Implements dual-layer UNC rejection: - UI level: Prevent UNC path entry - Engine level: Safety net for programmatic calls """  def is_unc_path(path: str) -> bool: """Detect UNC paths (\\server\share format)""" return path.startswith('\\\\') and len(path.split('\\')) >= 4
+    def is_unc_path(path: str) -> bool:
+        """Detect UNC paths (\\server\share format)"""
+        return path.startswith('\\\\') and len(path.split('\\')) >= 4
     
     def normalize_long_path(path: str) -> str:
         """Apply \\?\ prefix for long local paths"""
@@ -742,7 +1142,7 @@ def _check_sufficient_space(src: str, dst: str, backup_path: str = None) -> Spac
 
 ```python
 # Windows API Constants and Structures
-# Add to FolderCompareSync_Global_Imports.py
+# Add to FolderCompareSync_Global_Constants.py
 
 # File Copy Constants
 COPY_FILE_FAIL_IF_EXISTS = 0x00000001
@@ -1429,13 +1829,94 @@ def _perform_secure_rollback(temp_path: str, backup_path: str, target_path: str,
 
 ### 13.1 Memory Management for Large Files - example only
 
-```python
+```
 def _optimize_memory_usage(file_size: int) -> MemoryStrategy:
     """
     Determine optimal memory strategy based on file size and system resources.
     
     Strategies:
-    - Small files (< 64MB): Load entirely into memory - Medium files (64MB - 1GB): Use memory mapping - Large files (> 1GB): Use chunked streaming - Network files: Always use chunked streaming """  # Get available system memory try: import psutil available_memory = psutil.virtual_memory().available except ImportError: # Fallback: Assume 4GB available available_memory = 4 * 1024**3  # Conservative memory usage: max 25% of available memory max_memory_usage = available_memory * 0.25  if file_size < 64 * 1024**2: # < 64MB return MemoryStrategy( type="in_memory", buffer_size=file_size, description="Small file - load entirely into memory" ) elif file_size < min(1024**3, max_memory_usage): # < 1GB or available memory return MemoryStrategy( type="memory_mapped", window_size=C.FILECOPY_MMAP_WINDOW_BYTES, description="Medium file - use memory mapping" ) else: return MemoryStrategy( type="chunked_streaming", chunk_size=C.FILECOPY_NETWORK_CHUNK_BYTES, description="Large file - use chunked streaming" )```### 13.2 Debug Instrumentation for Performance Tuning - example only```python# Performance-critical sections with commented debug statementsdef _copy_with_performance_monitoring(src: str, dst: str) -> CopyResult: """ Copy implementation with performance monitoring capabilities.  Debug statements are commented out for production performance. Uncomment during performance analysis as needed. """  start_time = time.perf_counter() bytes_copied = 0  # # DEBUG: Uncomment for detailed timing analysis # chunk_times = [] # io_wait_times = []  try: with open(src, 'rb') as src_file, open(dst, 'wb') as dst_file: while True: # # DEBUG: Uncomment for chunk-level timing # chunk_start = time.perf_counter()  chunk = src_file.read(C.FILECOPY_NETWORK_CHUNK_BYTES) if not chunk: break  # # DEBUG: Uncomment for IO wait timing # io_start = time.perf_counter() dst_file.write(chunk) # io_end = time.perf_counter() # io_wait_times.append(io_end - io_start)  bytes_copied += len(chunk)  # # DEBUG: Uncomment for chunk timing collection # chunk_end = time.perf_counter() # chunk_times.append(chunk_end - chunk_start)  end_time = time.perf_counter() total_time = end_time - start_time throughput = bytes_copied  total_time if total_time > 0 else 0
+    - Small files (< 64MB): Load entirely into memory
+    - Medium files (64MB - 1GB): Use memory mapping
+    - Large files (> 1GB): Use chunked streaming
+    - Network files: Always use chunked streaming
+    """
+    
+    # Get available system memory
+    try:
+        import psutil
+        available_memory = psutil.virtual_memory().available
+    except ImportError:
+        # Fallback: Assume 4GB available
+        available_memory = 4 * 1024**3
+    
+    # Conservative memory usage: max 25% of available memory
+    max_memory_usage = available_memory * 0.25
+    
+    if file_size < 64 * 1024**2:  # < 64MB
+        return MemoryStrategy(
+            type="in_memory",
+            buffer_size=file_size,
+            description="Small file - load entirely into memory"
+        )
+    elif file_size < min(1024**3, max_memory_usage):  # < 1GB or available memory
+        return MemoryStrategy(
+            type="memory_mapped",
+            window_size=C.FILECOPY_MMAP_WINDOW_BYTES,
+            description="Medium file - use memory mapping"
+        )
+    else:
+        return MemoryStrategy(
+            type="chunked_streaming",
+            chunk_size=C.FILECOPY_NETWORK_CHUNK_BYTES,
+            description="Large file - use chunked streaming"
+        )
+```
+
+### 13.2 Debug Instrumentation for Performance Tuning - example only
+
+# Performance-critical sections with commented debug statements
+
+```
+def _copy_with_performance_monitoring(src: str, dst: str) -> CopyResult:
+    """
+    Copy implementation with performance monitoring capabilities.
+    
+    Debug statements are commented out for production performance.
+    Uncomment during performance analysis as needed.
+    """
+    
+    start_time = time.perf_counter()
+    bytes_copied = 0
+    
+    # # DEBUG: Uncomment for detailed timing analysis
+    # chunk_times = []
+    # io_wait_times = []
+    
+    try:
+        with open(src, 'rb') as src_file, open(dst, 'wb') as dst_file:
+            while True:
+                # # DEBUG: Uncomment for chunk-level timing
+                # chunk_start = time.perf_counter()
+                
+                chunk = src_file.read(C.FILECOPY_NETWORK_CHUNK_BYTES)
+                if not chunk:
+                    break
+                
+                # # DEBUG: Uncomment for I/O wait timing
+                # io_start = time.perf_counter()
+                dst_file.write(chunk)
+                # io_end = time.perf_counter()
+                # io_wait_times.append(io_end - io_start)
+                
+                bytes_copied += len(chunk)
+                
+                # # DEBUG: Uncomment for chunk timing collection
+                # chunk_end = time.perf_counter()
+                # chunk_times.append(chunk_end - chunk_start)
+        
+        end_time = time.perf_counter()
+        total_time = end_time - start_time
+        throughput = bytes_copied / total_time if total_time > 0 else 0
         
         # # DEBUG: Uncomment for performance analysis
         # if chunk_times:
@@ -1464,7 +1945,7 @@ def _optimize_memory_usage(file_size: int) -> MemoryStrategy:
     except Exception as e:
         return CopyResult(success=False, error=str(e))
 ```
-
+        
 ## 14. Integration and Compatibility - example only
 
 ### 14.1 API Preservation - where reasonable
@@ -1726,7 +2207,7 @@ The developer must unilaterally choose the optimal approach to making changes ba
    - Implement constant loading and validation with "C." access pattern
 
 2. **Windows API Centralization (M14)** 
-   - Add enhanced Windows API bindings to `FolderCompareSync_Global_Imports.py`
+   - Add enhanced Windows API bindings to `FolderCompareSync_Global_Constants.py`
    - Implement proper error handling for all API calls
    - Add API call logging and debugging support
 
@@ -1765,4 +2246,76 @@ The developer must unilaterally choose the optimal approach to making changes ba
 1. **Verification Mode Radio Buttons**
    - Implement 3 mutually exclusive radio buttons in pre-copy UI
    - Connect radio button selection to `FILECOPY_VERIFY_POLICY`
-   - Ensure default selection is "Verify only files < [threshold] after each copy" - Add dynamic threshold display from global constants2. **Progress Integration (M06, M11)** - Implement near real-time progress reporting - Add multi-level progress (file and operation level) - Ensure responsive cancellation within 500ms**Priority 5: Rollback and Safety (M05, M10, M12)**1. **Secure Temporary File Implementation** - Implement secure temporary file copy approach - Add comprehensive rollback procedures with guaranteed safety - Implement rollback verification and reporting - Remove deprecated overwrite semantics (M12) 2. **Edge Case Handling** - Implement sparse file detection and warnings - Add disk space checking with different strategies for localnetwork - Implement long path normalization### 16.4 Phase 4: Testing and Documentation**Priority 6: Comprehensive Testing**1. **API Compatibility Layer** - Ensure drop-in compatibility with existing code - Implement enhanced `CopyOperationResult` with backward compatibility - Add migration support for existing configurations2. **UI and Integration Testing** - Test radio button functionality and state persistence - Test progress reporting and cancellation responsiveness - Validate strategy selection with different file types and locations**Priority 7: Documentation and Maintenance (M09)**1. **Developer Documentation** - Complete API documentation with examples - Add troubleshooting guides for rollback scenarios - Create performance tuning guidelines2. **User Documentation** - Update UI usage guides with radio button explanations - Add configuration guides for global constants - Create migration documentation from old FileCopyManager## 17. ConclusionThis specification provides a comprehensive blueprint for implementing a robust, high-performance file copy system that maintains backward compatibility while significantly enhancing functionality, performance, and reliability. The secure temporary file rollback approach eliminates data corruption risk by ensuring original target files are never modified until the copy is completely verified and ready.The technical guidance, extensive pseudo-code examples, comprehensive Windows API integration details, and explicit UI requirements ensure that developers have all the information needed for successful implementation.The specification addresses all mandatory requirements (M01-M14) while providing extensive flexibility for future enhancements and optimizations. The modular design, comprehensive error handling, detailed documentationsupport long-term maintainability and extensibility, and the clearly defined UI requirements ensure properuser interaction with the verification system.**Key Benefits of This Implementation:**- **Near Drop-in compatibility** ensures seamless integration (G.8, M08)- **Performance optimization** provides significant speed improvements (G.3)- **Superior rollback safety** guarantees zero data loss risk during copy operations (G.7, M05, M10)- **Comprehensive verification** with user-controlled radio buttons ensures zero data corruption (G.5, M04)- **Secure temporary file approach** eliminates corruption window during copy phase- **Centralized constants and imports** improve maintainability (M13, M14)- **Extensive documentation** supports long-term maintenance (G.9, M09)- **Future-proof design and commenting** enables easy enhancement and extension**Robust Safety Features:**- **Aim for close to Zero corruption risk** during copy operations - original files never touched until verification complete- **Atomic file placement** using proven rename operations for reliability- **Progressive verification** ensures only validated files are the result in the final destination- **Simple robust rollback** mechanism with guaranteed cleanup**UI Integration Highlights:**- **Three verification radio buttons** provide user control over verification policy- **Default "Verify only files < [threshold] after each copy" selection** ensures balanced safety out of the box, by default- **Dynamic threshold display** keeps users informed of current settings- **Near Real-time progress reporting** provides responsive user feedback- **Aim for near Sub-500ms cancellation** initial setting, works toward responsive user interaction
+   - Ensure default selection is "Verify only files < [threshold] after each copy" - Add dynamic threshold display from global constants
+2. **Progress Integration (M06, M11)** - Implement near real-time progress reporting - Add multi-level progress (file and operation level) - Ensure responsive cancellation within 500ms
+
+**Priority 5: Rollback and Safety (M05, M10, M12)**
+1. **Secure Temporary File Implementation** 
+   - Implement secure temporary file copy approach 
+   - Add comprehensive rollback procedures with guaranteed safety 
+   - Implement rollback verification and reporting 
+   - Remove deprecated overwrite semantics (M12) 
+2. **Edge Case Handling** - Implement sparse file detection and warnings 
+   - Add disk space checking with different strategies for localnetwork 
+   - Implement long path normalization
+
+### 16.4 Phase 4: Testing and Documentation
+
+**Priority 6: Comprehensive Testing**
+1. **API Compatibility Layer** 
+   - Ensure drop-in compatibility with existing code 
+   - Implement enhanced `CopyOperationResult` with backward compatibility 
+   - Add migration support for existing configurations
+2. **UI and Integration Testing** 
+   - Test radio button functionality and state persistence 
+   - Test progress reporting and cancellation responsiveness 
+   - Validate strategy selection with different file types and locations
+
+**Priority 7: Documentation and Maintenance (M09)**
+1. **Developer Documentation** 
+   - Complete API documentation with examples 
+   - Add troubleshooting guides for rollback scenarios 
+   - Create performance tuning guidelines
+2. **User Documentation** 
+   - Update UI usage guides with radio button explanations 
+   - Add configuration guides for global constants 
+   - Create migration documentation from old FileCopyManager
+   
+## 17. Conclusion 
+
+This specification provides a comprehensive blueprint for implementing a robust, high-performance file copy system that
+maintains backward compatibility while significantly enhancing functionality, performance, and reliability.
+The secure temporary file rollback approach eliminates data corruption risk by ensuring original target files are never modified
+until the copy is completely verified and ready.
+The technical guidance, extensive pseudo-code examples,
+comprehensive Windows API integration details, and explicit UI requirements ensure that developers have all
+the information needed for successful implementation.
+The specification addresses all mandatory requirements (M01-M14) while providing extensive flexibility for future enhancements and optimizations.
+The modular design, comprehensive error handling, detailed documentation support long-term maintainability and extensibility,
+and the clearly defined UI requirements ensure properuser interaction with the verification system.
+
+**Key Benefits of This Implementation:**
+   - **Near Drop-in compatibility** ensures seamless integration (G.8, M08)
+   - **Performance optimization** provides significant speed improvements (G.3)
+   - **Superior rollback safety** guarantees zero data loss risk during copy operations (G.7, M05, M10)
+   - **Comprehensive verification** with user-controlled radio buttons ensures zero data corruption (G.5, M04)
+   - **Secure temporary file approach** eliminates corruption window during copy phase
+   - **Centralized constants and imports** improve maintainability (M13, M14)
+   - **Extensive documentation** supports long-term maintenance (G.9, M09)
+   - **Future-proof design and commenting** enables easy enhancement and extension
+
+**Robust Safety Features:**
+   - **Aim for close to Zero corruption risk** during copy operations 
+   - original files never touched until verification complete
+   - **Atomic file placement** using proven rename operations for reliability
+   - **Progressive verification** ensures only validated files are the result in the final destination
+   - **Simple robust rollback** mechanism with guaranteed cleanup
+
+**UI Integration Highlights:**
+   - **Three verification radio buttons** provide user control over verification policy
+   - **Default "Verify only files < [threshold] after each copy" selection** ensures balanced safety out of the box, by default
+   - **Dynamic threshold display** keeps users informed of current settings
+   - **Near Real-time progress reporting** provides responsive user feedback
+   - **Aim for near Sub-500ms cancellation** initial setting, works toward responsive user interaction
+
+   
