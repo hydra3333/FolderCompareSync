@@ -1,0 +1,65 @@
+I need you to perform incremental updates to a Python FileCopyManager_class.py module and related modules
+to implement enhanced file copying and verification and rollback capabilities based on
+the attached detailed technical specification.
+
+**WHAT TO DO:** 
+- Read the attached technical specification for change
+- Ensure alignment with the goals and compliance with the mandatory requirements
+- Use the techical specification to inform coding and commenting, particularly in regard to specified technical process flows
+
+**APPROACH:**
+- ensure code uses the latest python techniques, inbuilts and structures etc available in python 3.13+ under Windows 10 / Windows 11
+- Update existing FileCopyManager_class.py module incrementally
+- Maintain existing API compatibility and integration patterns where pragmatic, recognising some change may be needed (eg where overwrite capability is removed) 
+- Preserve working error handling and logging and provide debug logging (per existing logging patetrns) except for inside tight performance loops (eg copying, verifying, hashing)
+- Add new functionality alongside existing code where pragmatic
+- Keep all code readable and well-commented
+
+**KEY REQUIREMENTS:**
+0. As outlined in the technical specification :-
+1. Implement secure temporary file rollback process (never corrupt original target files)
+2. Add DIRECT strategy (Windows CopyFileExW + memory-mapped verification for local files <2GB)
+3. Add STAGED strategy (chunked I/O + BLAKE3 hashing for network files or >=2GB files)
+4. Add three-mode verification system controlled by UI radio buttons
+5. Integrate with existing timestamp management and progress reporting
+6. Add comprehensive debug logging (except in tight performance loops)
+7. Update global constants and imports as specified
+8. Maintain backward compatibility with existing code
+
+**IMPLEMENTATION PRIORITIES:**
+1. Add new global constants to FolderCompareSync_Global_Constants.py
+2. Add Windows API bindings and their related Constants to FolderCompareSync_Global_Constants.py since they are more like definitions with their own specific Constants
+3. Implement secure and *extremely robust* copy and hashing and verification and rollback methods in FileCopyManager_class.py
+4. Add verification radio buttons integration in the main UI and use the selected value in the called rmodules
+5. Update timestamp management integration
+6. Add comprehensive error handling particularly in regard to ensuring copying and verifying and rollbacks are safely performed
+7. Add comprehensive debug logging per existing log_and_flush approach, except inside tight performance loops where commented-out debug-logging should be used
+8. Ensure appropriare status messages are displayed in the thkinter status area informing the user of useful things
+9. Ensure progress is displayed for copying and for verifying using tkinter, perhaps update the existing progress pop-up to align with the needs
+
+**TESTING:**
+0. I have an existing test kit to create folder trees with edge cases to verify the program
+1. The debug logging and status area will provide a trail of actions/data in sequence and help identify and locate anomalies
+
+**FILES ATTACHED:**
+- CLAUDE-01.GENERAL GOALS, REQUIREMENTS, COPY, VERIFY, METHODS, GOALS, MANDATORY REQUIREMENTS.txt (self explanatory)
+- CLAUDE-file_copy_manager_refactor_spec_v09.md (Technical specification document containing detailed requirements)
+- FileCopyManager_class.py (current implementation to update)
+- FolderCompareSync_Global_Constants.py (needs new constants)
+- FolderCompareSync_Global_Imports.py (needs Windows API bindings)
+- FileTimestampManager_class.py (for integration)
+- FolderCompareSync_class.py (for UI integration points)
+- ProgressDialog_class.py (for displaying progress of copies etc)
+
+Please analyze the specification and current code,
+then provide incremental updates to achieve the technical requirements
+while maintaining existing functionality and readability.
+All modules are to be displayed in their own new artifact.
+Very great care must be exercised to ennsure that an update to a module does not
+lose nor forget relevant code and that an updated artifact contains all relevant code.
+
+Before you do any coding, 
+(a) confirm to me whether or not you understand this and the attachments
+(b) BEFORE doing any coding :-
+- if you want clarification on anything then ask me BEFORE doing any coding
+- then ask me whether to proceed with coding aligning with the above and with the specification
