@@ -1,4 +1,4 @@
-# FileCopyManager Refactor — Technical Specification v02
+# FileCopyManager Refactor — Technical Specification v10
 
 ## 1. Executive Summary
 
@@ -90,7 +90,7 @@
 
 **M11:** Tkinter provides near real-time **progress feedback** at both per-file and overall levels
 
-**M12:** Any existing "overwrite" function is to be removed as deprecated, files will be copied and verified and all files will have capability to be rolled back
+**M12:** Any existing "overwrite" function is deprecated and should be removed, files will be copied and verified and all files will have capability to be rolled back
 
 **M13:** Abstract global constants (including Windows-related constants) into the global constants module which exposes them as "C." via "import xxx as C"
 
@@ -428,6 +428,7 @@ FILECOPY_DRIVE_REMOTE = 4                                # Drive type constants
 
 **Algorithmic Flow - EXAMPLE ONLY:**
 ```python
+# NOTE that overwrite is deprecated and should be removed ...
 def _execute_direct_strategy(src: str, dst: str, overwrite: bool,
                              progress_cb, cancel_event) -> CopyOperationResult:
     """
@@ -446,7 +447,7 @@ def _execute_direct_strategy(src: str, dst: str, overwrite: bool,
         return _create_error_result(f"Failed to read source timestamps: {e}")
     
     if Path(dst).exists():
-        if not overwrite:
+        if not overwrite: # NOTE that overwrite is deprecated and should be removed ...
             return _create_error_result("Overwrite disabled, target exists")
         try:
             target_timestamps = timestamp_manager.get_file_timestamps(dst)
@@ -573,7 +574,8 @@ def _copy_with_windows_api(src: str, dst: str, progress_cb, cancel_event) -> Cop
 
 **Algorithmic Flow - EXAMPLE ONLY:**
 ```python
-def _execute_staged_strategy(src: str, dst: str, overwrite: bool,
+# NOTE that overwrite is deprecated and should be removed ...
+def _execute_staged_strategy(src: str, dst: str, overwrite: bool, # NOTE that overwrite is deprecated and should be removed ...
                              progress_cb, cancel_event) -> CopyOperationResult:
     """
     STAGED strategy implementation using secure temporary file approach.
@@ -593,7 +595,7 @@ def _execute_staged_strategy(src: str, dst: str, overwrite: bool,
     
     # Capture target timestamps for potential rollback (if target exists)
     if Path(dst).exists():
-        if not overwrite:
+        if not overwrite: # NOTE that overwrite is deprecated and should be removed ...
             return _create_error_result("Target file exists and overwrite is disabled")
         try:
             target_timestamps = timestamp_manager.get_file_timestamps(dst)
@@ -1303,6 +1305,7 @@ The enhanced rollback system uses secure temporary files to eliminate data corru
 4. **Automatic Rollback:** On any failure, simply delete temporary file (original untouched)
 
 ```python
+# NOTE that overwrite is deprecated and should be removed ...
 def _execute_secure_copy_with_rollback(src: str, dst: str, overwrite: bool) -> CopyOperationResult:
     """
     Secure copy implementation with guaranteed rollback safety.
@@ -1323,7 +1326,7 @@ def _execute_secure_copy_with_rollback(src: str, dst: str, overwrite: bool) -> C
         # Phase 1: Timestamp Capture (never fails the operation)
         source_timestamps = _capture_timestamps(src)
         if Path(dst).exists():
-            if not overwrite:
+            if not overwrite: # NOTE that overwrite is deprecated and should be removed ...
                 return _create_error_result("Target exists and overwrite disabled")
             target_timestamps = _capture_timestamps(dst)
         
@@ -1536,7 +1539,7 @@ class FileCopyManager_class:
         """Preserve existing constructor signature."""
         pass
     
-    # Core method compatibility (M12: overwrite parameter deprecated but maintained)
+    # Core method compatibility (M12: overwrite is deprecated and should be removed) ...)
     def copy_file(self, source_path: str, target_path: str, overwrite: bool = True) -> CopyOperationResult:
         """
         Preserve exact method signature and return type.
@@ -1547,7 +1550,7 @@ class FileCopyManager_class:
         - Atomic rollback capabilities
         - Performance optimization
         
-        Note: overwrite parameter is deprecated (M12) but maintained for compatibility.
+        Note: overwrite parameter is deprecated (M12) and should be removed ...
         All operations now use backup/rollback semantics.
         """
         pass
@@ -1834,7 +1837,7 @@ The developer must unilaterally choose the optimal approach to making changes ba
    - Implement secure temporary file copy approach
    - Add comprehensive rollback procedures with guaranteed safety
    - Implement rollback verification and reporting
-   - Remove deprecated overwrite semantics (M12)
+   - Remove deprecated overwrite semantics (M12) 
 
 2. **Edge Case Handling**
    - Implement sparse file detection and warnings
