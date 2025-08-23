@@ -1,10 +1,11 @@
 I need you to perform incremental updates to a Python FileCopyManager_class.py module and related modules
-to implement enhanced file copying and verification and rollback capabilities based on a detailed technical specification.
+to implement enhanced file copying and verification and rollback capabilities based on
+the attached detailed technical specification.
 
 **WHAT TO DO:** 
 - Read the attached technical specification for change
 - Ensure alignment with the goals and compliance with the mandatory requirements
-- Use the techical specification to inform coding and commenting, particularly in regard to specified technical options and processes
+- Use the techical specification to inform coding and commenting, particularly in regard to specified technical process flows
 
 **APPROACH:**
 - ensure code uses the latest python techniques, inbuilts and structures etc available in python 3.13+ under Windows 10 / Windows 11
@@ -28,36 +29,37 @@ to implement enhanced file copying and verification and rollback capabilities ba
 **IMPLEMENTATION PRIORITIES:**
 1. Add new global constants to FolderCompareSync_Global_Constants.py
 2. Add Windows API bindings and their related Constants to FolderCompareSync_Global_Constants.py since they are more like definitions with their own specific Constants
-3. Implement secure and *very robust* copy and hashing and verification and rollback methods in FileCopyManager_class.py
-4. Add verification radio buttons integration in the main UI
+3. Implement secure and *extremely robust* copy and hashing and verification and rollback methods in FileCopyManager_class.py
+4. Add verification radio buttons integration in the main UI and use the selected value in the called rmodules
 5. Update timestamp management integration
-6. Add comprehensive error handling and logging (except in tight performance loops), use existing log_and_flush approach per existing code
+6. Add comprehensive error handling particularly in regard to ensuring copying and verifying and rollbacks are safely performed
+7. Add comprehensive debug logging per existing log_and_flush approach, except inside tight performance loops where commented-out debug-logging should be used
+8. Ensure appropriare status messages are displayed in the thkinter status area informing the user of useful things
+9. Ensure progress is displayed for copying and for verifying using tkinter, perhaps update the existing progress pop-up to align with the needs
 
-**TESTING:** I have an existing test kit to create folder trees with edge cases to verify the program
-1. include reasonable debug logging throughout (except in performance-critical copy/verify/hashing loops)
+**TESTING:**
+0. I have an existing test kit to create folder trees with edge cases to verify the program
+1. The debug logging and status area will provide a trail of actions/data in sequence and help identify and locate anomalies
 
 **FILES ATTACHED:**
-- Technical specification document (contains all detailed requirements)
+- CLAUDE-01.GENERAL GOALS, REQUIREMENTS, COPY, VERIFY, METHODS, GOALS, MANDATORY REQUIREMENTS.txt (self explanatory)
+- CLAUDE-file_copy_manager_refactor_spec_v09.md (Technical specification document containing detailed requirements)
 - FileCopyManager_class.py (current implementation to update)
 - FolderCompareSync_Global_Constants.py (needs new constants)
 - FolderCompareSync_Global_Imports.py (needs Windows API bindings)
 - FileTimestampManager_class.py (for integration)
 - FolderCompareSync_class.py (for UI integration points)
+- ProgressDialog_class.py (for displaying progress of copies etc)
 
-Please analyze the specification and current code, then provide incremental updates to achieve the technical requirements while maintaining existing functionality and readability.
-
-**ATTACHED FILES:**
-1. **CLAUDE-file_copy_manager_refactor_spec_v??.md** (technical specification)
-2. **FileCopyManager_class.py** (current implementation)
-3. **FolderCompareSync_Global_Constants.py** (current constants)
-4. **FolderCompareSync_Global_Imports.py** (current imports)
-5. **FileTimestampManager_class.py** (for timestamp integration)
-6. **FolderCompareSync_class.py** (for UI integration context)
+Please analyze the specification and current code,
+then provide incremental updates to achieve the technical requirements
+while maintaining existing functionality and readability.
+All modules are to be displayed in their own new artifact.
+Very great care must be exercised to ennsure that an update to a module does not
+lose nor forget relevant code and that an updated artifact contains all relevant code.
 
 Before you do any coding, 
 (a) confirm to me whether or not you understand this and the attachments
-(b) if you need clarification then ask me before doing any coding
-(c) before doing any coding, ask me whether to proceed with coding per the above and the specification
-
-
-
+(b) BEFORE doing any coding :-
+- if you want clarification on anything then ask me BEFORE doing any coding
+- then ask me whether to proceed with coding aligning with the above and with the specification

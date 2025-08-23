@@ -88,7 +88,7 @@ want a fast windows-optimized we copy function which facilitates a progress bar 
 2.2 After copying, walk the source and target files in fixed-size mmap windows (e.g., 8–64 MiB, based on a clearly named global constant), 
 comparing windowed chunks, (i.e. omitting but leaving provision for a hashing scheme in terms of comments to "place hashing code here")
 and compare each window during the windowed mmap compare (perhaps this approach permits early failing if a window mismatch occurs).
-Fallback: if a mmap window read fails (e.g., on exotic FS or a glittch of some kind), then
+Fallback: if a mmap window read fails (e.g., on exotic FS or a glitch of some kind), then
 automatically fall back to plain buffered compare for that window.
 This gives OS-paged reads (4 KiB pages) without loading the whole file, works well on memory-constrained PCs,
 and is faster than single read() the entire file into Python buffers for large files, as well as avoiding an "==" on
