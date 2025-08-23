@@ -1,0 +1,23 @@
+Answers below.
+
+1. **Strategy Selection Logic**: The spec mentions 2GB threshold for DIRECT vs STAGED. Should this be configurable, and should cloud storage detection (OneDrive, Google Drive, etc.) always force STAGED regardless of file size?
+Cloud storage is to be treated per the table in section 5.1  i.e. always staged regardless of size.
+
+2. **Verification Radio Buttons Location**: Where exactly in the FolderCompareSync UI should the three verification radio buttons be placed? Near the copy buttons, or in the comparison options section?
+Since the choice is directly related to a copy action, place them near the near the copy buttons.
+
+3. **BLAKE3 Dependency**: Should I assume BLAKE3 library will be available, or implement the SHA-256 fallback as the primary with BLAKE3 as optional enhancement?
+Section 5.3 states that blake3 is the primary, so lets stick with that.
+
+4. **Progress Dialog Enhancement**: Should the existing ProgressDialog_class be enhanced to show separate progress for copy phase vs verification phase, or create a new dual-progress dialog?
+I think create a new clearly named dual-progress dialog dedicated to copying and verifying, perhaps if possible within the ProgressDialog_class.
+
+5. **Backward Compatibility**: The current FileCopyManager has `copy_file(src, dst, overwrite=True)` - should I maintain this signature but ignore the overwrite parameter, or change it to `copy_file(src, dst)` since overwrite is deprecated?
+Goal G.7 states "Existing overwrite functionality must be deprecated and removed" so lets change the sigature
+
+6. **Debug Logging Level**: For the "commented-out debug statements in tight loops" - should these be conditional based on a debug flag, or literally commented out in the source?
+Literally commented out in the source, perhaps also having a commented-out IF conditional based on a debug flag with it
+
+Proceed with Coding? The implementation will prioritize safety (secure rollback), performance (intelligent strategy selection), and maintainability (comprehensive commenting and error handling) as specified.
+Yes pleae proceed now.
+
