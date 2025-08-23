@@ -82,13 +82,125 @@ COPY_PREVIEW_MAX_ITEMS = 10                       # Max items to show in copy pr
 SCAN_PROGRESS_UPDATE_INTERVAL = 50                # Update scanning progress every N items
 COMPARISON_PROGRESS_BATCH = 100                   # Process comparison updates every N items
 
-# Copy System Configuration
+# Copy System Configuration (Legacy - kept for backward compatibility)
 COPY_STRATEGY_THRESHOLD = (1024 * 1024) * 200    # 200MB threshold for copy strategy selection into STAGED (rename-based backup)
 COPY_VERIFICATION_ENABLED = True                 # Enable post-copy simple verification
 COPY_RETRY_COUNT = 3                             # Number of retries for failed operations
 COPY_RETRY_DELAY = 1.0                           # Delay between retries in seconds
 COPY_CHUNK_SIZE = 64 * 1024                      # 64KB chunks for large file copying
 COPY_NETWORK_TIMEOUT = 30.0                      # Network operation timeout in seconds
+
+# ============================================================================
+# ENHANCED FILE COPY SYSTEM CONFIGURATION (M01-M15)
+# ============================================================================
+
+# Copy Strategy Control (M01, M02, M03)
+FILECOPY_COPY_STRATEGY_THRESHOLD_BYTES = 2 * 1024**3      # 2 GiB - DIRECT vs STAGED
+FILECOPY_MAXIMUM_COPY_FILE_SIZE_BYTES = 20 * 1024**3     # 20 GiB - Hard size limit
+
+# Performance Tuning - DIRECT Strategy (M08)
+FILECOPY_MMAP_WINDOW_BYTES = 64 * 1024**2                # 64 MiB - Verification windows
+FILECOPY_MMAP_FALLBACK_MAX_CONSECUTIVE_FAILURES = 5      # Max consecutive mmap failures before copy fails
+
+# Performance Tuning - STAGED Strategy (M08) 
+FILECOPY_NETWORK_CHUNK_BYTES = 4 * 1024**2               # 4 MiB - Network I/O chunks
+
+# Verification Configuration (M04)
+FILECOPY_VERIFY_THRESHOLD_BYTES = 2 * 1024**3            # 2 GiB - Verify size limit
+FILECOPY_VERIFY_POLICY = 'lt_threshold'                  # none | lt_threshold | all (default)
+FILECOPY_VERIFY_POLICY_DEFAULT = 'lt_threshold'          # Default UI selection
+
+# System Resource Management
+FILECOPY_FREE_DISK_SPACE_MARGIN = 64 * 1024**2          # 64 MiB - Safety margin
+FILECOPY_ATTRIBUTE_SPARSE_FILE_WARNING = True           # Warn on sparse files
+
+# Error Handling and Recovery
+FILECOPY_BLAKE3_FALLBACK_ENABLED = True                 # Enable byte comparison fallback
+FILECOPY_UNC_PATH_REJECTION_STRICT = True               # Reject UNC paths
+FILECOPY_LONG_PATH_NORMALIZATION = True                 # Enable \\?\ prefix support
+
+# Progress Reporting Configuration (M06, M11)
+FILECOPY_PROGRESS_UPDATE_FREQUENCY_HZ = 20.0            # Progress updates per second
+FILECOPY_PROGRESS_CANCELLATION_CHECK_MS = 500           # Target cancellation responsiveness (ms)
+
+# Enhanced Network Detection Control Flags
+FILECOPY_ENABLE_CLOUD_DETECTION = True                  # Enable cloud storage detection
+FILECOPY_ENABLE_SYMLINK_RESOLUTION = True               # Resolve symbolic links for network detection
+
+# Cloud Storage Detection Patterns (configurable)
+FILECOPY_CLOUD_STORAGE_PATTERNS = [
+    '\\ONEDRIVE\\', '\\ONEDRIVE - ',                    # OneDrive personal and business
+    '\\GOOGLE DRIVE\\',                                  # Google Drive
+    '\\DROPBOX\\',                                       # Dropbox
+    '\\BOX\\', '\\BOX SYNC\\',                          # Box storage
+    '\\ICLOUD DRIVE\\',                                  # iCloud Drive
+    '\\AMAZON DRIVE\\',                                  # Amazon Drive
+]
+
+# ============================================================================
+# WINDOWS API CONSTANTS AND STRUCTURES (M13, M15)
+# ============================================================================
+
+# File Copy Constants
+FILECOPY_COPY_FILE_FAIL_IF_EXISTS = 0x00000001
+FILECOPY_COPY_FILE_RESTARTABLE = 0x00000002
+FILECOPY_COPY_FILE_OPEN_SOURCE_FOR_WRITE = 0x00000004
+FILECOPY_COPY_FILE_ALLOW_DECRYPTED_DESTINATION = 0x00000008
+
+# Progress Callback Constants
+FILECOPY_PROGRESS_CONTINUE = 0
+FILECOPY_PROGRESS_CANCEL = 1
+FILECOPY_PROGRESS_STOP = 2
+FILECOPY_PROGRESS_QUIET = 3
+
+# Copy Callback Reasons
+FILECOPY_CALLBACK_CHUNK_FINISHED = 0x00000000
+FILECOPY_CALLBACK_STREAM_SWITCH = 0x00000001
+
+# Windows Error Codes
+FILECOPY_ERROR_SUCCESS = 0
+FILECOPY_ERROR_REQUEST_ABORTED = 1235
+FILECOPY_ERROR_DISK_FULL = 112
+FILECOPY_ERROR_HANDLE_DISK_FULL = 39
+FILECOPY_ERROR_NOT_ENOUGH_MEMORY = 8
+FILECOPY_ERROR_ACCESS_DENIED = 5
+FILECOPY_ERROR_FILE_NOT_FOUND = 2
+FILECOPY_ERROR_PATH_NOT_FOUND = 3
+FILECOPY_ERROR_FILE_EXISTS = 80
+FILECOPY_ERROR_ALREADY_EXISTS = 183
+
+# Drive Type Constants
+FILECOPY_DRIVE_UNKNOWN = 0
+FILECOPY_DRIVE_NO_ROOT_DIR = 1
+FILECOPY_DRIVE_REMOVABLE = 2
+FILECOPY_DRIVE_FIXED = 3
+FILECOPY_DRIVE_REMOTE = 4
+FILECOPY_DRIVE_CDROM = 5
+FILECOPY_DRIVE_RAMDISK = 6
+
+# File Attribute Constants
+FILECOPY_FILE_ATTRIBUTE_SPARSE_FILE = 0x200
+FILECOPY_FILE_ATTRIBUTE_COMPRESSED = 0x800
+FILECOPY_FILE_ATTRIBUTE_ENCRYPTED = 0x4000
+FILECOPY_INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF
+
+# File Access and Share Constants
+FILECOPY_GENERIC_WRITE = 0x40000000
+FILECOPY_FILE_WRITE_ATTRIBUTES = 0x100
+FILECOPY_FILE_SHARE_READ = 0x00000001
+FILECOPY_FILE_SHARE_WRITE = 0x00000002
+FILECOPY_OPEN_EXISTING = 3
+FILECOPY_FILE_ATTRIBUTE_NORMAL = 0x80
+FILECOPY_FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+FILECOPY_INVALID_HANDLE_VALUE = -1
+
+# Enhanced Path Resolution Constants
+FILECOPY_FILE_NAME_NORMALIZED = 0x0
+FILECOPY_FILE_NAME_OPENED = 0x8
+FILECOPY_VOLUME_NAME_DOS = 0x0
+FILECOPY_VOLUME_NAME_GUID = 0x1
+FILECOPY_VOLUME_NAME_NT = 0x2
+FILECOPY_VOLUME_NAME_NONE = 0x4
 
 # Performance and debug settings
 DEBUG_LOG_FREQUENCY = 100           # Log debug info every N items (avoid spam in large operations)
@@ -203,11 +315,9 @@ __all__ = [name for name in globals() if name.isupper() and not name.startswith(
 
 ################################################################################
 # Use this global constants file in the main program and every .py module like:
-#    from FolderCompareSync_Global_Constants import *
+#    import FolderCompareSync_Global_Constants as C
 ################################################################################
 
 #Tip: if you also want a few non-caps items (e.g., a function) exported, append them:
 #   VERSION_INFO = "v1.2.3"
 #   __all__.extend(["some_function_name", "VERSION_INFO"])
-
-

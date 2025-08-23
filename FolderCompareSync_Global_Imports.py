@@ -58,6 +58,11 @@ import json
 import locale
 import math
 from types import ModuleType
+# Memory mapping support
+import mmap
+
+# BLAKE3_AVAILABLE is declared as GLOBAL and reset below
+BLAKE3_AVAILABLE = False
 
 # ---------- helpers for late/optional imports & exporting ----------
 
@@ -139,7 +144,7 @@ def bind_latest(target_globals: dict) -> None:
 _OPTIONAL_INSTALL_HINTS = {
     # key by import name (right-hand side of your tuple)
     "tkinter": (
-        "Tk/tkinter isn’t usually installed via pip.\n"
+        "Tk/tkinter isn't usually installed via pip.\n"
         "Windows: re-run the official Python installer and select 'tcl/tk'.\n"
         # Add more OS hints if you wish:
         # "Debian/Ubuntu:  sudo apt-get install python3-tk\n"
@@ -153,7 +158,7 @@ def _check_dependencies(deps: list[tuple[str, str]]) -> None:
     deps: list of (pip_pkg_name, import_name) to verify.
     On failure: print clear instructions and exit with status 1.
     """
-    missing_pip: list[str] = []                      # ones we’ll suggest 'pip install' for
+    missing_pip: list[str] = []                      # ones we'll suggest 'pip install' for
     missing_custom_msgs: list[tuple[str, str]] = []  # (import_name, msg) pairs for special cases
 
     for pkg_name, import_name in deps:
@@ -185,27 +190,196 @@ def check_and_import_core_deps() -> None:
         ("tzdata",          "zoneinfo"),     # tzdata provides zoneinfo database
         ("python-dateutil", "dateutil.tz"),  # dateutil.tz for tzwinlocal on Windows
         ("tkinter",         "tkinter"),      # tkinter required
+        ("blake3",          "blake3"),        # blake3 required
     ])
 
     # *** Passed checking
-    # Now do NORMAL imports (not "ensure_*" calls). These then auto become part of this module’s globals:
+    # Now do NORMAL imports (not "ensure_*" calls). These then auto become part of this module's globals:
     import zoneinfo
     from zoneinfo import ZoneInfo
     from dateutil.tz import tzwinlocal
     import tkinter as tk
     from tkinter import ttk, filedialog, messagebox
     import tkinter.font as tkfont
+    import blake3
     # promote all these new locals into module globals
     g = globals()
     for name, val in locals().items():
         if name not in ("_check_dependencies", "g"):  # skip helper local variables
             g[name] = val
+    # Flag blake3 is available
+    global BLAKE3_AVAILABLE
+    BLAKE3_AVAILABLE    = True
+
+# ============================================================================
+# WINDOWS API BINDINGS AND STRUCTURES (M15)
+# ============================================================================
+
+def setup_windows_api_bindings():
+    """
+    Setup Windows API function bindings with proper signatures for enhanced file copy system.
+    
+    This function configures all Windows API calls needed for:
+    - CopyFileExW with progress callbacks
+    - Drive type detection 
+    - File attribute handling
+    - Path resolution and symbolic link handling
+    - Comprehensive error handling
+    """
+    
+    # Get kernel32 handle
+    kernel32 = ctypes.windll.kernel32
+    
+    # ============================================================================
+    # WINDOWS FILETIME STRUCTURE
+    # ============================================================================
+    
+    class FILETIME(ctypes.Structure):
+        """
+        Windows FILETIME structure.
+        Represents time as 100-nanosecond intervals since 1601-01-01 00:00:00 UTC.
+        """
+        _fields_ = [
+            ("dwLowDateTime", wintypes.DWORD),   # Low 32 bits of the 64-bit time value
+            ("dwHighDateTime", wintypes.DWORD),  # High 32 bits of the 64-bit time value
+        ]
+    
+    # ============================================================================
+    # PROGRESS CALLBACK FUNCTION TYPE
+    # ============================================================================
+    
+    PROGRESS_ROUTINE = ctypes.WINFUNCTYPE(
+        wintypes.DWORD,              # Return type
+        wintypes.LARGE_INTEGER,      # TotalFileSize
+        wintypes.LARGE_INTEGER,      # TotalBytesTransferred  
+        wintypes.LARGE_INTEGER,      # StreamSize
+        wintypes.LARGE_INTEGER,      # StreamBytesTransferred
+        wintypes.DWORD,              # StreamNumber
+        wintypes.DWORD,              # CallbackReason
+        wintypes.HANDLE,             # SourceFile
+        wintypes.HANDLE,             # DestinationFile
+        wintypes.LPVOID              # Data
+    )
+    
+    # ============================================================================
+    # WINDOWS API FUNCTION SIGNATURES
+    # ============================================================================
+    
+    # CopyFileExW - Enhanced file copy with progress callbacks
+    kernel32.CopyFileExW.argtypes = [
+        wintypes.LPCWSTR,            # lpExistingFileName
+        wintypes.LPCWSTR,            # lpNewFileName
+        PROGRESS_ROUTINE,            # lpProgressRoutine
+        wintypes.LPVOID,             # lpData
+        wintypes.LPBOOL,             # pbCancel
+        wintypes.DWORD               # dwCopyFlags
+    ]
+    kernel32.CopyFileExW.restype = wintypes.BOOL
+
+    # GetDiskFreeSpaceExW - Disk space checking
+    kernel32.GetDiskFreeSpaceExW.argtypes = [
+        wintypes.LPCWSTR,                           # lpDirectoryName
+        ctypes.POINTER(wintypes.ULARGE_INTEGER),    # lpFreeBytesAvailable
+        ctypes.POINTER(wintypes.ULARGE_INTEGER),    # lpTotalNumberOfBytes
+        ctypes.POINTER(wintypes.ULARGE_INTEGER)     # lpTotalNumberOfFreeBytes
+    ]
+    kernel32.GetDiskFreeSpaceExW.restype = wintypes.BOOL
+
+    # GetDriveTypeW - Drive type detection for strategy selection
+    kernel32.GetDriveTypeW.argtypes = [wintypes.LPCWSTR]
+    kernel32.GetDriveTypeW.restype = wintypes.UINT
+
+    # GetFileAttributesW - File attribute checking
+    kernel32.GetFileAttributesW.argtypes = [wintypes.LPCWSTR]
+    kernel32.GetFileAttributesW.restype = wintypes.DWORD
+
+    # CreateFileW - File handle creation
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,    # lpFileName (wide string path)
+        wintypes.DWORD,      # dwDesiredAccess
+        wintypes.DWORD,      # dwShareMode
+        wintypes.LPVOID,     # lpSecurityAttributes (usually NULL)
+        wintypes.DWORD,      # dwCreationDisposition
+        wintypes.DWORD,      # dwFlagsAndAttributes
+        wintypes.HANDLE      # hTemplateFile (usually NULL)
+    ]
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+
+    # SetFileTime - File timestamp modification
+    kernel32.SetFileTime.argtypes = [
+        wintypes.HANDLE,                 # hFile
+        ctypes.POINTER(FILETIME),        # lpCreationTime (can be NULL)
+        ctypes.POINTER(FILETIME),        # lpLastAccessTime (can be NULL)
+        ctypes.POINTER(FILETIME)         # lpLastWriteTime (can be NULL)
+    ]
+    kernel32.SetFileTime.restype = wintypes.BOOL
+
+    # CloseHandle - Handle cleanup
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    # GetLastError - Error code retrieval
+    kernel32.GetLastError.argtypes = []
+    kernel32.GetLastError.restype = wintypes.DWORD
+
+    # Enhanced path resolution APIs
+    kernel32.GetFullPathNameW.argtypes = [
+        wintypes.LPCWSTR,                    # lpFileName
+        wintypes.DWORD,                      # nBufferLength
+        wintypes.LPWSTR,                     # lpBuffer
+        ctypes.POINTER(wintypes.LPWSTR)      # lpFilePart
+    ]
+    kernel32.GetFullPathNameW.restype = wintypes.DWORD
+
+    kernel32.GetFinalPathNameByHandleW.argtypes = [
+        wintypes.HANDLE,                     # hFile
+        wintypes.LPWSTR,                     # lpszFilePath
+        wintypes.DWORD,                      # cchFilePath
+        wintypes.DWORD                       # dwFlags
+    ]
+    kernel32.GetFinalPathNameByHandleW.restype = wintypes.DWORD
+    
+    # Expose these to the global namespace
+    g = globals()
+    g['kernel32'] = kernel32
+    g['FILETIME'] = FILETIME
+    g['PROGRESS_ROUTINE'] = PROGRESS_ROUTINE
+    _export_name('kernel32')
+    _export_name('FILETIME')
+    _export_name('PROGRESS_ROUTINE')
+
+# ============================================================================
+# UTILITY FUNCTIONS FOR WINDOWS API INTEGRATION
+# ============================================================================
+
+def _u64_to_FILETIME(u64: int):
+    """
+    Convert a 64-bit integer to a FILETIME structure.
+    Args:
+        u64: 64-bit integer representing 100-nanosecond intervals since 1601
+    Returns:
+        FILETIME structure with properly split low/high DWORDs
+    """
+    return FILETIME(
+        dwLowDateTime=(u64 & 0xFFFFFFFF),        # Mask to get lower 32 bits
+        dwHighDateTime=((u64 >> 32) & 0xFFFFFFFF) # Shift and mask to get upper 32 bits
+    )
+
+def _FILETIME_to_u64(ft) -> int:
+    """
+    Convert a FILETIME structure to a 64-bit integer.
+    Args:
+        ft: FILETIME structure
+    Returns:
+        64-bit integer representing 100-nanosecond intervals since 1601
+    """
+    return (ft.dwHighDateTime << 32) | ft.dwLowDateTime
 
 # ---------- function to auto-build __all__ from what changed during imports ----------
 
 def _auto_build_all() -> list[str]:
     """
-    Export everything newly introduced by this module’s imports,
+    Export everything newly introduced by this module's imports,
     excluding private names and our internal helper symbols.
     """
     new_names = {k for k in globals().keys() if k not in _BASE_NAMES}
@@ -215,6 +389,7 @@ def _auto_build_all() -> list[str]:
         "_export_name",
         "ensure_global_import", "ensure_global_import_from", "bind_latest",
         "_check_dependencies", "check_and_import_core_deps", "_auto_build_all",
+        "setup_windows_api_bindings",
     }
     return sorted(
         n for n in new_names
@@ -222,6 +397,9 @@ def _auto_build_all() -> list[str]:
     )
 
 # ---------- Actually build the list of imports to be exported for all to see ----------
+
+# Setup Windows API bindings
+setup_windows_api_bindings()
 
 # Run the dependency check + imports at module import time
 check_and_import_core_deps()
@@ -253,6 +431,6 @@ __all__ = _auto_build_all()
 #     print(isclose(0.1 + 0.2, 0.3))  # True
 #
 # Remember:
-# - Later additions update THIS module’s globals and __all__ but not for any other modules
+# - Later additions update THIS module's globals and __all__ but not for any other modules
 # - Other modules do NOT automatically see new names; if you add at runtime, call bind_latest(globals()).
 #####################################################################################
