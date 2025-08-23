@@ -426,7 +426,7 @@ FILECOPY_DRIVE_REMOTE = 4                                # Drive type constants
 
 ### 8.1 DIRECT Strategy Implementation
 
-**Algorithmic Flow:**
+**Algorithmic Flow - EXAMPLE ONLY:**
 ```python
 def _execute_direct_strategy(src: str, dst: str, overwrite: bool,
                              progress_cb, cancel_event) -> CopyOperationResult:
@@ -495,7 +495,7 @@ def _execute_direct_strategy(src: str, dst: str, overwrite: bool,
     return _create_success_result(copy_result, "DIRECT")
 ```
 
-**Windows API Integration - CopyFileExW Implementation:**
+**Windows API Integration - CopyFileExW Implementation - EXAMPLE ONLY:**
 ```python
 def _copy_with_windows_api(src: str, dst: str, progress_cb, cancel_event) -> CopyResult:
     """
@@ -571,7 +571,7 @@ def _copy_with_windows_api(src: str, dst: str, progress_cb, cancel_event) -> Cop
 
 ### 8.2 STAGED Strategy Implementation
 
-**Algorithmic Flow:**
+**Algorithmic Flow - EXAMPLE ONLY:**
 ```python
 def _execute_staged_strategy(src: str, dst: str, overwrite: bool,
                              progress_cb, cancel_event) -> CopyOperationResult:
@@ -665,7 +665,7 @@ def _execute_staged_strategy(src: str, dst: str, overwrite: bool,
         return _create_error_result(f"Copy operation failed: {e}")
 ```
 
-**Progressive Hash Copy Implementation:**
+**Progressive Hash Copy Implementation - EXAMPLE ONLY:**
 ```python
 def _copy_with_progressive_hash(src: str, dst: str, progress_cb, cancel_event) -> CopyResult:
     """
@@ -736,7 +736,7 @@ def _copy_with_progressive_hash(src: str, dst: str, progress_cb, cancel_event) -
 
 ## 9. Comprehensive Verification Algorithms - Detailed Technical Implementation
 
-### 9.1 Memory-Mapped Window Verification (DIRECT Strategy) - Complete Technical Specification
+### 9.1 Memory-Mapped Window Verification (DIRECT Strategy) - Overview Technical Specification
 
 **Purpose:** High-performance local file verification using OS-optimized memory mapping with intelligent fallback mechanisms.
 
@@ -802,7 +802,7 @@ if mmap_fails_for_window:
 - **Comparison Errors:** Detailed reporting of mismatch location and window
 - **Resource Cleanup:** Guaranteed memory mapping cleanup on success or failure
 
-### 9.2 Hash Verification with BLAKE3 (STAGED Strategy) - Complete Technical Specification
+### 9.2 Hash Verification with BLAKE3 (STAGED Strategy) - Overview Technical Specification
 
 **Purpose:** Network-optimized hash-based verification using progressive calculation and chunked I/O for maximum efficiency.
 
@@ -910,7 +910,7 @@ Based on mandatory UI radio button requirements (M04):
    - Large files skip verification (performance optimization)
    - Threshold configurable via `FILECOPY_VERIFY_THRESHOLD_BYTES`
 
-**9.3.2 Implementation Logic**
+**9.3.2 Implementation Logic - example only**
 ```python
 def _should_verify_file(file_size: int, copy_strategy: str) -> bool:
     """
@@ -944,7 +944,7 @@ def _should_verify_file(file_size: int, copy_strategy: str) -> bool:
 
 ## 10. Advanced Error Handling and Edge Cases
 
-### 10.1 UNC Path Rejection Implementation
+### 10.1 UNC Path Rejection Implementation - example only
 
 ```python
 def _validate_paths(src: str, dst: str) -> ValidationResult:
@@ -988,7 +988,7 @@ def _validate_paths(src: str, dst: str) -> ValidationResult:
     )
 ```
 
-### 10.2 Sparse File Detection and Handling
+### 10.2 Sparse File Detection and Handling - example only
 
 ```python
 def _check_sparse_file_attributes(file_path: str) -> SparseFileInfo:
@@ -1065,7 +1065,7 @@ def _handle_sparse_file_copy(src: str, dst: str) -> CopyResult:
     return _execute_standard_copy(src, dst)
 ```
 
-### 10.3 Comprehensive Disk Space Checking
+### 10.3 Comprehensive Disk Space Checking - example only
 
 ```python
 def _check_sufficient_space(src: str, dst: str, backup_path: str = None) -> SpaceCheckResult:
@@ -1151,9 +1151,9 @@ def _check_sufficient_space(src: str, dst: str, backup_path: str = None) -> Spac
         )
 ```
 
-## 11. Windows API Implementation Details
+## 11. Windows API Implementation Details - example only
 
-### 11.1 Centralized Windows API Bindings (M13, M14)
+### 11.1 Centralized Windows API Bindings (M13, M14) - example only
 
 **Note:** These bindings should be added to `FolderCompareSync_Global_Imports.py` for centralized management and consistency across modules.
 
@@ -1225,7 +1225,7 @@ kernel32.GetFileAttributesW.argtypes = [wintypes.LPCWSTR]
 kernel32.GetFileAttributesW.restype = wintypes.DWORD
 ```
 
-### 11.2 Progress Callback Implementation Pattern
+### 11.2 Progress Callback Implementation Pattern - example only
 
 ```python
 class ProgressManager:
@@ -1290,9 +1290,9 @@ class ProgressManager:
         return windows_callback
 ```
 
-## 12. Enhanced Rollback Procedures (M05, M10, M12)
+## 12. Enhanced Rollback Procedures (M05, M10, M12) - example only
 
-### 12.1 Secure Temporary File Rollback Implementation
+### 12.1 Secure Temporary File Rollback Implementation - example only
 
 The enhanced rollback system uses secure temporary files to eliminate data corruption risk:
 
@@ -1401,9 +1401,9 @@ def _perform_secure_rollback(temp_path: str, backup_path: str, target_path: str,
     return _create_error_result(full_error)
 ```
 
-## 13. Performance Optimization Guidelines
+## 13. Performance Optimization Guidelines - example only
 
-### 13.1 Memory Management for Large Files
+### 13.1 Memory Management for Large Files - example only
 
 ```python
 def _optimize_memory_usage(file_size: int) -> MemoryStrategy:
@@ -1448,7 +1448,7 @@ def _optimize_memory_usage(file_size: int) -> MemoryStrategy:
         )
 ```
 
-### 13.2 Debug Instrumentation for Performance Tuning
+### 13.2 Debug Instrumentation for Performance Tuning - example only
 
 ```python
 # Performance-critical sections with commented debug statements
@@ -1521,11 +1521,11 @@ def _copy_with_performance_monitoring(src: str, dst: str) -> CopyResult:
         return CopyResult(success=False, error=str(e))
 ```
 
-## 14. Integration and Compatibility
+## 14. Integration and Compatibility - example only
 
-### 14.1 API Preservation
+### 14.1 API Preservation - where reasonable
 
-**Current API Surface (to be preserved):**
+**Current API Surface - to be preserved where reasonable:**
 
 ```python
 class FileCopyManager_class:
@@ -1573,7 +1573,7 @@ class FileCopyManager_class:
         pass
 ```
 
-**CopyOperationResult Enhancement:**
+**CopyOperationResult Enhancement - example only:**
 
 ```python
 @dataclass
@@ -1620,9 +1620,9 @@ class CopyOperationResult:
     recovery_suggestion: str = ""        # Suggested recovery action
 ```
 
-### 14.2 Integration with FolderCompareSync_class
+### 14.2 Integration with FolderCompareSync_class - example only
 
-**Status Callback Enhancement:**
+**Status Callback Enhancement - example only:**
 
 ```python
 def enhanced_status_callback(self, message: str, level: str = "INFO", 
@@ -1653,7 +1653,7 @@ def enhanced_status_callback(self, message: str, level: str = "INFO",
 
 ## 15. Testing and Validation Framework
 
-### 15.1 Unit Test Structure
+### 15.1 Unit Test Structure - example only
 
 ```python
 class TestFileCopyManager:
@@ -1727,7 +1727,7 @@ class TestFileCopyManager:
                 assert result.verification_mode == policy
 ```
 
-### 15.2 Performance Benchmarking
+### 15.2 Performance Benchmarking - example only
 
 ```python
 def benchmark_copy_strategies():
@@ -1768,9 +1768,12 @@ def benchmark_copy_strategies():
     generate_performance_report(results)
 ```
 
-## 16. Implementation Roadmap
+## 16. Implementation Roadmap - non-binding example
 
-### 16.1 Phase 1: Core Infrastructure (Week 1-2)
+This roadmap is non-binding an serves as an example only.
+The developer must unilaterally choose the optimal approach to making changes based on their formed view of how it should safely proceed.
+
+### 16.1 Phase 1: Core Infrastructure
 
 **Priority 1: Foundation Components**
 1. **Enhanced Global Constants (M13)**
@@ -1788,7 +1791,7 @@ def benchmark_copy_strategies():
    - Add drive type detection using Windows APIs
    - Implement UNC path rejection mechanisms
 
-### 16.2 Phase 2: Copy Strategy Implementation (Week 3-4)
+### 16.2 Phase 2: Copy Strategy Implementation
 
 **Priority 2: DIRECT Strategy (M02)**
 1. **CopyFileExW Integration**
@@ -1812,7 +1815,7 @@ def benchmark_copy_strategies():
    - Add hash comparison and mismatch handling
    - Implement verification mode selection logic
 
-### 16.3 Phase 3: UI Integration and Advanced Features (Week 5-6)
+### 16.3 Phase 3: UI Integration and Advanced Features
 
 **Priority 4: UI Radio Button Implementation (M04)**
 1. **Verification Mode Radio Buttons**
@@ -1838,7 +1841,7 @@ def benchmark_copy_strategies():
    - Add disk space checking with different strategies for local/network
    - Implement long path normalization
 
-### 16.4 Phase 4: Testing and Documentation (Week 7-8)
+### 16.4 Phase 4: Testing and Documentation
 
 **Priority 6: Comprehensive Testing**
 1. **API Compatibility Layer**
@@ -1864,31 +1867,38 @@ def benchmark_copy_strategies():
 
 ## 17. Conclusion
 
-This enhanced specification provides a comprehensive blueprint for implementing a robust, high-performance file copy system that maintains backward compatibility while significantly enhancing functionality, performance, and reliability. The secure temporary file rollback approach eliminates data corruption risk by ensuring original target files are never modified until the copy is completely verified and ready.
+This specification provides a comprehensive blueprint for implementing a robust, high-performance file copy system 
+that maintains backward compatibility while significantly enhancing functionality, performance, and reliability. 
+The secure temporary file rollback approach eliminates data corruption risk by ensuring original target files are 
+never modified until the copy is completely verified and ready.
 
-The detailed technical guidance, extensive pseudo-code examples, comprehensive Windows API integration details, and explicit UI requirements ensure that developers have all the information needed for successful implementation.
+The technical guidance, extensive pseudo-code examples, comprehensive Windows API integration details, 
+and explicit UI requirements ensure that developers have all the information needed for successful implementation.
 
-The specification addresses all mandatory requirements (M01-M14) while providing extensive flexibility for future enhancements and optimizations. The modular design, comprehensive error handling, detailed documentation support long-term maintainability and extensibility, and the clearly defined UI requirements ensure proper user interaction with the verification system.
+The specification addresses all mandatory requirements (M01-M14) while providing extensive flexibility for 
+future enhancements and optimizations. The modular design, comprehensive error handling, detailed documentation
+support long-term maintainability and extensibility, and the clearly defined UI requirements ensure proper
+user interaction with the verification system.
 
 **Key Benefits of This Implementation:**
-- **Drop-in compatibility** ensures seamless integration (G.8, M08)
+- **Near Drop-in compatibility** ensures seamless integration (G.8, M08)
 - **Performance optimization** provides significant speed improvements (G.3)
-- **Enhanced rollback safety** guarantees zero data loss risk during copy operations (G.7, M05, M10)
+- **Superior rollback safety** guarantees zero data loss risk during copy operations (G.7, M05, M10)
 - **Comprehensive verification** with user-controlled radio buttons ensures zero data corruption (G.5, M04)
 - **Secure temporary file approach** eliminates corruption window during copy phase
 - **Centralized constants and imports** improve maintainability (M13, M14)
 - **Extensive documentation** supports long-term maintenance (G.9, M09)
-- **Future-proof design** enables easy enhancement and extension
+- **Future-proof design and commenting** enables easy enhancement and extension
 
-**Enhanced Safety Features:**
-- **Zero corruption risk** during copy operations - original files never touched until verification complete
+**Robust Safety Features:**
+- **Aim for close to Zero corruption risk** during copy operations - original files never touched until verification complete
 - **Atomic file placement** using proven rename operations for reliability
-- **Simple rollback** mechanism with guaranteed cleanup
-- **Progressive verification** ensures only validated files reach their final destination
+- **Progressive verification** ensures only validated files are the result in the final destination
+- **Simple robust rollback** mechanism with guaranteed cleanup
 
 **UI Integration Highlights:**
 - **Three verification radio buttons** provide user control over verification policy
-- **Default "Verify only files < [threshold] after each copy" selection** ensures balanced safety out of the box
+- **Default "Verify only files < [threshold] after each copy" selection** ensures balanced safety out of the box, by default
 - **Dynamic threshold display** keeps users informed of current settings
 - **Near Real-time progress reporting** provides responsive user feedback
-- **Sub-500ms cancellation** initial setting, ensures responsive user interaction
+- **Aim for near Sub-500ms cancellation** initial setting, works toward responsive user interaction
