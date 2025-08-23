@@ -254,26 +254,27 @@ Strategy selection occurs in `determine_copy_strategy()` method using `GetDriveT
 
 ### 6.1 Secure Temporary File Rollback Process
 
-The enhanced rollback system uses a secure temporary file approach that completely eliminates the risk of target file corruption during copy operations. This process ensures that original target files are never modified until the entire copy and verification process is complete and successful.
+The enhanced rollback system uses a secure temporary file approach that completely eliminates the risk of target file corruption during copy operations.
+This process *ensures* that original target files are never modified until the entire copy and verification process is complete and successful.
 
 **Process Overview:**
 
 **Preparation Phase:**
 - The system first captures and saves the source file timestamps for later application to the target
 - If a target file already exists, the system captures and saves its original timestamps for potential rollback purposes
-- The system checks if overwrite is permitted when a target file exists
+- The system checks if rename/delete is permitted when a target file exists, if not then it is considered to be a copy fail
 
 **Secure Copy Phase:**
-- A unique temporary filename is generated in the target directory using the pattern `{target_name}.tmp_{unique_id}`
+- A unique temporary filename is generated in the target directory using the pattern `{target_name}.{unique_id}.tmp`
 - The source file is copied to this temporary location using either DIRECT or STAGED strategy
 - During this entire phase, the original target file (if it exists) remains completely untouched and unmodified
 - If verification is enabled, the temporary file is verified against the source
-- Any failure during this phase simply requires deleting the temporary file - the original target remains intact
+- Any failure during this phase simply requires deleting the temporary file - the original target remains intact, and then it is considered to be a copy fail
 
 **Atomic Success Phase (only executed if copy and verification are successful):**
-- If a target file exists, it is moved to a backup location using an atomic rename operation
-- The verified temporary file is then renamed to the final target location using another atomic rename operation
-- Source file timestamps are applied to the new target file
+- If a target file exists, it is moved to a backup location using an atomic rename operation, if it fails then it is considered to be a copy fail
+- The verified temporary file is then renamed to the final target location using another atomic rename operation, if it fails then it is considered to be a copy fail
+- Source file timestamps are applied to the new target file, if it fails then it is considered to be a copy fail
 - The renamed original target file (backup) is deleted
 
 **Automatic Rollback on Failure:**
@@ -288,7 +289,8 @@ The enhanced rollback system uses a secure temporary file approach that complete
 - **Atomic final operations:** File placement uses instantaneous rename operations
 - **Guaranteed data preservation:** Original files cannot be lost or corrupted during copy operations
 
-This approach is significantly safer than traditional copy methods that overwrite the target file directly, as it eliminates the window of vulnerability where a target file could be left in a corrupted or incomplete state.
+This approach is significantly safer than traditional copy methods that overwrite the target file directly,
+as it eliminates the window of vulnerability where a target file could be left in a corrupted or incomplete state.
 
 ## 7. Enhanced Global Constants Configuration - Detailed Technical Rationale
 
