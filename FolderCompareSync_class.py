@@ -3030,7 +3030,7 @@ class FolderCompareSync_class:
         progress = self.copy_manager.progress_manager.progress_dialog
         # hook the dialog's Cancel button to set the event; keep variable name 'progress'
         if hasattr(progress, "set_cancel_handler"):
-            progress.set_cancel_handler(lambda: cancel_event.set()
+            progress.set_cancel_handler(lambda: cancel_event.set())
         self.copy_manager.progress_manager.start_copy_phase()
         # <<< CHANGE END
         # <<< CHANGE END
