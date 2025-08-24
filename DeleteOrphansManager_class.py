@@ -12,7 +12,7 @@ import FolderCompareSync_Global_Constants as C
 from flushed_logging import log_and_flush, get_log_level, LoggerManager
 
 # Import the things this class references
-from ProgressDialog_class import ProgressDialog_class
+from ProgressDialog_class import ProgressDialog_class, CopyProgressManager_class
 
 class DeleteOrphansManager_class:
     """

@@ -389,6 +389,22 @@ class CopyProgressManager_class:
             return False
         
         return True
+
+    # >>> CHANGE START # per chatGPT 5) to wire in pop-up progress dialogue
+    def update_verify_progress(self, bytes_processed: int, total_bytes: int):
+        """Adapter for verification progress used by FileCopyManager.
+        Updates the dual progress bars without changing the existing APIs."""
+        # Ensure we are in verify phase for correct messaging
+        self.current_phase = 'verifying'
+        # Compute per-file verification percentage
+        if total_bytes and total_bytes > 0:
+            verify_pct = (bytes_processed / total_bytes) * 100
+        else:
+            verify_pct = 0
+        # Update only the verify bar; copy bar is left as-is
+        self.progress_dialog.update_dual_progress(verify_progress=verify_pct)
+        return True
+    # <<< CHANGE END
     
     def complete_file(self, success: bool = True):
         """Mark current file as complete."""

@@ -83,7 +83,6 @@ SCAN_PROGRESS_UPDATE_INTERVAL = 50                # Update scanning progress eve
 COMPARISON_PROGRESS_BATCH = 100                   # Process comparison updates every N items
 
 # Copy System Configuration (Legacy - kept for backward compatibility)
-COPY_STRATEGY_THRESHOLD = (1024 * 1024) * 200    # 200MB threshold for copy strategy selection into STAGED (rename-based backup)
 COPY_VERIFICATION_ENABLED = True                 # Enable post-copy simple verification
 COPY_RETRY_COUNT = 3                             # Number of retries for failed operations
 COPY_RETRY_DELAY = 1.0                           # Delay between retries in seconds

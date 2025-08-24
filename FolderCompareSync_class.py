@@ -11,13 +11,10 @@ import FolderCompareSync_Global_Constants as C
 #from flushed_logging import *   # includes LoggerManager
 from flushed_logging import log_and_flush, get_log_level, LoggerManager
 
-#--- For DEBUGGING issues with importing FolderCompareSync_Global_Imports
-import FolderCompareSync_Global_Imports as GI   
-import logging
-#--- For DEBUGGING issues with importing FolderCompareSync_Global_Imports
-
 # Import the things this class references
-from ProgressDialog_class import ProgressDialog_class
+# >>> CHANGE START # per chatGPT 1) to wire in pop-up progress dialogue 
+from ProgressDialog_class import ProgressDialog_class, CopyProgressManager_class
+# <<< CHANGE END
 from FileCopyManager_class import FileCopyManager_class
 from DeleteOrphansManager_class import DeleteOrphansManager_class
 from DebugGlobalEditor_class import DebugGlobalEditor_class
@@ -345,41 +342,6 @@ class FolderCompareSync_class:
                 log_and_flush(logging.INFO, "Debug mode disabled - Debug log_level active")
             else:
                 log_and_flush(logging.INFO, "Debug mode disabled - non-Debug log_level active")
-
-        #---------------------------------------------------------------------------------------------------------------
-        # Purely debug code to dump a list of global modules imported
-        if __debug__:
-            try:
-                # Basic identities
-                log_and_flush(logging.DEBUG, f"[GI] module file: {getattr(GI, '__file__', '<no __file__>')}")
-                log_and_flush(logging.DEBUG, f"[GI] has __all__? {hasattr(GI,'__all__')}")
-                max_dumped_entries = 200
-                if hasattr(GI, '__all__'):
-                    log_and_flush(logging.DEBUG, f"[GI] __all__ count: {len(GI.__all__)}")
-                    log_and_flush(logging.DEBUG, f"[GI] __all__ (first 25): {list(GI.__all__)[:25]}")
-                    for idx, name in enumerate(GI.__all__[:max_dumped_entries], start=1):
-                        log_and_flush(logging.DEBUG, f"[GI] __all__ #{idx}: {name}")
-                    if len(GI.__all__) > max_dumped_entries:
-                        log_and_flush(logging.DEBUG, f"[GI] __all__ ... truncated after {max_dumped_entries} entries")
-                    log_and_flush(logging.DEBUG, f"[GI] 'tk' in __all__? {'tk' in GI.__all__}")
-                else:
-                    log_and_flush(logging.DEBUG, f"[GI] __all__ count: {len(GI.__all__)} : __all__ has NO entries")
-                # Is tk actually an attribute on the hub module?
-                log_and_flush(logging.DEBUG, f"[GI] hasattr(GI,'tk')? {hasattr(GI,'tk')}")
-        
-                # Did star-import bind tk into *this* module's globals?
-                log_and_flush(logging.DEBUG, f"[local] 'tk' in globals()? {'tk' in globals()}")
-                if 'tk' in globals():
-                    # Optional: show the Tk version for sanity
-                    try:
-                        log_and_flush(logging.DEBUG, f"[local] Tk version: {tk.TkVersion}")
-                    except Exception as e:
-                        log_and_flush(logging.DEBUG, f"[local] tk present but version check failed: {e!r}")
-                else:
-                    log_and_flush(logging.DEBUG, f"[local] Tk is NOT IN globals()")
-            except Exception as e:
-                log_and_flush(logging.DEBUG, f"[GI] debug-dump failed: {type(e).__name__}: {e}")
-        #---------------------------------------------------------------------------------------------------------------
 
         self.root = tk.Tk()
         self.root.title("FolderCompareSync - Enhanced File Copy System")
@@ -3051,12 +3013,18 @@ class FolderCompareSync_class:
         # Create progress dialog for copy operation with dry run indication
         progress_title = f"{'Simulating' if is_dry_run else 'Enhanced Copy'} Files"
         progress_message = f"{'Simulating' if is_dry_run else 'Copying'} files from {direction_text} using DIRECT/STAGED strategies..."
-        progress = ProgressDialog_class(
-            self.root,
-            progress_title,
-            progress_message,
-            max_value=len(selected_paths)
+
+        # >>> CHANGE START # per chatGPT 2) to wire in pop-up progress dialogue 
+        self.copy_manager.progress_manager = CopyProgressManager_class(
+            parent=self.root,
+            operation_name=operation_name,
+            #progress_title,
+            #progress_message,
+            total_files=len(selected_paths)
         )
+        progress = self.copy_manager.progress_manager.progress_dialog
+        self.copy_manager.progress_manager.start_copy_phase()
+        # <<< CHANGE END
         
         copied_count = 0
         error_count = 0
@@ -3153,6 +3121,12 @@ class FolderCompareSync_class:
                         # Check for critical errors that require immediate user attention (only in non-dry-run)
                         if not is_dry_run and ("CRITICAL" in result.error_message or "Rename operation failed" in result.error_message):
                             critical_errors.append((rel_path, result.error_message))
+
+                    # >>> CHANGE START # per chatGPT 3) to wire in pop-up progress dialogue 
+                    # Advance overall files progress by one (success or failure)
+                    if getattr(self.copy_manager, 'progress_manager', None):
+                        self.copy_manager.progress_manager.complete_file(success=result.success)
+                    # <<< CHANGE END
                     
                     # Update progress every few items using configurable frequency
                     if i % max(1, len(selected_paths) // 20) == 0:
@@ -3175,6 +3149,15 @@ class FolderCompareSync_class:
             
             # End copy operation session
             self.copy_manager.end_copy_operation(copied_count, error_count, total_bytes_copied)
+
+            # >>> CHANGE START # per chatGPT 4) to wire in pop-up progress dialogue 
+            # Tell the dual progress dialog to finalize with totals
+            if getattr(self.copy_manager, 'progress_manager', None):
+                self.copy_manager.progress_manager.complete_operation(
+                    success=(error_count == 0),
+                    message=final_progress_text
+                )
+            # <<< CHANGE END
             
             # Enhanced summary message with strategy breakdown and verification policy
             verify_policy = self.verify_policy.get()

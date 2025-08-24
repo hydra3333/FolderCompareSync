@@ -128,7 +128,7 @@ def main():
     # ------------------------ START These imports MUST be in def main() AFTER setting up the logger and dynamic imports ------------------------
     # Import all of the reorganised Classes etc
     # The "dynamic imports" have already been done above so impoting here should pick up every global import
-    from ProgressDialog_class        import ProgressDialog_class
+    from ProgressDialog_class        import ProgressDialog_class, CopyProgressManager_class
     from FileTimestampManager_class  import FileTimestampManager_class
     from FileCopyManager_class       import FileCopyManager_class
     from DeleteOrphansManager_class  import DeleteOrphansManager_class
@@ -196,7 +196,7 @@ def main():
     log_and_flush(logging.DEBUG, "FolderCompareSync Configuration:")
     log_and_flush(logging.DEBUG, f"  Max files/folders: {C.MAX_FILES_FOLDERS:,}")
     log_and_flush(logging.DEBUG, f"  Status log history: {C.STATUS_LOG_MAX_HISTORY:,} lines")
-    log_and_flush(logging.DEBUG, f"  Copy strategy threshold: {C.COPY_STRATEGY_THRESHOLD / (1024*1024):.1f} MB")
+    log_and_flush(logging.DEBUG, f"  Copy strategy threshold: {C.FILECOPY_COPY_STRATEGY_THRESHOLD_BYTES:.1f} GB")
     log_and_flush(logging.DEBUG, f"  SHA512 status threshold: {C.SHA512_STATUS_MESSAGE_THRESHOLD / (1024*1024):.1f} MB")
     log_and_flush(logging.DEBUG, f"  Simple verification enabled: {C.COPY_VERIFICATION_ENABLED}")
     log_and_flush(logging.DEBUG, f"  Retry count: {C.COPY_RETRY_COUNT}")

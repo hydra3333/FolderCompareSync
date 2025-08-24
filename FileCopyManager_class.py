@@ -371,7 +371,25 @@ class FileCopyManager_class:
         self._log_status(f"  Target: {target_path}")
         self._log_status(f"  Size: {file_size:,} bytes")
         self._log_status(f"  Strategy: {strategy.value.upper()}")
-        
+
+        # >>> CHANGE START
+        # Respect DRY RUN at the engine level: do not touch the filesystem.
+        if getattr(self, "_dry_run", False):
+            self._log_status(f"DRY RUN: Would copy '{source_path}' → '{target_path}' using {strategy.value.upper()}")
+            result = FileCopyManager_class.CopyOperationResult(
+                success=True,
+                strategy_used=strategy,
+                source_path=source_path,
+                target_path=target_path,
+                file_size=file_size,
+                duration_seconds=0.0,
+                bytes_copied=0,
+                verification_passed=True,
+                verification_mode="none"
+            )
+            return result
+        # <<< CHANGE END
+
         # Execute appropriate strategy
         if strategy == FileCopyManager_class.CopyStrategy.DIRECT:
             result = self._execute_direct_strategy(source_path, target_path)
@@ -1352,18 +1370,29 @@ class FileCopyManager_class:
         
         return operation_logger
     
-    def start_copy_operation(self, operation_name: str) -> str:
+    def start_copy_operation(self, operation_name: str, dry_run: bool = False) -> str:
         """
         Start a new enhanced copy operation session with dedicated logging.
         
         Args:
         -----
         operation_name: Descriptive name for the operation
+        dry_run: If True, simulate the operation without modifying the filesystem
         
         Returns:
         --------
         str: Operation ID for tracking
         """
+        # >>> CHANGE START chatGPT
+        self._dry_run = bool(dry_run)
+        # Propagate to timestamp manager (it supports dry_run internally)
+        try:
+            if hasattr(self, "timestamp_manager"):
+                self.timestamp_manager._dry_run = self._dry_run
+        except Exception:
+            pass
+        # >>> CHANGE END
+
         self.operation_id = uuid.uuid4().hex[:8]
         self.operation_logger = FileCopyManager_class.create_copy_operation_logger(self.operation_id)
         self.operation_sequence = 0  # Reset sequence counter for new operation
@@ -1374,6 +1403,9 @@ class FileCopyManager_class:
         self.operation_logger.info(f"Copy Strategies: DIRECT (CopyFileExW + mmap), STAGED (chunked + BLAKE3)")
         self.operation_logger.info(f"Verification Policy: {C.FILECOPY_VERIFY_POLICY}")
         self.operation_logger.info(f"BLAKE3 Available: {self.blake3_available}")
+        # >>> CHANGE START chatGPT
+        self.operation_logger.info(f"Dry run mode: {self._dry_run}")
+        # >>> CHANGE END
         self.operation_logger.info(f"Timestamp: {datetime.now().isoformat()}")
         self.operation_logger.info("=" * 80)
         
