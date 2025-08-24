@@ -3014,16 +3014,25 @@ class FolderCompareSync_class:
         progress_title = f"{'Simulating' if is_dry_run else 'Enhanced Copy'} Files"
         progress_message = f"{'Simulating' if is_dry_run else 'Copying'} files from {direction_text} using DIRECT/STAGED strategies..."
 
+        # >>> CHANGE START # per chatGPT  3) add shared cancel_event and pass poll callback into progress manager
+        if getattr(self.copy_manager, "cancel_event", None) is None:
+            self.copy_manager.cancel_event = threading.Event()
+        cancel_event = self.copy_manager.cancel_event
         # >>> CHANGE START # per chatGPT 2) to wire in pop-up progress dialogue 
         self.copy_manager.progress_manager = CopyProgressManager_class(
             parent=self.root,
             operation_name=operation_name,
             #progress_title,
             #progress_message,
-            total_files=len(selected_paths)
-        )
+            total_files=len(selected_paths),
+            cancellation_callback=lambda: cancel_event.is_set()
+         )
         progress = self.copy_manager.progress_manager.progress_dialog
+        # hook the dialog's Cancel button to set the event; keep variable name 'progress'
+        if hasattr(progress, "set_cancel_handler"):
+            progress.set_cancel_handler(lambda: cancel_event.set()
         self.copy_manager.progress_manager.start_copy_phase()
+        # <<< CHANGE END
         # <<< CHANGE END
         
         copied_count = 0

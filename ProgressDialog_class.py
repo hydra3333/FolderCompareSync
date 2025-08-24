@@ -154,7 +154,23 @@ class ProgressDialog_class:
         self.overall_status_var = tk.StringVar(value="Preparing...")
         ttk.Label(parent_frame, textvariable=self.overall_status_var, 
                  font=("TkDefaultFont", 9, "bold")).pack(pady=(5, 0))
-        
+
+        # >>> CHANGE START # per chatGPT 1) Add a Cancel/Close row to the dual progress UI
+        # Button row: Cancel (left) and Close (right). Close is enabled at completion.
+        button_frame = ttk.Frame(parent_frame)
+        button_frame.pack(fill=tk.X, pady=(6, 0))
+        self.cancel_button = ttk.Button(button_frame, text="Cancel", command=self._handle_cancel)
+        self.cancel_button.pack(side=tk.LEFT)
+        self.close_button = ttk.Button(button_frame, text="Close", command=self.close)
+        self.close_button.pack(side=tk.RIGHT)
+        # Close should only be used after completion
+        try:
+            self.close_button.state(['disabled'])
+        except Exception:
+            pass
+        self._on_cancel = None  # optional handler set via set_cancel_handler()
+        # <<< CHANGE END
+              
     def update_message(self, message):
         """Update the progress message display."""
         self.message_var.set(message)
@@ -243,8 +259,48 @@ class ProgressDialog_class:
             return
         self.overall_status_var.set(message)
         # Both bars remain as-is to show final results
+        # >>> CHANGE START # per chatGPT 2) Add a Cancel/Close row to the dual progress UI
+        # Enable Close button at completion (if present)
+        try:
+            if hasattr(self, "close_button"):
+                self.close_button.state(['!disabled'])
+        except Exception:
+            pass
+        # <<< CHANGE END
         self.dialog.update_idletasks()
-    
+
+    # >>> CHANGE START # per chatGPT 2) Add a Cancel/Close row to the dual progress UI
+    def set_cancel_handler(self, handler):
+        """Optional: host code can supply a no-arg handler to call when Cancel is clicked."""
+        self._on_cancel = handler
+
+    def _handle_cancel(self):
+        """Internal: invoked by the Cancel button."""
+        # Update UI to reflect cancelling
+        try:
+            if hasattr(self, "cancel_button"):
+                self.cancel_button.state(['disabled'])
+        except Exception:
+            pass
+        # Give both message areas a hint if present
+        try:
+            self.message_var.set("Cancelling...")
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "overall_status_var"):
+                self.overall_status_var.set("Cancelling...")
+        except Exception:
+            pass
+        self.dialog.update_idletasks()
+        # Call through to host if provided
+        if getattr(self, "_on_cancel", None):
+            try:
+                self._on_cancel()
+            except Exception:
+                pass
+    # <<< CHANGE END
+
     def close(self):
         """Close the progress dialog and clean up resources."""
         log_and_flush(logging.DEBUG, "Closing progress dialog")
