@@ -120,8 +120,8 @@ FILECOPY_UNC_PATH_REJECTION_STRICT = True               # Reject UNC paths
 FILECOPY_LONG_PATH_NORMALIZATION = True                 # Enable \\?\ prefix support
 
 # Progress Reporting Configuration (M06, M11)
-FILECOPY_PROGRESS_UPDATE_FREQUENCY_HZ = 20.0            # Progress updates per second
-FILECOPY_PROGRESS_CANCELLATION_CHECK_MS = 500           # Target cancellation responsiveness (ms)
+FILECOPY_PROGRESS_UPDATE_FREQUENCY_HZ = 2.0              # Progress updates per second was 20.0
+FILECOPY_PROGRESS_CANCELLATION_CHECK_MS = 1000           # Target cancellation responsiveness (ms) was 500
 
 # Enhanced Network Detection Control Flags
 FILECOPY_ENABLE_CLOUD_DETECTION = True                  # Enable cloud storage detection
