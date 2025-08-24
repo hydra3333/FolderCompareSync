@@ -30,11 +30,15 @@ class FolderCompareSync_class:
     Purpose:
     --------
     Provides the primary GUI interface for comparing two folder structures, identifying differences,
-    and synchronizing files between them using a copy system with comprehensive safety features.
+    and synchronizing files between them using an enhanced copy system with DIRECT/STAGED strategies,
+    comprehensive verification options, and bulletproof rollback mechanisms (M01-M15).
     
     Key Features:
     -------------
     - Dual-pane folder comparison with detailed metadata analysis
+    - Enhanced file copy system with DIRECT (CopyFileExW + mmap) and STAGED (chunked + BLAKE3) strategies
+    - Three verification modes: none, size-threshold based, all files (M04)
+    - Secure temporary file rollback with zero corruption risk (M05, M10)
     - Configurable file/folder limits (100,000 max) with early abort protection
     - Dry run mode for safe operation testing without file modifications
     - Advanced filtering and selection capabilities
@@ -329,7 +333,7 @@ class FolderCompareSync_class:
     
     def __init__(self):
         """Initialize the main application with all components and limits."""
-        log_and_flush(logging.INFO, "Initializing FolderCompareSync application")
+        log_and_flush(logging.INFO, "Initializing FolderCompareSync application with enhanced copy system")
 
         if __debug__:
             if get_log_level() == logging.DEBUG:
@@ -363,7 +367,7 @@ class FolderCompareSync_class:
                 # Is tk actually an attribute on the hub module?
                 log_and_flush(logging.DEBUG, f"[GI] hasattr(GI,'tk')? {hasattr(GI,'tk')}")
         
-                # Did star-import bind tk into *this* module’s globals?
+                # Did star-import bind tk into *this* module's globals?
                 log_and_flush(logging.DEBUG, f"[local] 'tk' in globals()? {'tk' in globals()}")
                 if 'tk' in globals():
                     # Optional: show the Tk version for sanity
@@ -378,7 +382,7 @@ class FolderCompareSync_class:
         #---------------------------------------------------------------------------------------------------------------
 
         self.root = tk.Tk()
-        self.root.title("FolderCompareSync - Folder Comparison and Syncing Tool")
+        self.root.title("FolderCompareSync - Enhanced File Copy System")
     
         # v001.0021 - fix UI recreation to use in-place rebuild instead of new instance
         # v001.0021 - Create fonts and styles (extracted to separate method for UI recreation)
@@ -407,8 +411,11 @@ class FolderCompareSync_class:
         self.compare_date_created = tk.BooleanVar(value=True)
         self.compare_date_modified = tk.BooleanVar(value=True)
         self.compare_sha512 = tk.BooleanVar(value=False)
-        self.overwrite_mode = tk.BooleanVar(value=True)
+        #self.overwrite_mode = tk.BooleanVar(value=True) # drop legacy overwrite_mode # per chatGPT change 9.2
         self.dry_run_mode = tk.BooleanVar(value=False)
+        
+        # Enhanced copy system verification policy (M04)
+        self.verify_policy = tk.StringVar(value=C.FILECOPY_VERIFY_POLICY_DEFAULT)  # lt_threshold as default
         
         # Filtering state # v000.0002 changed - removed sorting
         self.filter_wildcard = tk.StringVar()
@@ -451,23 +458,23 @@ class FolderCompareSync_class:
         self.summary_var = tk.StringVar(value="Summary: No comparison performed")
         self.status_log_text = None  # Will be set in setup_ui
         
-        # copy system with staged strategy and dry run support
+        # Enhanced copy system with DIRECT/STAGED strategies and verification support (M01-M03)
         self.copy_manager = FileCopyManager_class(status_callback=self.add_status_message)
         
         if __debug__:
-            log_and_flush(logging.DEBUG, "Application state initialized with dual copy system")
+            log_and_flush(logging.DEBUG, "Enhanced copy system initialized with DIRECT/STAGED strategies")
         
         self.setup_ui()
         
         # Add startup warnings about performance and limits
-        self.add_status_message("Application initialized - dual copy system ready")
+        self.add_status_message("Enhanced copy system initialized - DIRECT/STAGED strategies ready")
         self.add_status_message(f"WARNING: Large folder operations may be slow. Maximum {C.MAX_FILES_FOLDERS:,} files/folders supported.")
-        self.add_status_message("Tip: Use filtering and dry run mode for testing with large datasets.")
+        self.add_status_message("Tip: Use filtering, dry run mode, and verification policy for testing with large datasets.")
         
         # Display detected timezone information
         timezone_str = self.copy_manager.timestamp_manager.get_timezone_string()
         self.add_status_message(f"Timezone detected: {timezone_str} - will be used for timestamp operations")
-        log_and_flush(logging.INFO, "Application initialization complete ")
+        log_and_flush(logging.INFO, "Application initialization complete with enhanced copy system")
 
     def create_fonts_and_styles(self):
         """Create or recreate fonts and styles based on current global values."""
@@ -632,15 +639,39 @@ class FolderCompareSync_class:
         
         Purpose:
         --------
-        Ensures proper interaction between dry run and overwrite modes,
-        automatically disabling overwrite when dry run is enabled for safety.
+        Ensures proper interaction by dry run,
         """
+        # >>> CHANGE START: remove legacy overwrite_mode coupling # per chatGPT change 9.1
         if self.dry_run_mode.get():
-            # When dry run is enabled, disable overwrite mode for safety
-            self.overwrite_mode.set(False)
-            self.add_status_message("DRY RUN mode enabled - Overwrite mode disabled for safety")
+            self.add_status_message("DRY RUN mode enabled")
         else:
             self.add_status_message("DRY RUN mode disabled - Normal operations enabled")
+        # <<< CHANGE END
+
+    def on_verify_policy_changed(self):
+        """
+        Handle verification policy radio button changes (M04).
+        
+        Purpose:
+        --------
+        Updates the global verification policy and provides user feedback about
+        the selected verification mode and its performance implications.
+        """
+        policy = self.verify_policy.get()
+        
+        # Update the global constant to be used by FileCopyManager
+        C.FILECOPY_VERIFY_POLICY = policy
+        
+        # Provide user feedback about policy selection
+        if policy == 'none':
+            self.add_status_message("Verification policy: NO VERIFICATION - Fastest copying, use with caution")
+        elif policy == 'lt_threshold':
+            threshold_gb = C.FILECOPY_VERIFY_THRESHOLD_BYTES / (1024**3)
+            self.add_status_message(f"Verification policy: Files < {threshold_gb:.1f} GB - Balanced safety and performance")
+        elif policy == 'all':
+            self.add_status_message("Verification policy: ALL FILES - Maximum safety, slower for large files")
+        
+        log_and_flush(logging.INFO, f"Verification policy changed to: {policy}")
 
     def delete_left_orphans_onclick(self): # v001.0017 changed [now calls consolidated method]
         """Handle Delete Orphaned Files from LEFT-only button using enhanced orphan detection."""
@@ -751,14 +782,14 @@ class FolderCompareSync_class:
 
     def setup_ui(self):
         """
-        Initialize the user interface with features including dry run and export capabilities.
+        Initialize the user interface with enhanced copy system features including verification policy radio buttons (M04).
         
         Purpose:
         --------
-        Creates and configures all GUI components including the new dry run checkbox,
-        export functionality, and limit warnings for the application interface.
+        Creates and configures all GUI components including the new verification radio buttons,
+        dry run checkbox, export functionality, and limit warnings for the enhanced copy system.
         """
-        log_and_flush(logging.DEBUG, "Setting up FolderCompareSync_class user interface with features")
+        log_and_flush(logging.DEBUG, "Setting up FolderCompareSync_class user interface with enhanced copy system features")
         
         # Main container
         main_frame = ttk.Frame(self.root)
@@ -834,12 +865,14 @@ class FolderCompareSync_class:
         top_controls = ttk.Frame(control_frame)
         top_controls.pack(fill=tk.X, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
         
-        # Dry run checkbox next to overwrite mode
+        # Dry run checkbox
         dry_run_cb = ttk.Checkbutton(top_controls, text="DRY RUN Only", variable=self.dry_run_mode, command=self.on_dry_run_changed, style="Scaled.TCheckbutton") # v001.0014 changed [use scaled checkbox style]
         dry_run_cb.pack(side=tk.LEFT, padx=(0, 10))
         
-        ttk.Checkbutton(top_controls, text="Overwrite Mode", variable=self.overwrite_mode, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 20)) # v001.0014 changed [use scaled checkbox style]
-        ttk.Button(top_controls, text="Compare", command=self.start_comparison, style="LimeGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 20))
+        # >>> CHANGE START: drop legacy overwrite_mode # per chatGPT change 9.2
+        #ttk.Checkbutton(top_controls, text="Overwrite Mode", variable=self.overwrite_mode, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 20)) # v001.0014 changed [use scaled checkbox style]
+        #ttk.Button(top_controls, text="Compare", command=self.start_comparison, style="LimeGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 20))
+        # <<< CHANGE END
     
         # selection controls with auto-clear and complete reset functionality
         # Left pane selection controls
@@ -879,6 +912,54 @@ class FolderCompareSync_class:
                 command=self.open_debug_global_editor,
                 style="DefaultNormal.TButton"
             ).pack(side=tk.LEFT, padx=(10, 0))
+
+        # Verification options frame - placed near copy buttons per M04
+        verify_frame = ttk.LabelFrame(main_frame, text="File Verification Options (Enhanced Copy System)", padding=8)
+        verify_frame.pack(fill=tk.X, pady=(0, 3))
+        
+        # Create verification radio buttons as per M04 technical specification
+        verify_options_frame = ttk.Frame(verify_frame)
+        verify_options_frame.pack(fill=tk.X)
+        
+        ttk.Label(verify_options_frame, text="Copy Verification Policy:", style="Scaled.TLabel").pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Radio button 1: Verify no files (fastest)
+        ttk.Radiobutton(
+            verify_options_frame, 
+            text="Verify no files (fastest)", 
+            variable=self.verify_policy, 
+            value='none',
+            command=self.on_verify_policy_changed,
+            style="Scaled.TCheckbutton"
+        ).pack(side=tk.LEFT, padx=(0, 15))
+        
+        # Radio button 2: Verify only files < threshold (default, balanced)
+        threshold_gb = C.FILECOPY_VERIFY_THRESHOLD_BYTES / (1024**3)
+        ttk.Radiobutton(
+            verify_options_frame, 
+            text=f"Verify only files < {threshold_gb:.1f} GB after each copy (balanced)", 
+            variable=self.verify_policy, 
+            value='lt_threshold',
+            command=self.on_verify_policy_changed,
+            style="Scaled.TCheckbutton"
+        ).pack(side=tk.LEFT, padx=(0, 15))
+        
+        # Radio button 3: Verify every file (maximum safety, slow for large files)
+        ttk.Radiobutton(
+            verify_options_frame, 
+            text="Verify every file after each copy (very slow with large files; maximum safety)", 
+            variable=self.verify_policy, 
+            value='all',
+            command=self.on_verify_policy_changed,
+            style="Scaled.TCheckbutton"
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Add informational text about verification policy
+        info_frame = ttk.Frame(verify_frame)
+        info_frame.pack(fill=tk.X, pady=(5, 0))
+        ttk.Label(info_frame, text="← Select verification policy before copying. Policy affects copy performance vs safety trade-off.", 
+                 foreground=C.INSTRUCTION_TEXT_COLOR, 
+                 font=("TkDefaultFont", C.SCALED_INSTRUCTION_FONT_SIZE, "italic")).pack(side=tk.LEFT)
 
         # Tree comparison frame (adjusted height to make room for status log)
         tree_frame = ttk.Frame(main_frame)
@@ -983,7 +1064,7 @@ class FolderCompareSync_class:
         # Configure tree event bindings for interaction
         self.setup_tree_events()
         
-        log_and_flush(logging.DEBUG, "FolderCompareSync_class User interface setup complete with features")
+        log_and_flush(logging.DEBUG, "Enhanced copy system UI setup complete with verification radio buttons")
 
     def setup_tree_columns(self, tree): # v000.0002 changed - column sorting disabled
         """
@@ -2932,15 +3013,15 @@ class FolderCompareSync_class:
         status_text = "Simulating copy..." if self.dry_run_mode.get() else "Copying files..."
         self.status_var.set(status_text)
         threading.Thread(target=self.perform_enhanced_copy_operation, args=('right_to_left'.lower(), selected_paths), daemon=True).start()
-
     def perform_enhanced_copy_operation(self, direction, selected_paths): # changed for v000.0005
         """
-        Perform file copy operations with comprehensive logging, dry run support, and tracking.
+        Perform file copy operations using enhanced copy system with DIRECT/STAGED strategies.
         
         Purpose:
         --------
-        Orchestrates file copy operations using Strategy A/B with comprehensive logging,
-        dry run simulation capability, sequential numbering, and automatic refresh after completion.
+        Orchestrates file copy operations using the enhanced FileCopyManager with DIRECT and STAGED
+        strategies, comprehensive verification (based on M04 radio button selection), secure rollback,
+        and automatic refresh after completion.
         
         Args:
         -----
@@ -2951,7 +3032,7 @@ class FolderCompareSync_class:
         is_dry_run = self.dry_run_mode.get()
         dry_run_text = " (DRY RUN)" if is_dry_run else ""
         
-        log_and_flush(logging.INFO, f"Starting copy operation{dry_run_text}: {direction} with {len(selected_paths)} items")
+        log_and_flush(logging.INFO, f"Starting enhanced copy operation{dry_run_text}: {direction} with {len(selected_paths)} items")
         
         # Determine source and destination folders
         if direction.lower() == 'left_to_right'.lower():
@@ -2963,13 +3044,13 @@ class FolderCompareSync_class:
             dest_folder = self.left_folder.get()
             direction_text = f"{C.RIGHT_SIDE_UPPERCASE} to {C.LEFT_SIDE_UPPERCASE}"
         
-        # Start copy operation session with dedicated logging and dry run support
-        operation_name = f"Copy {len(selected_paths)} items from {direction_text}{dry_run_text}"
+        # Start enhanced copy operation session
+        operation_name = f"Enhanced Copy {len(selected_paths)} items from {direction_text}{dry_run_text}"
         operation_id = self.copy_manager.start_copy_operation(operation_name, dry_run=is_dry_run)
         
         # Create progress dialog for copy operation with dry run indication
-        progress_title = f"{'Simulating' if is_dry_run else 'Copying'} Files"
-        progress_message = f"{'Simulating' if is_dry_run else 'Copying'} files from {direction_text}..."
+        progress_title = f"{'Simulating' if is_dry_run else 'Enhanced Copy'} Files"
+        progress_message = f"{'Simulating' if is_dry_run else 'Copying'} files from {direction_text} using DIRECT/STAGED strategies..."
         progress = ProgressDialog_class(
             self.root,
             progress_title,
@@ -2990,20 +3071,21 @@ class FolderCompareSync_class:
         try:
             for i, rel_path in enumerate(selected_paths):
                 try:
-                    # Update progress with dry run indication if required
+                    # Update progress with strategy information
                     source_path = str(Path(source_folder) / rel_path)
-                    # Check if this file will use staged strategy for large file indication
                     base_progress_text = f"{'Simulating' if is_dry_run else 'Copying'} {i+1} of {len(selected_paths)}: {os.path.basename(rel_path)}"
+                    
                     if Path(source_path).exists() and Path(source_path).is_file():
                         file_size = Path(source_path).stat().st_size
                         strategy = FileCopyManager_class.determine_copy_strategy(source_path, str(Path(dest_folder) / rel_path), file_size)
-                        if strategy == FileCopyManager_class.CopyStrategy.STAGED and file_size >= C.COPY_STRATEGY_THRESHOLD:
+                        if strategy == FileCopyManager_class.CopyStrategy.STAGED and file_size >= C.FILECOPY_COPY_STRATEGY_THRESHOLD_BYTES:
                             size_str = self.format_size(file_size)
-                            progress_text = f"{base_progress_text}\n({size_str} file copy in progress ...not frozen, just busy)"
+                            progress_text = f"{base_progress_text}\n({size_str} file - using STAGED strategy with BLAKE3 hashing)"
                         else:
-                            progress_text = base_progress_text
+                            progress_text = f"{base_progress_text}\n(using DIRECT strategy with CopyFileExW + mmap verification)"
                     else:
                         progress_text = base_progress_text
+                        
                     progress.update_progress(i+1, progress_text)
                                                        
                     dest_path = str(Path(dest_folder) / rel_path)
@@ -3014,7 +3096,7 @@ class FolderCompareSync_class:
                         self.copy_manager._log_status(f"Source file not found, skipping: {source_path}")
                         continue
                     
-                    # Handle directories separately (create them, don't copy as files) # v000.0005 changed - added folder timestamp copying
+                    # Handle directories separately
                     if Path(source_path).is_dir():
                         # Create destination directory if needed (or simulate in dry run)
                         if not Path(dest_path).exists():
@@ -3023,35 +3105,33 @@ class FolderCompareSync_class:
                                 copied_count += 1
                                 self.copy_manager._log_status(f"Created directory: {dest_path}")
                                 
-                                # v000.0005 added - Copy timestamps for newly created directories
-                                try:                                                                                                     # v000.0005 added - Copy timestamps for newly created directories
-                                    self.copy_manager.timestamp_manager.copy_timestamps(source_path, dest_path)                          # v000.0005 added - Copy timestamps for newly created directories
-                                    self.copy_manager._log_status(f"Copied directory timestamps: {dest_path}")                           # v000.0005 added - Copy timestamps for newly created directories
-                                except Exception as e:                                                                                   # v000.0005 added - Copy timestamps for newly created directories
-                                    # Non-critical error - directory was created successfully                                            # v000.0005 added - Copy timestamps for newly created directories
-                                    self.copy_manager._log_status(f"Warning: Could not copy directory timestamps for {dest_path}: {e}")  # v000.0005 added - Copy timestamps for newly created directories
+                                # Copy timestamps for newly created directories
+                                try:
+                                    self.copy_manager.timestamp_manager.copy_timestamps(source_path, dest_path)
+                                    self.copy_manager._log_status(f"Copied directory timestamps: {dest_path}")
+                                except Exception as e:
+                                    self.copy_manager._log_status(f"Warning: Could not copy directory timestamps for {dest_path}: {e}")
                             else:
                                 copied_count += 1
                                 self.copy_manager._log_status(f"DRY RUN: Would create directory: {dest_path}")
-                                self.copy_manager._log_status(f"DRY RUN: Would copy directory timestamps: {dest_path}")  # v000.0005 added
+                                self.copy_manager._log_status(f"DRY RUN: Would copy directory timestamps: {dest_path}")
                         else:
-                            # v000.0005 added - Directory already exists - still copy timestamps to sync metadata  
-                            if not is_dry_run:                                                                                             # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
-                                try:                                                                                                       # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
-                                    self.copy_manager.timestamp_manager.copy_timestamps(source_path, dest_path)                            # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
-                                    copied_count += 1  # Count as a successful operation                                                   # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
-                                    self.copy_manager._log_status(f"Updated directory timestamps: {dest_path}")                            # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
-                                except Exception as e:                                                                                     # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
-                                    # Non-critical error - directory exists                                                                # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
-                                    self.copy_manager._log_status(f"Warning: Could not update directory timestamps for {dest_path}: {e}")  # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
-                                    skipped_count += 1                                                                                     # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
-                            else:                                                                                                          # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
-                                copied_count += 1                                                                                          # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
-                                self.copy_manager._log_status(f"DRY RUN: Would update directory timestamps: {dest_path}")                  # v000.0005 added - Directory already exists - still copy timestamps to sync metadata 
+                            # Directory already exists - still copy timestamps to sync metadata  
+                            if not is_dry_run:
+                                try:
+                                    self.copy_manager.timestamp_manager.copy_timestamps(source_path, dest_path)
+                                    copied_count += 1  # Count as a successful operation
+                                    self.copy_manager._log_status(f"Updated directory timestamps: {dest_path}")
+                                except Exception as e:
+                                    self.copy_manager._log_status(f"Warning: Could not update directory timestamps for {dest_path}: {e}")
+                                    skipped_count += 1
+                            else:
+                                copied_count += 1
+                                self.copy_manager._log_status(f"DRY RUN: Would update directory timestamps: {dest_path}")
                         continue
                     
-                    # Copy individual file using copy manager with dry run support
-                    result = self.copy_manager.copy_file(source_path, dest_path, self.overwrite_mode.get())
+                    # Copy individual file using enhanced copy manager (M12: overwrite parameter removed)
+                    result = self.copy_manager.copy_file(source_path, dest_path)
                     
                     # Track strategy usage for summary
                     if result.strategy_used == FileCopyManager_class.CopyStrategy.DIRECT:
@@ -3062,7 +3142,7 @@ class FolderCompareSync_class:
                     if result.success:
                         copied_count += 1
                         total_bytes_copied += result.bytes_copied
-                        success_msg = f"Successfully {'simulated' if is_dry_run else 'copied'}: {rel_path} ({result.strategy_used.value} strategy)"
+                        success_msg = f"Successfully {'simulated' if is_dry_run else 'copied'}: {rel_path} ({result.strategy_used.value} strategy, verified={result.verification_passed})"
                         self.copy_manager._log_status(success_msg)
                     else:
                         error_count += 1
@@ -3088,7 +3168,7 @@ class FolderCompareSync_class:
                     continue
             
             # Final progress update
-            final_progress_text = f"{'Simulation' if is_dry_run else 'Copy'} operation complete"
+            final_progress_text = f"Enhanced {'simulation' if is_dry_run else 'copy'} operation complete"
             progress.update_progress(len(selected_paths), final_progress_text)
             
             elapsed_time = time.time() - start_time
@@ -3096,32 +3176,35 @@ class FolderCompareSync_class:
             # End copy operation session
             self.copy_manager.end_copy_operation(copied_count, error_count, total_bytes_copied)
             
-            # summary message with strategy breakdown
-            summary = f"Copy operation{dry_run_text} complete ({direction_text}): "
+            # Enhanced summary message with strategy breakdown and verification policy
+            verify_policy = self.verify_policy.get()
+            summary = f"Enhanced copy operation{dry_run_text} complete ({direction_text}): "
             summary += f"{copied_count} {'simulated' if is_dry_run else 'copied'}, {error_count} errors, "
             summary += f"{skipped_count} skipped, {total_bytes_copied:,} bytes in {elapsed_time:.1f}s"
+            summary += f" | Verification: {verify_policy}"
             log_and_flush(logging.INFO, summary)
             self.root.after(0, lambda: self.add_status_message(summary))
             
-            # strategy summary
+            # strategy and verification summary
             if direct_strategy_count > 0 or staged_strategy_count > 0:
-                strategy_summary = f"Strategy usage: {direct_strategy_count} direct, {staged_strategy_count} staged"
+                strategy_summary = f"Copy strategies used: {direct_strategy_count} DIRECT (CopyFileExW+mmap), {staged_strategy_count} STAGED (chunked+BLAKE3)"
                 self.root.after(0, lambda: self.add_status_message(strategy_summary))
             
-            # Show completion dialog with information including dry run status
-            completion_msg = f"Copy operation{dry_run_text} completed!\n\n"
+            # Show completion dialog with enhanced information including dry run status
+            completion_msg = f"Enhanced copy operation{dry_run_text} completed!\n\n"
             completion_msg += f"Successfully {'simulated' if is_dry_run else 'copied'}: {copied_count} items\n"
             completion_msg += f"Total bytes {'simulated' if is_dry_run else 'copied'}: {total_bytes_copied:,}\n"
             completion_msg += f"Errors: {error_count}\n"
             completion_msg += f"Skipped: {skipped_count}\n"
             completion_msg += f"Time: {elapsed_time:.1f} seconds\n"
             completion_msg += f"Operation ID: {operation_id}\n"
+            completion_msg += f"Verification Policy: {verify_policy}\n"
             
-            # Include strategy breakdown
+            # Include enhanced strategy breakdown
             if direct_strategy_count > 0 or staged_strategy_count > 0:
-                completion_msg += f"\nStrategy Usage:\n"
-                completion_msg += f"• Direct strategy: {direct_strategy_count} files\n"
-                completion_msg += f"• Staged strategy: {staged_strategy_count} files\n"
+                completion_msg += f"\nCopy Strategies Used:\n"
+                completion_msg += f"• DIRECT strategy (CopyFileExW + mmap): {direct_strategy_count} files\n"
+                completion_msg += f"• STAGED strategy (chunked + BLAKE3): {staged_strategy_count} files\n"
             
             if is_dry_run:
                 completion_msg += f"\n*** DRY RUN SIMULATION ***\n"
@@ -3145,13 +3228,13 @@ class FolderCompareSync_class:
             if critical_errors and not is_dry_run:
                 self.root.after(0, lambda: FolderCompareSync_class.ErrorDetailsDialog_class(
                     self.root, 
-                    f"Copy Complete with Errors", 
+                    f"Enhanced Copy Complete with Errors", 
                     completion_msg, 
                     error_details
                 ))
             else:
                 self.root.after(0, lambda: messagebox.showinfo(
-                    f"{'Simulation' if is_dry_run else 'Copy'} Complete", 
+                    f"Enhanced {'Simulation' if is_dry_run else 'Copy'} Complete", 
                     completion_msg
                 ))
             
@@ -3162,8 +3245,8 @@ class FolderCompareSync_class:
                 self.root.after(0, lambda: self.add_status_message("DRY RUN complete - no file system changes made"))
             
         except Exception as e:
-            log_and_flush(logging.ERROR, f"Copy operation{dry_run_text} failed: {e}")
-            error_msg = f"Copy operation{dry_run_text} failed: {str(e)}"
+            log_and_flush(logging.ERROR, f"Enhanced copy operation{dry_run_text} failed: {e}")
+            error_msg = f"Enhanced copy operation{dry_run_text} failed: {str(e)}"
             self.copy_manager._log_status(error_msg)
             self.root.after(0, lambda: self.add_status_message(f"ERROR: {error_msg}"))
             self.root.after(0, lambda: self.show_error(error_msg))
@@ -3201,9 +3284,9 @@ class FolderCompareSync_class:
             threading.Thread(target=self.perform_comparison, daemon=True).start()
         else:
             self.add_status_message("Copy or Delete operation complete - ready for next operation")
-        
+            
     def update_summary(self):
-        """Update summary information with filter status and limit checking."""
+        """Update summary information with filter status, verification policy, and limit checking."""
         # Use appropriate results set (filtered or full)
         results_to_use = self.filtered_results if self.is_filtered else self.comparison_results
         
@@ -3227,9 +3310,24 @@ class FolderCompareSync_class:
         
         filter_text = " (filtered)" if self.is_filtered else ""
         dry_run_text = " | DRY RUN MODE" if self.dry_run_mode.get() else ""
-        summary = f"Summary{filter_text}: {total_differences} differences | {missing_left} missing left | {missing_right} missing right | {selected_total} marked{dry_run_text}"
-        self.summary_var.set(summary)
         
+        # Add verification policy indicator (M04)
+        verify_policy = getattr(self, 'verify_policy', None)
+        if verify_policy:
+            policy_value = verify_policy.get()
+            if policy_value == 'none':
+                verify_text = " | Verify: NONE"
+            elif policy_value == 'all':
+                verify_text = " | Verify: ALL"
+            else:  # lt_threshold
+                threshold_gb = C.FILECOPY_VERIFY_THRESHOLD_BYTES / (1024**3)
+                verify_text = f" | Verify: <{threshold_gb:.1f}GB"
+        else:
+            verify_text = ""
+        
+        summary = f"Summary{filter_text}: {total_differences} differences | {missing_left} missing left | {missing_right} missing right | {selected_total} marked{dry_run_text}{verify_text}"
+        self.summary_var.set(summary)
+
     def show_error(self, message):
         """Show error message to user with context and details option."""
         log_and_flush(logging.ERROR, f"Displaying error to user: {message}")
@@ -3247,17 +3345,17 @@ class FolderCompareSync_class:
             messagebox.showerror("Error", message)
             
         self.status_var.set("Ready")
-        
+
     def run(self):
         """
-        Start the application GUI event loop
+        Start the enhanced application GUI event loop
         
         Purpose:
         --------
-        Main application entry point that starts the GUI event loop
-        with comprehensive error handling and graceful shutdown.
+        Main application entry point that starts the GUI event loop with enhanced copy system
+        features and comprehensive error handling.
         """
-        log_and_flush(logging.INFO, "Starting FolderCompareSync GUI application.")
+        log_and_flush(logging.INFO, "Starting Enhanced FolderCompareSync GUI application.")
         try:
             self.root.mainloop()
         except Exception as e:
@@ -3267,7 +3365,7 @@ class FolderCompareSync_class:
                 log_and_flush(logging.DEBUG, traceback.format_exc())
             raise
         finally:
-            log_and_flush(logging.INFO, "Application shutdown")
+            log_and_flush(logging.INFO, "Enhanced copy system application shutdown")
 
     def open_debug_global_editor(self): # v001.0019 added [DebugGlobalEditor_class integration - main editor method]
         """
@@ -3441,8 +3539,9 @@ class FolderCompareSync_class:
             state['compare_sha512'] = self.compare_sha512.get() 
             
             # Operation modes 
-            state['overwrite_mode'] = self.overwrite_mode.get() 
+            # >>> CHANGE START: drop legacy overwrite_mode from persistence # per chatGPT change 9.2
             state['dry_run_mode'] = self.dry_run_mode.get() 
+            # <<< CHANGE END
             
             # Filter state 
             state['filter_wildcard'] = self.filter_wildcard.get() 
@@ -3530,10 +3629,10 @@ class FolderCompareSync_class:
                 self.compare_sha512.set(state['compare_sha512'])
             
             # Restore operation modes
-            if 'overwrite_mode' in state:
-                self.overwrite_mode.set(state['overwrite_mode'])
+            # >>> CHANGE START: drop legacy overwrite_mode from restore # per chatGPT change 9.2
             if 'dry_run_mode' in state:
                 self.dry_run_mode.set(state['dry_run_mode'])
+            # <<< CHANGE END
             
             # Restore filter state
             if 'filter_wildcard' in state:

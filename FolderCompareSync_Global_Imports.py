@@ -212,14 +212,17 @@ def check_and_import_core_deps() -> None:
     BLAKE3_AVAILABLE    = True
 
 # ============================================================================
-# WINDOWS API BINDINGS AND STRUCTURES (M15)
+# WINDOWS API BINDINGS AND STRUCTURES (M15) - COPY-RELATED ONLY
 # ============================================================================
 
 def setup_windows_api_bindings():
     """
     Setup Windows API function bindings with proper signatures for enhanced file copy system.
     
-    This function configures all Windows API calls needed for:
+    NOTE: Timestamp-related API bindings have been moved to FileTimestampManager_class.py
+    This function now only handles copy-related Windows API bindings.
+    
+    This function configures Windows API calls needed for:
     - CopyFileExW with progress callbacks
     - Drive type detection 
     - File attribute handling
@@ -229,20 +232,6 @@ def setup_windows_api_bindings():
     
     # Get kernel32 handle
     kernel32 = ctypes.windll.kernel32
-    
-    # ============================================================================
-    # WINDOWS FILETIME STRUCTURE
-    # ============================================================================
-    
-    class FILETIME(ctypes.Structure):
-        """
-        Windows FILETIME structure.
-        Represents time as 100-nanosecond intervals since 1601-01-01 00:00:00 UTC.
-        """
-        _fields_ = [
-            ("dwLowDateTime", wintypes.DWORD),   # Low 32 bits of the 64-bit time value
-            ("dwHighDateTime", wintypes.DWORD),  # High 32 bits of the 64-bit time value
-        ]
     
     # ============================================================================
     # PROGRESS CALLBACK FUNCTION TYPE
@@ -262,7 +251,7 @@ def setup_windows_api_bindings():
     )
     
     # ============================================================================
-    # WINDOWS API FUNCTION SIGNATURES
+    # WINDOWS API FUNCTION SIGNATURES - COPY-RELATED ONLY
     # ============================================================================
     
     # CopyFileExW - Enhanced file copy with progress callbacks
@@ -293,35 +282,6 @@ def setup_windows_api_bindings():
     kernel32.GetFileAttributesW.argtypes = [wintypes.LPCWSTR]
     kernel32.GetFileAttributesW.restype = wintypes.DWORD
 
-    # CreateFileW - File handle creation
-    kernel32.CreateFileW.argtypes = [
-        wintypes.LPCWSTR,    # lpFileName (wide string path)
-        wintypes.DWORD,      # dwDesiredAccess
-        wintypes.DWORD,      # dwShareMode
-        wintypes.LPVOID,     # lpSecurityAttributes (usually NULL)
-        wintypes.DWORD,      # dwCreationDisposition
-        wintypes.DWORD,      # dwFlagsAndAttributes
-        wintypes.HANDLE      # hTemplateFile (usually NULL)
-    ]
-    kernel32.CreateFileW.restype = wintypes.HANDLE
-
-    # SetFileTime - File timestamp modification
-    kernel32.SetFileTime.argtypes = [
-        wintypes.HANDLE,                 # hFile
-        ctypes.POINTER(FILETIME),        # lpCreationTime (can be NULL)
-        ctypes.POINTER(FILETIME),        # lpLastAccessTime (can be NULL)
-        ctypes.POINTER(FILETIME)         # lpLastWriteTime (can be NULL)
-    ]
-    kernel32.SetFileTime.restype = wintypes.BOOL
-
-    # CloseHandle - Handle cleanup
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    kernel32.CloseHandle.restype = wintypes.BOOL
-
-    # GetLastError - Error code retrieval
-    kernel32.GetLastError.argtypes = []
-    kernel32.GetLastError.restype = wintypes.DWORD
-
     # Enhanced path resolution APIs
     kernel32.GetFullPathNameW.argtypes = [
         wintypes.LPCWSTR,                    # lpFileName
@@ -338,42 +298,17 @@ def setup_windows_api_bindings():
         wintypes.DWORD                       # dwFlags
     ]
     kernel32.GetFinalPathNameByHandleW.restype = wintypes.DWORD
+
+    # GetLastError - Error code retrieval (still needed for copy operations)
+    kernel32.GetLastError.argtypes = []
+    kernel32.GetLastError.restype = wintypes.DWORD
     
     # Expose these to the global namespace
     g = globals()
     g['kernel32'] = kernel32
-    g['FILETIME'] = FILETIME
     g['PROGRESS_ROUTINE'] = PROGRESS_ROUTINE
     _export_name('kernel32')
-    _export_name('FILETIME')
     _export_name('PROGRESS_ROUTINE')
-
-# ============================================================================
-# UTILITY FUNCTIONS FOR WINDOWS API INTEGRATION
-# ============================================================================
-
-def _u64_to_FILETIME(u64: int):
-    """
-    Convert a 64-bit integer to a FILETIME structure.
-    Args:
-        u64: 64-bit integer representing 100-nanosecond intervals since 1601
-    Returns:
-        FILETIME structure with properly split low/high DWORDs
-    """
-    return FILETIME(
-        dwLowDateTime=(u64 & 0xFFFFFFFF),        # Mask to get lower 32 bits
-        dwHighDateTime=((u64 >> 32) & 0xFFFFFFFF) # Shift and mask to get upper 32 bits
-    )
-
-def _FILETIME_to_u64(ft) -> int:
-    """
-    Convert a FILETIME structure to a 64-bit integer.
-    Args:
-        ft: FILETIME structure
-    Returns:
-        64-bit integer representing 100-nanosecond intervals since 1601
-    """
-    return (ft.dwHighDateTime << 32) | ft.dwLowDateTime
 
 # ---------- function to auto-build __all__ from what changed during imports ----------
 

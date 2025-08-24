@@ -8,7 +8,6 @@ from FolderCompareSync_Global_Imports import *
 import FolderCompareSync_Global_Constants as C
 
 # import our flushed_logging before other modules
-#from flushed_logging import *   # includes LoggerManager
 from flushed_logging import log_and_flush, get_log_level, LoggerManager
 
 # Import the things this class references
@@ -16,88 +15,103 @@ from flushed_logging import log_and_flush, get_log_level, LoggerManager
 
 class FileTimestampManager_class:
     """
-    A robust class to manage file timestamps on Windows systems.
+    A robust class to manage file timestamps on Windows systems with consolidated Windows API support.
+    
+    Purpose:
+    --------
+    Centralized timestamp management with all Windows API timestamp-related functionality.
+    This module now consolidates all timestamp and file time Windows API bindings and utilities
+    that were previously duplicated in Global_Imports, providing a single source of truth
+    for timestamp operations.
+    
+    Key Features:
+    -------------
+    - Complete Windows FILETIME structure and API support
+    - Timezone-aware timestamp operations
+    - Utility functions for FILETIME conversions
+    - Support for both files and directories
+    - Dry run mode for testing
+    - Comprehensive error handling and fallback mechanisms
+    
+    Usage:
+    ------
+    timestamp_manager = FileTimestampManager_class()
+    
+    # Get timestamps from a file
+    creation_time, mod_time = timestamp_manager.get_file_timestamps("source.txt")
+    
+    # Set timestamps on another file
+    timestamp_manager.set_file_timestamps("target.txt", creation_time, mod_time)
+    
+    # Copy timestamps directly
+    timestamp_manager.copy_timestamps("source.txt", "target.txt")
+    
+    # Use utility functions (now available from this module)
+    filetime_struct = FileTimestampManager_class.u64_to_FILETIME(timestamp_int)
+    timestamp_int = FileTimestampManager_class.FILETIME_to_u64(filetime_struct)
     """
     
-    # class FILETIME must must must be defined before the WINDOWS API FUNCTION BINDINGS below
-    class FILETIME(ctypes.Structure):
-        # ==========================================================================================================
-        # WINDOWS FILETIME STRUCTURE AND API SETUP
-        # ==========================================================================================================
-        # Windows FILETIME is a 64-bit value representing 100-nanosecond intervals since January 1, 1601 UTC.
-        # It's stored as two 32-bit DWORDs: dwLowDateTime (low 32 bits) and dwHighDateTime (high 32 bits).
-        # 
-        # While passing a c_ulonglong pointer often works (on little-endian systems), using the proper
-        # FILETIME structure is more correct and ensures compatibility across different scenarios.
-        # ==
-        """
-        Windows FILETIME structure.
-        Represents time as 100-nanosecond intervals since 1601-01-01 00:00:00 UTC.
+    # ==========================================================================================================
+    # WINDOWS FILETIME STRUCTURE AND API SETUP - CONSOLIDATED FROM GLOBAL_IMPORTS
+    # ==========================================================================================================
+    # Windows FILETIME is a 64-bit value representing 100-nanosecond intervals since January 1, 1601 UTC.
+    # It's stored as two 32-bit DWORDs: dwLowDateTime (low 32 bits) and dwHighDateTime (high 32 bits).
+    # 
+    # This class is now the single source of truth for FILETIME operations, consolidating functionality
+    # that was previously duplicated between Global_Imports and FileTimestampManager.
+    # ==========================================================================================================
     
-        A class to reliably manage file date-created and date-modified timestamps on Windows systems.
+    class FILETIME(ctypes.Structure):
+        """
+        Windows FILETIME structure - consolidated from Global_Imports.
+        Represents time as 100-nanosecond intervals since 1601-01-01 00:00:00 UTC.
     
         Purpose:
         --------
-            Handles both retrieval and setting of creation and modification times
-            with proper timezone awareness for accurate file metadata preservation.
-            Supports dry run mode to prevent actual filesystem modifications.
+        Single source of truth for FILETIME structure definition. Other modules should
+        import this from FileTimestampManager_class rather than defining their own.
         
         Features:
         ---------
-            - Proper Windows FILETIME structure usage for maximum compatibility
-            - Automatic timezone detection and conversion
-            - Support for both files and directories
-            - Dry run mode for testing
-            - Fallback mechanism if primary method fails
-            - Comprehensive error reporting
+        - Proper Windows FILETIME structure usage for maximum compatibility
+        - Automatic timezone detection and conversion
+        - Support for both files and directories
+        - Dry run mode for testing
+        - Fallback mechanism if primary method fails
+        - Comprehensive error reporting
         
         Usage:
         ------
-            >>> timestamp_manager = FileTimestampManager_class()
-            >>> 
-            >>> # Get timestamps from a file
-            >>> creation_time, mod_time = timestamp_manager.get_file_timestamps("source.txt")
-            >>> 
-            >>> # Set timestamps on another file
-            >>> timestamp_manager.set_file_timestamps("target.txt", creation_time, mod_time)
-            >>> 
-            >>> # Copy timestamps directly
-            >>> timestamp_manager.copy_timestamps("source.txt", "target.txt")
-            >>> 
-            >>> # Dry run mode (no actual changes)
-            >>> dry_run_manager = FileTimestampManager_class(dry_run=True)
+        # Import the FILETIME class from this module
+        from FileTimestampManager_class import FileTimestampManager_class
+        filetime = FileTimestampManager_class.FILETIME(dwLowDateTime=low, dwHighDateTime=high)
         
         NOTES:
         ------
-            Hybrid approach Generated by Claude AI.
-            Robust FileTimestampManager_class class for Windows with proper type safety and fallback mechanisms.
-            This hybrid approach combines the correctness of proper FILETIME structures with
-            practical fallback options for maximum compatibility.
-            Key improvements:
-            - Proper FILETIME structure definition for type safety
-            - Correct Windows API function signatures
-            - Fallback mechanism if proper method fails
-            - error handling and debugging
-            - Clear documentation of Windows timestamp quirks
+        This consolidates FILETIME functionality that was previously duplicated in
+        both Global_Imports and FileTimestampManager_class, providing a single
+        authoritative source for timestamp structure operations.
         """
         _fields_ = [
             ("dwLowDateTime", wintypes.DWORD),   # Low 32 bits of the 64-bit time value
             ("dwHighDateTime", wintypes.DWORD),  # High 32 bits of the 64-bit time value
         ]
 
-
     # ==========================================================================================================
-    # WINDOWS API FUNCTION BINDINGS WITH PROPER SIGNATURES
+    # WINDOWS API FUNCTION BINDINGS WITH PROPER SIGNATURES - TIMESTAMP-RELATED ONLY
     # ==========================================================================================================
     # Setting argtypes and restype ensures:
     # 1. Proper type conversion (especially important for HANDLEs on 64-bit Python)
     # 2. Correct error handling (return values won't be truncated)
     # 3. Better debugging (ctypes will raise errors for incorrect argument types)
+    # 
+    # NOTE: Only timestamp-related Windows API functions are defined here.
+    # Copy-related functions (CopyFileExW, etc.) remain in Global_Imports.
     # ==========================================================================================================
 
     kernel32 = ctypes.windll.kernel32
 
-    # CreateFileW - Opens a file/directory handle
+    # CreateFileW - Opens a file/directory handle (needed for timestamp operations)
     kernel32.CreateFileW.argtypes = [
         wintypes.LPCWSTR,    # lpFileName (wide string path)
         wintypes.DWORD,      # dwDesiredAccess
@@ -126,7 +140,7 @@ class FileTimestampManager_class:
     kernel32.GetLastError.argtypes = []
     kernel32.GetLastError.restype = wintypes.DWORD
 
-    # Windows constants
+    # Windows constants for timestamp operations
     INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
     GENERIC_WRITE = 0x40000000
     FILE_WRITE_ATTRIBUTES = 0x100  # More specific than GENERIC_WRITE for just changing attributes
@@ -137,13 +151,26 @@ class FileTimestampManager_class:
     FILE_FLAG_BACKUP_SEMANTICS = 0x02000000  # Required for opening directories
 
     @staticmethod
-    def _u64_to_FILETIME(u64: int) -> FileTimestampManager_class.FILETIME:
+    def u64_to_FILETIME(u64: int) -> 'FileTimestampManager_class.FILETIME':
         """
         Convert a 64-bit integer to a FILETIME structure.
+        
+        Purpose:
+        --------
+        Consolidated utility function (moved from Global_Imports) for converting
+        64-bit timestamp values to proper Windows FILETIME structures.
+        
         Args:
-            u64: 64-bit integer representing 100-nanosecond intervals since 1601
+        -----
+        u64: 64-bit integer representing 100-nanosecond intervals since 1601
+        
         Returns:
-            FILETIME structure with properly split low/high DWORDs
+        --------
+        FILETIME structure with properly split low/high DWORDs
+        
+        Usage:
+        ------
+        filetime = FileTimestampManager_class.u64_to_FILETIME(timestamp_value)
         """
         return FileTimestampManager_class.FILETIME(
             dwLowDateTime=(u64 & 0xFFFFFFFF),        # Mask to get lower 32 bits
@@ -151,13 +178,26 @@ class FileTimestampManager_class:
         )
 
     @staticmethod
-    def _FILETIME_to_u64(ft: FileTimestampManager_class.FILETIME) -> int:
+    def FILETIME_to_u64(ft: 'FileTimestampManager_class.FILETIME') -> int:
         """
         Convert a FILETIME structure to a 64-bit integer.
+        
+        Purpose:
+        --------
+        Consolidated utility function (moved from Global_Imports) for converting
+        Windows FILETIME structures back to 64-bit integer values.
+        
         Args:
-            ft: FILETIME structure
+        -----
+        ft: FILETIME structure
+        
         Returns:
-            64-bit integer representing 100-nanosecond intervals since 1601
+        --------
+        64-bit integer representing 100-nanosecond intervals since 1601
+        
+        Usage:
+        ------
+        timestamp_int = FileTimestampManager_class.FILETIME_to_u64(filetime_struct)
         """
         return (ft.dwHighDateTime << 32) | ft.dwLowDateTime
     
@@ -166,8 +206,8 @@ class FileTimestampManager_class:
         Initialize the timestamp manager.
         
         Args:
-            dry_run: If True, don't actually modify files (for testing)
-            debug: If True, print detailed debug information
+        -----
+        dry_run: If True, don't actually modify files (for testing)
         """
         self._local_tz = self._get_local_timezone()
         self._windows_epoch = datetime(1601, 1, 1, tzinfo=timezone.utc)
@@ -180,7 +220,8 @@ class FileTimestampManager_class:
         Get a human-readable string representation of the detected timezone.
         
         Returns:
-            String describing the timezone (e.g., "Australia/Adelaide" or "UTC+09:30")
+        --------
+        String describing the timezone (e.g., "Australia/Adelaide" or "UTC+09:30")
         """
         if hasattr(self._local_tz, 'key'):
             # zoneinfo.ZoneInfo has a 'key' attribute with the IANA name
@@ -215,7 +256,8 @@ class FileTimestampManager_class:
         Get the system's local timezone with multiple fallback methods.
         
         Returns:
-            timezone object representing the local timezone
+        --------
+        timezone object representing the local timezone
         """
         # Method 0: Use dateutil.tz.tzwinlocal (Windows registry direct)
         log_and_flush(logging.DEBUG, "Attempting timezone detection using Method 0: dateutil.tz.tzwinlocal...")
@@ -296,14 +338,13 @@ class FileTimestampManager_class:
         except zoneinfo.ZoneInfoNotFoundError as e:
             log_and_flush(logging.WARNING, f"IANA lookup failed (no tzdata?): {e}")
         except ImportError as e:
-            log_and_flush(logging.DEBUG, "zoneinfo module not available, {e},skipping Method 1")
+            log_and_flush(logging.DEBUG, f"zoneinfo module not available: {e}, skipping Method 1")
         except (AttributeError, Exception) as e:
             log_and_flush(logging.DEBUG, f"Zoneinfo method failed: {e}")
         
         # Method 2: Use time module offset to create timezone
         log_and_flush(logging.DEBUG, "Attempting timezone detection using Method 2: time module offset method...")
         try:
-            # We already have time imported at module level – do not do an inner import here!
             # Get the actual current offset by comparing local and UTC time
             local_time = time.localtime()
             utc_time   = time.gmtime()
@@ -335,14 +376,17 @@ class FileTimestampManager_class:
         Get creation and modification timestamps from a file or directory.
         
         Args:
-            file_path: Path to the file or directory
+        -----
+        file_path: Path to the file or directory
             
         Returns:
-            tuple of (creation_time, modification_time) as timezone-aware datetime objects
+        --------
+        tuple of (creation_time, modification_time) as timezone-aware datetime objects
             
         Raises:
-            FileNotFoundError: If the file doesn't exist
-            OSError: If there's an error accessing the file
+        -------
+        FileNotFoundError: If the file doesn't exist
+        OSError: If there's an error accessing the file
         """
         file_path = Path(file_path)
         if not file_path.exists():
@@ -375,16 +419,19 @@ class FileTimestampManager_class:
         simpler c_ulonglong method if needed.
         
         Args:
-            file_path: Path to the file or directory
-            creation_time: New creation time (optional)
-            modification_time: New modification time (optional)
+        -----
+        file_path: Path to the file or directory
+        creation_time: New creation time (optional)
+        modification_time: New modification time (optional)
             
         Returns:
-            True if successful, False otherwise
+        --------
+        True if successful, False otherwise
             
         Raises:
-            FileNotFoundError: If the file doesn't exist
-            ValueError: If neither timestamp is provided
+        -------
+        FileNotFoundError: If the file doesn't exist
+        ValueError: If neither timestamp is provided
         """
         if self._dry_run:
             log_and_flush(logging.INFO, f"[DRY RUN] Would set timestamps for {file_path}")
@@ -442,10 +489,12 @@ class FileTimestampManager_class:
         January 1, 1601 00:00:00 UTC (Windows epoch).
         
         Args:
-            dt: Datetime object (timezone-aware or naive)
+        -----
+        dt: Datetime object (timezone-aware or naive)
             
         Returns:
-            Windows FILETIME as integer (100-nanosecond intervals since 1601-01-01)
+        --------
+        Windows FILETIME as integer (100-nanosecond intervals since 1601-01-01)
         """
         # Ensure datetime is timezone-aware
         if dt.tzinfo is None:
@@ -481,12 +530,14 @@ class FileTimestampManager_class:
         This is the most correct way to set file times on Windows.
         
         Args:
-            file_path: Path to the file or directory
-            creation_time: Creation time in FILETIME format (optional)
-            modification_time: Modification time in FILETIME format (optional)
+        -----
+        file_path: Path to the file or directory
+        creation_time: Creation time in FILETIME format (optional)
+        modification_time: Modification time in FILETIME format (optional)
             
         Returns:
-            True if successful, False otherwise
+        --------
+        True if successful, False otherwise
         """
         handle = None
         try:
@@ -496,11 +547,11 @@ class FileTimestampManager_class:
             # Set appropriate flags
             flags = FileTimestampManager_class.FILE_ATTRIBUTE_NORMAL
             if is_directory:
-                # Must use FileTimestampManager_class.FILE_FLAG_BACKUP_SEMANTICS to open directories
+                # Must use FILE_FLAG_BACKUP_SEMANTICS to open directories
                 flags = FileTimestampManager_class.FILE_FLAG_BACKUP_SEMANTICS
             
             # Open file/directory handle
-            # Using FileTimestampManager_class.FILE_WRITE_ATTRIBUTES is more specific than GENERIC_WRITE
+            # Using FILE_WRITE_ATTRIBUTES is more specific than GENERIC_WRITE
             handle = FileTimestampManager_class.kernel32.CreateFileW(
                 file_path,
                 FileTimestampManager_class.FILE_WRITE_ATTRIBUTES,  # Only need attribute write access
@@ -516,16 +567,16 @@ class FileTimestampManager_class:
                 log_and_flush(logging.DEBUG, f"CreateFileW failed with error code: {error_code}")
                 return False
             
-            # Prepare FILETIME structures
+            # Prepare FILETIME structures using consolidated utility functions
             creation_ft_ptr = None
             modification_ft_ptr = None
             
             if creation_time is not None:
-                creation_ft = self._u64_to_FILETIME(creation_time)
+                creation_ft = self.u64_to_FILETIME(creation_time)
                 creation_ft_ptr = ctypes.pointer(creation_ft)
             
             if modification_time is not None:
-                modification_ft = self._u64_to_FILETIME(modification_time)
+                modification_ft = self.u64_to_FILETIME(modification_time)
                 modification_ft_ptr = ctypes.pointer(modification_ft)
             
             # Set file times
@@ -561,12 +612,14 @@ class FileTimestampManager_class:
         but is technically not the correct way to pass FILETIME structures.
         
         Args:
-            file_path: Path to the file or directory
-            creation_time: Creation time in FILETIME format (optional)
-            modification_time: Modification time in FILETIME format (optional)
+        -----
+        file_path: Path to the file or directory
+        creation_time: Creation time in FILETIME format (optional)
+        modification_time: Modification time in FILETIME format (optional)
             
         Returns:
-            True if successful, False otherwise
+        --------
+        True if successful, False otherwise
         """
         handle = None
         try:
@@ -589,7 +642,7 @@ class FileTimestampManager_class:
                 None
             )
             
-            if handle == -1:  # Simple comparison for FileTimestampManager_class.INVALID_HANDLE_VALUE
+            if handle == -1:  # Simple comparison for INVALID_HANDLE_VALUE
                 return False
             
             # Prepare FILETIME as c_ulonglong (fallback method)
@@ -629,11 +682,13 @@ class FileTimestampManager_class:
         and set_file_timestamps.
         
         Args:
-            source_file: Source file path
-            target_file: Target file path
+        -----
+        source_file: Source file path
+        target_file: Target file path
             
         Returns:
-            True if successful, False otherwise
+        --------
+        True if successful, False otherwise
         """
         if self._dry_run:
             log_and_flush(logging.INFO, f"[DRY RUN] Would copy timestamps from {source_file} to {target_file}")
@@ -665,13 +720,15 @@ class FileTimestampManager_class:
         Useful for testing and validation.
         
         Args:
-            file_path: Path to verify
-            expected_creation: Expected creation time (optional)
-            expected_modification: Expected modification time (optional)
-            tolerance_seconds: Acceptable difference in seconds
+        -----
+        file_path: Path to verify
+        expected_creation: Expected creation time (optional)
+        expected_modification: Expected modification time (optional)
+        tolerance_seconds: Acceptable difference in seconds
             
         Returns:
-            True if timestamps match within tolerance, False otherwise
+        --------
+        True if timestamps match within tolerance, False otherwise
         """
         try:
             actual_creation, actual_modification = self.get_file_timestamps(file_path)
@@ -693,3 +750,40 @@ class FileTimestampManager_class:
         except Exception as e:
             log_and_flush(logging.DEBUG, f"Error verifying timestamps: {e}")
             return False
+
+
+# ==========================================================================================================
+# MODULE-LEVEL UTILITY FUNCTIONS FOR EXTERNAL ACCESS
+# ==========================================================================================================
+# These functions provide convenient access to FILETIME utilities without requiring
+# an instance of FileTimestampManager_class, maintaining compatibility with existing code.
+# ==========================================================================================================
+
+def u64_to_FILETIME(u64: int) -> FileTimestampManager_class.FILETIME:
+    """
+    Module-level convenience function for FILETIME conversion.
+    
+    Usage:
+    ------
+    from FileTimestampManager_class import u64_to_FILETIME
+    filetime = u64_to_FILETIME(timestamp_int)
+    """
+    return FileTimestampManager_class.u64_to_FILETIME(u64)
+
+def FILETIME_to_u64(ft: FileTimestampManager_class.FILETIME) -> int:
+    """
+    Module-level convenience function for FILETIME conversion.
+    
+    Usage:
+    ------
+    from FileTimestampManager_class import FILETIME_to_u64
+    timestamp_int = FILETIME_to_u64(filetime_struct)
+    """
+    return FileTimestampManager_class.FILETIME_to_u64(ft)
+
+# Export important classes and functions for other modules
+__all__ = [
+    'FileTimestampManager_class',
+    'u64_to_FILETIME', 
+    'FILETIME_to_u64'
+]
