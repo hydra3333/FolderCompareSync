@@ -446,22 +446,65 @@ class CopyProgressManager_class:
         
         return True
 
-    # >>> CHANGE START # per chatGPT 5) to wire in pop-up progress dialogue
+    # SUPERSEDED:
+    ## >>> CHANGE START # per chatGPT 5) to wire in pop-up progress dialogue
+    #def update_verify_progress(self, bytes_processed: int, total_bytes: int):
+    #    """Adapter for verification progress used by FileCopyManager.
+    #    Updates the dual progress bars without changing the existing APIs."""
+    #    # Ensure we are in verify phase for correct messaging
+    #    self.current_phase = 'verifying'
+    #    # Compute per-file verification percentage
+    #    if total_bytes and total_bytes > 0:
+    #        verify_pct = (bytes_processed / total_bytes) * 100
+    #    else:
+    #        verify_pct = 0
+    #    # Update only the verify bar; copy bar is left as-is
+    #    self.progress_dialog.update_dual_progress(verify_progress=verify_pct)
+    #    return True
+    ## <<< CHANGE END
+
+    # >>> CHANGE START # per chatGPT 6) to wire in pop-up verify dialogue
     def update_verify_progress(self, bytes_processed: int, total_bytes: int):
-        """Adapter for verification progress used by FileCopyManager.
-        Updates the dual progress bars without changing the existing APIs."""
-        # Ensure we are in verify phase for correct messaging
-        self.current_phase = 'verifying'
-        # Compute per-file verification percentage
-        if total_bytes and total_bytes > 0:
-            verify_pct = (bytes_processed / total_bytes) * 100
-        else:
-            verify_pct = 0
-        # Update only the verify bar; copy bar is left as-is
-        self.progress_dialog.update_dual_progress(verify_progress=verify_pct)
+        """
+        Adapter for verification progress (hashing)  used by FileCopyManager.
+        Also shows a friendly 'MB of MB' message on the Verify line.
+        """
+        current_time = time.time()
+        # Throttle UI updates like update_file_progress() does
+        if current_time - self.last_update_time < self.update_frequency:
+            return True
+        self.last_update_time = current_time
+        # Ensure we're visually in the verify phase
+        if getattr(self, "current_phase", "") != "verifying":
+            try:
+                self.start_verify_phase()
+            except Exception:
+                try:
+                    self.progress_dialog.set_verify_phase("Verifying files...")
+                except Exception:
+                    pass
+            self.current_phase = "verifying"
+        # Compute percent and "MB of MB" text
+        pct = (bytes_processed / total_bytes * 100) if total_bytes and total_bytes > 0 else 100.0
+        mb_done = bytes_processed / (1024 * 1024)
+        mb_total = total_bytes / (1024 * 1024) if total_bytes else mb_done
+        verify_msg = f"{mb_done:.1f} MB of {mb_total:.1f} MB"
+        # Optional overall status line with filename + MB of MB
+        overall_msg = None
+        if getattr(self, "current_file", ""):
+            overall_msg = f"Verifying {self.current_file} - {verify_msg}"
+        # Update only the verify bar/message; leave the copy bar as-is
+        try:
+            self.progress_dialog.update_dual_progress(
+                verify_progress=pct,
+                verify_message=verify_msg,
+                overall_message=overall_msg
+            )
+        except Exception:
+            pass
         return True
     # <<< CHANGE END
-    
+
     def complete_file(self, success: bool = True):
         """Mark current file as complete."""
         if success:
