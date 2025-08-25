@@ -875,17 +875,14 @@ class FileCopyManager_class:
                 # Then set EOF in one step so the logical file size == file_size
                 with open(temp_path, 'r+b') as tf:
                     h = msvcrt.get_osfhandle(tf.fileno())
-                    # FILE_ALLOCATION_INFO { LARGE_INTEGER AllocationSize; }
-                    class FILE_ALLOCATION_INFO(ctypes.Structure):
-                        _fields_ = [("AllocationSize", ctypes.c_longlong)]
-
-                    alloc = FILE_ALLOCATION_INFO(file_size)
-                    FileAllocationInfo = 19  # FILE_INFO_BY_HANDLE_CLASS::FileAllocationInfo
+                    # Build FILE_ALLOCATION_INFO with proper nested LARGE_INTEGER
+                    alloc = FILE_ALLOCATION_INFO()
+                    alloc.AllocationSize.QuadPart = ctypes.c_longlong(file_size)
                     ok = kernel32.SetFileInformationByHandle(
                         wintypes.HANDLE(h),
-                        ctypes.c_int(FileAllocationInfo),
+                        wintypes.DWORD(FILE_INFO_BY_HANDLE_FileAllocationInfo),
                         ctypes.byref(alloc),
-                        ctypes.sizeof(alloc)
+                        wintypes.DWORD(ctypes.sizeof(alloc))
                     )
                     if not ok:
                         err = kernel32.GetLastError()
