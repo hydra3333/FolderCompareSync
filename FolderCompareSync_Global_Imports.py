@@ -268,17 +268,37 @@ def setup_windows_api_bindings():
     ]
     kernel32.CopyFileExW.restype = wintypes.BOOL
 
-    # >>> CHANGE START: expose SetFilePointerEx / SetEndOfFile signatures for all modules
+    # >>> CHANGE START: expose SetFilePointerEx / SetEndOfFile / SetFileInformationByHandle + structs
     # BOOL SetFilePointerEx(HANDLE hFile, LARGE_INTEGER liDistanceToMove, PLARGE_INTEGER lpNewFilePointer, DWORD dwMoveMethod)
     kernel32.SetFilePointerEx.argtypes = [wintypes.HANDLE, ctypes.c_longlong, ctypes.POINTER(ctypes.c_longlong), wintypes.DWORD]
     kernel32.SetFilePointerEx.restype  = wintypes.BOOL
     # BOOL SetEndOfFile(HANDLE hFile)
     kernel32.SetEndOfFile.argtypes = [wintypes.HANDLE]
     kernel32.SetEndOfFile.restype  = wintypes.BOOL
+    # BOOL SetFileInformationByHandle(HANDLE, FILE_INFO_BY_HANDLE_CLASS, LPVOID, DWORD)
+    kernel32.SetFileInformationByHandle.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD]
+    kernel32.SetFileInformationByHandle.restype  = wintypes.BOOL
+    # Proper LARGE_INTEGER + FILE_ALLOCATION_INFO definitions
+    class _LARGE_INTEGER(ctypes.Structure):
+        _fields_ = [("QuadPart", ctypes.c_longlong)]
+    class FILE_ALLOCATION_INFO(ctypes.Structure):
+        _fields_ = [("AllocationSize", _LARGE_INTEGER)]
+    # Export commonly used constants (FILE_INFO_BY_HANDLE_CLASS)
+    FILE_INFO_BY_HANDLE_FileAllocationInfo = 19  # matches Win32 FILE_INFO_BY_HANDLE_CLASS::FileAllocationInfo
+    FILE_INFO_BY_HANDLE_FileEndOfFileInfo  = 20  # (not used here but handy)
     # Common move-method constants (FILE_BEGIN/FILE_CURRENT/FILE_END)
     FILE_BEGIN   = 0
     FILE_CURRENT = 1
     FILE_END     = 2
+    # Make these available to star-importers
+    g = globals()
+    g['FILE_ALLOCATION_INFO'] = FILE_ALLOCATION_INFO
+    g['FILE_INFO_BY_HANDLE_FileAllocationInfo'] = FILE_INFO_BY_HANDLE_FileAllocationInfo
+    g['FILE_INFO_BY_HANDLE_FileEndOfFileInfo']  = FILE_INFO_BY_HANDLE_FileEndOfFileInfo
+    _export_name('FILE_ALLOCATION_INFO')
+    _export_name('FILE_INFO_BY_HANDLE_FileAllocationInfo')
+    _export_name('FILE_INFO_BY_HANDLE_FileEndOfFileInfo')
+    _export_name('FILE_BEGIN'); _export_name('FILE_CURRENT'); _export_name('FILE_END')
     # <<< CHANGE END
 
     # GetDiskFreeSpaceExW - Disk space checking
