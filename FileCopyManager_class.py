@@ -467,8 +467,14 @@ class FileCopyManager_class:
         """
         start_time = time.time()
         file_size = Path(source_path).stat().st_size
-        
-        self._log_status(f"Using DIRECT strategy for {os.path.basename(source_path)} ({file_size:,} bytes)")
+        use_mmap_direct = C.FILECOPY_DIRECT_MMAP_COPY_ENABLED and (file_size >= C.FILECOPY_DIRECT_MMAP_COPY_THRESHOLD_BYTES)
+
+        if use_mmap_direct:
+            msg = f"Using DIRECT-LARGE mmap based strategy for {os.path.basename(source_path)} ({file_size:,} bytes)"
+        else:
+            msg = f"Using DIRECT-SMALL CopyFileExW based strategy for {os.path.basename(source_path)} ({file_size:,} bytes)"
+        self._log_status(msg)
+        log_and_flush(logging.INFO, msg)
         
         result = FileCopyManager_class.CopyOperationResult(
             success=False,
@@ -531,7 +537,7 @@ class FileCopyManager_class:
             # Phase 4: Copy to temporary file (DIRECT-SMALL via Windows CopyFileExW , DIRECT-LARGE via mmap)
             copy_start_time = time.time()
             # >>> CHANGE START: DIRECT - use DIRECT-LARGE via mmap, DIRECT-SMALL via Windows CopyFileExW
-            use_mmap_direct = C.FILECOPY_DIRECT_MMAP_COPY_ENABLED and (file_size >= C.FILECOPY_DIRECT_MMAP_COPY_THRESHOLD_BYTES)
+            #use_mmap_direct = C.FILECOPY_DIRECT_MMAP_COPY_ENABLED and (file_size >= C.FILECOPY_DIRECT_MMAP_COPY_THRESHOLD_BYTES)
             if use_mmap_direct:
                 self._log_status(f"[DIRECT-LARGE] (mmap window={C.FILECOPY_MMAP_WINDOW_BYTES//(1024**2)} MiB) for local copy")
                 copy_result = self._copy_by_mmap_windows(source_path, temp_file_path, file_size)
@@ -733,14 +739,14 @@ class FileCopyManager_class:
             # Phase 3: Chunked copy with progressive hash calculation
             copy_start_time = time.time()
             # >>> CHANGE START: DEBUG preamble for STAGED chunked copy
-            if __DEBUG__:
+            if __debug__:
                 try: _sz = Path(source_path).stat().st_size
                 except Exception: _sz = -1
                 log_and_flush(logging.DEBUG, f"[STAGED] Starting chunked copy: src='{source_path}', temp='{temp_file_path}', size={_sz if _sz>=0 else 'unknown'} bytes, chunk={C.FILECOPY_NETWORK_CHUNK_BYTES//(1024*1024)} MiB")
             # <<< CHANGE END
             copy_result = self._copy_with_progressive_hash(source_path, temp_file_path)
             # >>> CHANGE START: DEBUG summary for STAGED chunked copy
-            if __DEBUG__:
+            if __debug__:
                 try:
                     _elapsed = time.time() - copy_start_time
                     _bytes = copy_result.get('bytes_copied', 0)
@@ -843,12 +849,67 @@ class FileCopyManager_class:
         """
         try:
             # Pre-allocate destination to full size for proper mapping
+            # >>> CHANGE START: Fast one-shot pre-allocation via Win32 (FileAllocationInfo + single EOF set)
+            ##try:
+            ##    self._log_status(f"Pre-allocating temp file '{temp_path}' to {file_size:,} bytes")
+            ##    log_and_flush(logging.INFO, f"Start Pre-allocate temp file '{temp_path}' to {file_size:,} bytes")
+            ##    with open(temp_path, 'wb') as tf:
+            ##        tf.truncate(file_size)
+            ##    self._log_status(f"Pre-allocated temp file '{temp_path}' to {file_size:,} bytes")
+            ##    log_and_flush(logging.INFO, f"End Pre-allocate temp file '{temp_path}' to {file_size:,} bytes")
+            ##except Exception as e:
+            ##    log_and_flush(logging.INFO, f"Failed Pre-allocate temp file '{temp_path}' to {file_size:,} bytes")
+            ##    return {'success': False, 'error': f'Pre-allocation for "{temp_path}" to {file_size:,} bytes failed: {e}', 'recovery_suggestion': 'Ensure free space and permissions'}
             try:
-                with open(temp_path, 'wb') as tf:
-                    tf.truncate(file_size)
-                self._log_status(f"Pre-allocated temp file to {file_size:,} bytes")
+                self._log_status(f"Pre-allocating temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
+                log_and_flush(logging.INFO, f"Start Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
+                # Ensure the file exists (cheap) before we obtain a handle
+                try:
+                    with open(temp_path, 'ab'):
+                        pass
+                except Exception:
+                    # Parent dirs should already exist earlier in the flow; if not, we avoid making assumptions here
+                    with open(temp_path, 'wb'):
+                        pass
+                # Reserve clusters quickly without zeroing using FileAllocationInfo
+                # Then set EOF in one step so the logical file size == file_size
+                with open(temp_path, 'r+b') as tf:
+                    h = msvcrt.get_osfhandle(tf.fileno())
+                    # FILE_ALLOCATION_INFO { LARGE_INTEGER AllocationSize; }
+                    class FILE_ALLOCATION_INFO(ctypes.Structure):
+                        _fields_ = [("AllocationSize", ctypes.c_longlong)]
+
+                    alloc = FILE_ALLOCATION_INFO(file_size)
+                    FileAllocationInfo = 19  # FILE_INFO_BY_HANDLE_CLASS::FileAllocationInfo
+                    ok = kernel32.SetFileInformationByHandle(
+                        wintypes.HANDLE(h),
+                        ctypes.c_int(FileAllocationInfo),
+                        ctypes.byref(alloc),
+                        ctypes.sizeof(alloc)
+                    )
+                    if not ok:
+                        err = kernel32.GetLastError()
+                        raise OSError(f"SetFileInformationByHandle(FileAllocationInfo) failed, error={err}")
+                    # SetFilePointerEx + SetEndOfFile to set logical file size once (fast)
+                    FILE_BEGIN = 0
+                    # Provide signatures locally (safe even if already set elsewhere)
+                    #kernel32.SetFilePointerEx.argtypes = [wintypes.HANDLE, ctypes.c_longlong, ctypes.POINTER(ctypes.c_longlong), wintypes.DWORD]
+                    #kernel32.SetFilePointerEx.restype = wintypes.BOOL
+                    #kernel32.SetEndOfFile.argtypes = [wintypes.HANDLE]
+                    #kernel32.SetEndOfFile.restype = wintypes.BOOL
+                    new_pos = ctypes.c_longlong(0)
+                    if not kernel32.SetFilePointerEx(wintypes.HANDLE(h), ctypes.c_longlong(file_size), ctypes.byref(new_pos), FILE_BEGIN):
+                        err = kernel32.GetLastError()
+                        raise OSError(f"SetFilePointerEx failed, error={err}")
+                    if not kernel32.SetEndOfFile(wintypes.HANDLE(h)):
+                        err = kernel32.GetLastError()
+                        raise OSError(f"SetEndOfFile failed, error={err}")
+                self._log_status(f"Pre-allocated temp file '{temp_path}' to {file_size:,} bytes")
+                log_and_flush(logging.INFO, f"End Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
             except Exception as e:
-                return {'success': False, 'error': f'Pre-allocation failed: {e}', 'recovery_suggestion': 'Ensure free space and permissions'}
+                log_and_flush(logging.INFO, f"Failed Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast): {e}")
+                return {'success': False, 'error': f'Pre-allocation for \"{temp_path}\" to {file_size:,} bytes failed: {e}', 'recovery_suggestion': 'Ensure free space and permissions'}
+            # <<< CHANGE END
 
             # Choose hash algorithm
             if self.blake3_available:
@@ -863,6 +924,9 @@ class FileCopyManager_class:
             bytes_copied = 0
             win_index = 0
 
+            if __debug__:
+                log_and_flush(logging.DEBUG, log_and_flush(logging.INFO, "*" * 80))
+                log_and_flush(logging.DEBUG, f"Start DIRECT-LARGE mmap copying to temp file '{temp_path}' to {file_size:,} bytes")
             with open(source_path, 'rb') as sf, open(temp_path, 'r+b') as tf:
                 offset = 0
                 total = file_size
@@ -880,24 +944,46 @@ class FileCopyManager_class:
                         src_map = mmap.mmap(sf.fileno(), length=length, offset=offset, access=mmap.ACCESS_READ)
                         dst_map = mmap.mmap(fd, length=length, offset=offset, access=mmap.ACCESS_WRITE)
                         try:
-                            dst_map[:] = src_map[:]  # Copy bytes
+                            if __debug__:
+                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Start mmap window copy length={length:,} offset={offset:,}")
+                            dst_map[:] = src_map[:]  # Copy mmap window bytes
+                            if __debug__:
+                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Finish mmap window copy length={length:,} offset={offset:,}")
+                            if __debug__:
+                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Start hash calculation on window length={length:,} offset={offset:,}")
                             hasher.update(src_map)   # Update hash from source window (zero-copy via the mmap buffer)
+                            if __debug__:
+                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Finish hash calculation on window length={length:,} offset={offset:,}")
                             bytes_copied += length
+                            if __debug__:
+                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] bytes copied so far: {bytes_copied:,}")
                         finally:
                             try:
+                                if __debug__:
+                                    log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Start flushing destination mmap window")
                                 dst_map.flush()
+                                if __debug__:
+                                    log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Finished flushing destination mmap window")
                             except Exception:
                                 pass
+                            if __debug__:
+                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Start closing mmap windows")
                             dst_map.close()
                             src_map.close()
+                            if __debug__:
+                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Finished closing mmap windows")
                     except Exception as e_map:
                         return {'success': False, 'error': f'mmap window failed at offset {offset}: {e_map}'}
 
                     win_index += 1
                     if flush_every and (win_index % flush_every == 0): # Periodic flush to disk for extra safety if configured
                         try:
+                            if __debug__:
+                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Start periodic flushing destination mmap window")
                             tf.flush()
                             os.fsync(fd)
+                            if __debug__:
+                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Finished periodic flushing destination mmap window")
                         except Exception:
                             pass
 
@@ -917,11 +1003,17 @@ class FileCopyManager_class:
 
                 # Final flush
                 try:
+                    if __debug__:
+                        log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Start Final flushing destination mmap window")
                     tf.flush()
                     os.fsync(fd)
+                    if __debug__:
+                        log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Finished Final flushing destination mmap window")
                 except Exception:
                     pass
-
+            if __debug__:
+                log_and_flush(logging.DEBUG, f"Finished DIRECT-LARGE mmap copying to temp file '{temp_path}' to {file_size:,} bytes")
+                log_and_flush(logging.DEBUG, log_and_flush(logging.INFO, "*" * 80))
             return {'success': True, 'bytes_copied': bytes_copied, 'hash': hasher.hexdigest(), 'hash_algorithm': algo}
         except Exception as e:
             return {'success': False, 'error': f'DIRECT-LARGE mmap copy failed: {e}', 'recovery_suggestion': 'Check permissions/disk space'}
@@ -1102,7 +1194,7 @@ class FileCopyManager_class:
                             pm.update_file_progress(source_path, bytes_copied, total_size, strategy="STAGED")
 
                             # >>> CHANGE START: DEBUG stage-chunk progress
-                            if __DEBUG__ and total_size:
+                            if __debug__ and total_size:
                                 _mb_done = bytes_copied / (1024*1024)
                                 _mb_total = total_size / (1024*1024)
                                 log_and_flush(logging.DEBUG, f"[STAGED] chunk progress: {_mb_done:.1f} MB of {_mb_total:.1f} MB")
@@ -1186,7 +1278,7 @@ class FileCopyManager_class:
                             pass
                     # <<< CHANGE END
                     # >>> CHANGE START: DEBUG verify window progress
-                    if __DEBUG__ and source_size:
+                    if __debug__ and source_size:
                         _mb_done = offset / (1024*1024)
                         _mb_total = source_size / (1024*1024)
                         log_and_flush(logging.DEBUG, f"[DIRECT VERIFY/mmap] {_mb_done:.1f} MB of {_mb_total:.1f} MB")

@@ -268,6 +268,20 @@ def setup_windows_api_bindings():
     ]
     kernel32.CopyFileExW.restype = wintypes.BOOL
 
+    # >>> CHANGE START: expose SetFilePointerEx / SetEndOfFile signatures for all modules
+    # BOOL SetFilePointerEx(HANDLE hFile, LARGE_INTEGER liDistanceToMove, PLARGE_INTEGER lpNewFilePointer, DWORD dwMoveMethod)
+    kernel32.SetFilePointerEx.argtypes = [wintypes.HANDLE, ctypes.c_longlong, ctypes.POINTER(ctypes.c_longlong), wintypes.DWORD]
+    kernel32.SetFilePointerEx.restype  = wintypes.BOOL
+    # BOOL SetEndOfFile(HANDLE hFile)
+    kernel32.SetEndOfFile.argtypes = [wintypes.HANDLE]
+    kernel32.SetEndOfFile.restype  = wintypes.BOOL
+    # Common move-method constants (FILE_BEGIN/FILE_CURRENT/FILE_END)
+    FILE_BEGIN   = 0
+    FILE_CURRENT = 1
+    FILE_END     = 2
+    __export('FILE_BEGIN'); __export('FILE_CURRENT'); __export('FILE_END')
+    # <<< CHANGE END
+
     # GetDiskFreeSpaceExW - Disk space checking
     kernel32.GetDiskFreeSpaceExW.argtypes = [
         wintypes.LPCWSTR,                           # lpDirectoryName
