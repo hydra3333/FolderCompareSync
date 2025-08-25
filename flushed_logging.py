@@ -92,6 +92,29 @@ class _DefaultCallpathFilter(logging.Filter):
         if not hasattr(record, "callpath"):
             record.callpath = f"{record.module}.{record.funcName}:{record.lineno}"
         return True
+
+# >>> CHANGE START # per chatGPT [console-only callpath shortener]
+class _ShortenCallpathFilter(logging.Filter):
+    """
+    Shortens record.callpath to the last N frames for console readability.
+    Ellipsizes if frames exceed N.
+    """
+    def __init__(self, last_n: int) -> None:
+        super().__init__()
+        try:
+            self.last_n = max(1, int(last_n))
+        except Exception:
+            self.last_n = 3
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        cp = getattr(record, "callpath", "")
+        if not cp:
+            return True
+        parts = [p.strip() for p in cp.split("->")]
+        if len(parts) > self.last_n:
+            record.callpath = "->".join(["…"] + parts[-self.last_n:])
+        return True
+# <<< CHANGE END
 # --- call-path helpers (module-level) ------------------------------------------------
 
 class LoggerManager_class:
@@ -133,7 +156,16 @@ class LoggerManager_class:
             if type(h) not in existing:
                 h.setFormatter(formatter)
                 self._logger.addHandler(h)
-
+                # >>> CHANGE START # per chatGPT [console handler uses short callpath]
+                # If this is a console StreamHandler, shorten the callpath for readability
+                # Only shorten console output (plain StreamHandler to stdout), not file logs.
+                if type(h) is logging.StreamHandler:
+                    try:
+                        h.addFilter(_ShortenCallpathFilter(C.FLUSHED_LOGGING_CALLPATH_LAST_N))
+                    except Exception:
+                        # Fail-safe: never block logging if constants aren't available
+                        h.addFilter(_ShortenCallpathFilter(3))
+                # <<< CHANGE END
         # Attach filter so %(callpath)s is always present
         self._logger.addFilter(_DefaultCallpathFilter())
         self._handlers = self._logger.handlers  # for flushing
@@ -147,11 +179,11 @@ class LoggerManager_class:
         # If caller didn't specify a stacklevel, default to 3:
         #   0 = logger.log, 1 = _log_and_flush, 2 = log_and_flush, 3 = ORIGINAL CALLER
         stacklevel = kwargs.pop("stacklevel", 3)
-        
-        # Inject a compact call-chain into the record (available as %(callpath)s)
+        # >>> CHANGE START # per chatGPT [inject FULL callpath; console will shorten via handler filter]
         extra = kwargs.pop("extra", {}) or {}
-        extra.setdefault("callpath", _build_callpath())
-
+        # Build a generous-length chain so file logs keep the full path.
+        extra.setdefault("callpath", _build_callpath(max_entries=64))
+        # <<< CHANGE END
         self._logger.log(level, msg, *args, stacklevel=stacklevel, extra=extra, **kwargs)
         for h in self._handlers:
             try:
@@ -168,11 +200,12 @@ def log_and_flush(level: int, msg: str, *args, **kwargs) -> None:
     """
     if LoggerManager is None:
         # Fallback: log via root logger so you don't crash before init
-        # we're one wrapper frame above the caller here -> stacklevel=2
+        # we're one wrapper frame above the caller here so --> stacklevel=2
         stacklevel = kwargs.pop("stacklevel", 2)
-        # Inject callpath here as well
+        # >>> CHANGE START # per chatGPT [inject FULL callpath; console will shorten via handler filter]
         extra = kwargs.pop("extra", {}) or {}
-        extra.setdefault("callpath", _build_callpath())
+        extra.setdefault("callpath", _build_callpath(max_entries=64))
+        # <<< CHANGE END
         logging.log(level, msg, *args, stacklevel=stacklevel, extra=extra, **kwargs)
         for h in logging.getLogger().handlers:
             try: h.flush()

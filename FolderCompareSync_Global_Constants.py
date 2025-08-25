@@ -61,6 +61,12 @@ Example code that DOES NOT share dynamically:
 MAX_FILES_FOLDERS = 100000         # Maximum number of files/folders supported for performance
 STATUS_LOG_MAX_HISTORY = 5000      # Maximum lines to keep in status history (expanded from 500)
 
+# >>> CHANGE START # per chatGPT [logging presentation knobs]
+# Console shows only the last N frames of the call chain; file logs keep the full chain.
+# Keep this small (e.g., 2–4) for compact on-screen logs.
+FLUSHED_LOGGING_CALLPATH_LAST_N = 3
+# <<< CHANGE END
+
 # Window sizing and layout constants
 WINDOW_WIDTH_PERCENT = 0.98        # 98% of screen width
 WINDOW_HEIGHT_PERCENT = 0.93       # 93% of screen height  
