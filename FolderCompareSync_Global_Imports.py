@@ -279,7 +279,6 @@ def setup_windows_api_bindings():
     FILE_BEGIN   = 0
     FILE_CURRENT = 1
     FILE_END     = 2
-    __export('FILE_BEGIN'); __export('FILE_CURRENT'); __export('FILE_END')
     # <<< CHANGE END
 
     # GetDiskFreeSpaceExW - Disk space checking
