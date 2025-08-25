@@ -1,0 +1,50 @@
+2025-08-25 14:32:09,545 - INFO - __main__.<module>:223->__main__.main:139 - === FolderCompareSync Startup ===
+2025-08-25 14:32:09,545 - DEBUG - __main__.<module>:223->__main__.main:141 - Working directory : E:\SOFTWARE-Win11\FolderCompareSync\DEV
+2025-08-25 14:32:09,547 - DEBUG - __main__.<module>:223->__main__.main:142 - Python version    : 3.13.5 (tags/v3.13.5:6cb20a2, Jun 11 2025, 16:15:46) [MSC v.1943 64 bit (AMD64)]
+2025-08-25 14:32:09,592 - DEBUG - __main__.<module>:223->__main__.main:143 - Computer name     : 3900X
+2025-08-25 14:32:09,593 - DEBUG - __main__.<module>:223->__main__.main:144 - Platform          : win32
+2025-08-25 14:32:09,595 - DEBUG - __main__.<module>:223->__main__.main:145 - Architecture      : 64bit
+2025-08-25 14:32:09,595 - DEBUG - __main__.<module>:223->__main__.main:146 - Machine           : AMD64
+2025-08-25 14:32:09,605 - DEBUG - __main__.<module>:223->__main__.main:147 - Processor         : AMD64 Family 23 Model 113 Stepping 0, AuthenticAMD
+2025-08-25 14:32:09,618 - DEBUG - __main__.<module>:223->__main__.main:153 - Windows version   : 11
+2025-08-25 14:32:09,618 - DEBUG - __main__.<module>:223->__main__.main:154 - Windows build     : 10.0.26100
+2025-08-25 14:32:09,621 - DEBUG - __main__.<module>:223->__main__.main:156 - Service pack      : SP0
+2025-08-25 14:32:09,621 - DEBUG - __main__.<module>:223->__main__.main:157 - Windows type      : Multiprocessor Free
+2025-08-25 14:32:09,621 - DEBUG - __main__.<module>:223->__main__.main:162 - Windows edition   : Professional
+2025-08-25 14:32:09,622 - DEBUG - __main__.<module>:223->__main__.main:183 - Windows 11 version: 24H2 (build 26100)
+2025-08-25 14:32:09,622 - DEBUG - __main__.<module>:223->__main__.main:196 - FolderCompareSync Configuration:
+2025-08-25 14:32:09,622 - DEBUG - __main__.<module>:223->__main__.main:197 -   Max files/folders: 100,000
+2025-08-25 14:32:09,623 - DEBUG - __main__.<module>:223->__main__.main:198 -   Status log history: 5,000 lines
+2025-08-25 14:32:09,623 - DEBUG - __main__.<module>:223->__main__.main:199 -   Copy strategy threshold: 2147483648.0 GB
+2025-08-25 14:32:09,623 - DEBUG - __main__.<module>:223->__main__.main:200 -   SHA512 status threshold: 100.0 MB
+2025-08-25 14:32:09,624 - DEBUG - __main__.<module>:223->__main__.main:201 -   Simple verification enabled: True
+2025-08-25 14:32:09,624 - DEBUG - __main__.<module>:223->__main__.main:202 -   Retry count: 3
+2025-08-25 14:32:09,625 - DEBUG - __main__.<module>:223->__main__.main:203 -   Network timeout: 30.0s
+2025-08-25 14:32:09,625 - DEBUG - __main__.<module>:223->__main__.main:204 -   Dry run support: Enabled
+2025-08-25 14:32:09,625 - DEBUG - __main__.<module>:223->__main__.main:205 -   Status log export: Enabled
+2025-08-25 14:32:09,626 - DEBUG - __main__.<module>:223->__main__.main:206 -   Error details dialog: Enabled
+2025-08-25 14:32:09,626 - DEBUG - __main__.<module>:223->__main__.main:207 -   Path handling: Standardized on pathlib
+2025-08-25 14:32:09,627 - INFO - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:333 - Initializing FolderCompareSync application with enhanced copy system
+2025-08-25 14:32:09,628 - DEBUG - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:337 - Debug mode enabled - Debug log_level active
+2025-08-25 14:32:09,703 - DEBUG - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:424->FileCopyManager_class.__init__:129->FileTimestampManager_class.__init__:212->FileTimestampManager_class._get_local_timezone:263 - Attempting timezone detection using Method 0: dateutil.tz.tzwinlocal...
+2025-08-25 14:32:09,705 - INFO - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:424->FileCopyManager_class.__init__:129->FileTimestampManager_class.__init__:212->FileTimestampManager_class._get_local_timezone:269 - Timezone detected via Method 0: dateutil.tz.tzwinlocal: Cen. Australia Standard Time
+2025-08-25 14:32:09,706 - DEBUG - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:424->FileCopyManager_class.__init__:129->FileTimestampManager_class.__init__:215 - FileTimestampManager_class initialized with timezone: Cen. Australia Standard Time
+2025-08-25 14:32:09,706 - DEBUG - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:424->FileCopyManager_class.__init__:129->FileTimestampManager_class.__init__:216 - FileTimestampManager_class dry run mode: False
+2025-08-25 14:32:09,707 - INFO - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:424->FileCopyManager_class.__init__:142 - Enhanced FileCopyManager initialized with BLAKE3 support: True
+2025-08-25 14:32:09,708 - INFO - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:424->FileCopyManager_class.__init__:146->FolderCompareSync_class.add_status_message:530 - FolderCompareSync_class: POSTED STATUS MESSAGE: Enhanced copy manager ready with BLAKE3 hashing
+2025-08-25 14:32:09,708 - DEBUG - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:427 - Enhanced copy system initialized with DIRECT/STAGED strategies
+2025-08-25 14:32:09,709 - DEBUG - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:429->FolderCompareSync_class.setup_ui:754 - Setting up FolderCompareSync_class user interface with enhanced copy system features
+2025-08-25 14:32:09,875 - DEBUG - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:429->FolderCompareSync_class.setup_ui:1027->FolderCompareSync_class.setup_tree_events:1326 - Setting up tree event bindings
+2025-08-25 14:32:09,876 - DEBUG - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:429->FolderCompareSync_class.setup_ui:1029 - Enhanced copy system UI setup complete with verification radio buttons
+2025-08-25 14:32:09,885 - INFO - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:432->FolderCompareSync_class.add_status_message:530 - FolderCompareSync_class: POSTED STATUS MESSAGE: Enhanced copy system initialized - DIRECT/STAGED strategies ready
+2025-08-25 14:32:09,896 - INFO - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:433->FolderCompareSync_class.add_status_message:530 - FolderCompareSync_class: POSTED STATUS MESSAGE: WARNING: Large folder operations may be slow. Maximum 100,000 files/folders supported.
+2025-08-25 14:32:09,910 - INFO - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:434->FolderCompareSync_class.add_status_message:530 - FolderCompareSync_class: POSTED STATUS MESSAGE: Tip: Use filtering, dry run mode, and verification policy for testing with large datasets.
+2025-08-25 14:32:09,922 - INFO - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:438->FolderCompareSync_class.add_status_message:530 - FolderCompareSync_class: POSTED STATUS MESSAGE: Timezone detected: Cen. Australia Standard Time - will be used for timestamp operations
+2025-08-25 14:32:09,923 - INFO - __main__.<module>:223->__main__.main:210->FolderCompareSync_class.__init__:439 - Application initialization complete with enhanced copy system
+2025-08-25 14:32:09,923 - INFO - __main__.<module>:223->__main__.main:211->FolderCompareSync_class.run:3350 - Starting Enhanced FolderCompareSync GUI application.
+2025-08-25 14:32:41,800 - DEBUG - __main__.<module>:223->__main__.main:211->FolderCompareSync_class.run:3352->tkinter.mainloop:1599->tkinter.__call__:2068->FolderCompareSync_class.browse_left_folder:1700 - Opening left folder browser
+2025-08-25 14:33:00,970 - INFO - __main__.<module>:223->__main__.main:211->FolderCompareSync_class.run:3352->tkinter.mainloop:1599->tkinter.__call__:2068->FolderCompareSync_class.browse_left_folder:1704->FolderCompareSync_class.add_status_message:530 - FolderCompareSync_class: POSTED STATUS MESSAGE: Selected left folder: E:/SOFTWARE-Win11/FolderCompareSync/DEV/FolderCompareSync_TestKit/Left_Source
+2025-08-25 14:33:00,971 - INFO - __main__.<module>:223->__main__.main:211->FolderCompareSync_class.run:3352->tkinter.mainloop:1599->tkinter.__call__:2068->FolderCompareSync_class.browse_left_folder:1705 - Selected left folder: E:/SOFTWARE-Win11/FolderCompareSync/DEV/FolderCompareSync_TestKit/Left_Source
+2025-08-25 14:33:02,920 - DEBUG - __main__.<module>:223->__main__.main:211->FolderCompareSync_class.run:3352->tkinter.mainloop:1599->tkinter.__call__:2068->FolderCompareSync_class.browse_right_folder:1709 - Opening right folder browser
+2025-08-25 14:33:09,000 - INFO - __main__.<module>:223->__main__.main:211->FolderCompareSync_class.run:3352->tkinter.mainloop:1599->tkinter.__call__:2068->FolderCompareSync_class.browse_right_folder:1713->FolderCompareSync_class.add_status_message:530 - FolderCompareSync_class: POSTED STATUS MESSAGE: Selected right folder: E:/SOFTWARE-Win11/FolderCompareSync/DEV/FolderCompareSync_TestKit/Right_Target
+2025-08-25 14:33:09,001 - INFO - __main__.<module>:223->__main__.main:211->FolderCompareSync_class.run:3352->tkinter.mainloop:1599->tkinter.__call__:2068->FolderCompareSync_class.browse_right_folder:1714 - Selected right folder: E:/SOFTWARE-Win11/FolderCompareSync/DEV/FolderCompareSync_TestKit/Right_Target

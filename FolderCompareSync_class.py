@@ -833,8 +833,9 @@ class FolderCompareSync_class:
         
         # >>> CHANGE START: drop legacy overwrite_mode # per chatGPT change 9.2
         #ttk.Checkbutton(top_controls, text="Overwrite Mode", variable=self.overwrite_mode, style="Scaled.TCheckbutton").pack(side=tk.LEFT, padx=(0, 20)) # v001.0014 changed [use scaled checkbox style]
-        #ttk.Button(top_controls, text="Compare", command=self.start_comparison, style="LimeGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 20))
         # <<< CHANGE END
+
+        #ttk.Button(top_controls, text="Compare", command=self.start_comparison, style="LimeGreenBold.TButton").pack(side=tk.LEFT, padx=(0, 20))
     
         # selection controls with auto-clear and complete reset functionality
         # Left pane selection controls
