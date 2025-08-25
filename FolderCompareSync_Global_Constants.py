@@ -104,8 +104,13 @@ FILECOPY_COPY_STRATEGY_THRESHOLD_BYTES = 2 * 1024**3      # 2 GiB - DIRECT vs ST
 FILECOPY_MAXIMUM_COPY_FILE_SIZE_BYTES = 20 * 1024**3     # 20 GiB - Hard size limit
 
 # Performance Tuning - DIRECT Strategy (M08)
-FILECOPY_MMAP_WINDOW_BYTES = 64 * 1024**2                # 64 MiB - Verification windows
+FILECOPY_MMAP_WINDOW_BYTES = 64 * 1024**2                # 64 MiB - mmap Copying and Verification windows
 FILECOPY_MMAP_FALLBACK_MAX_CONSECUTIVE_FAILURES = 5      # Max consecutive mmap failures before copy fails
+# >>> CHANGE START  # Enable DIRECT-LARGE and set threshold/flush cadence
+FILECOPY_DIRECT_MMAP_COPY_ENABLED = True                 # Enable DIRECT-LARGE windowed mmap copy for local files
+FILECOPY_DIRECT_MMAP_COPY_THRESHOLD_BYTES = 1 * 1024**3  # 1 GiB threshold for DIRECT-LARGE selection
+FILECOPY_MMAP_FLUSH_EVERY_N_WINDOWS = 2                  # Flush every N windows (1–1000); 0 disables extra flushes
+# <<< CHANGE END
 
 # Performance Tuning - STAGED Strategy (M08) 
 FILECOPY_NETWORK_CHUNK_BYTES = 4 * 1024**2               # 4 MiB - Network I/O chunks

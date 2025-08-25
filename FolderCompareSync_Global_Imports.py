@@ -60,8 +60,9 @@ import json
 import locale
 import math
 from types import ModuleType
-# Memory mapping support
+# Import these 2 for Memory mapping support:
 import mmap
+import msvcrt
 
 # BLAKE3_AVAILABLE is declared as GLOBAL and reset below
 BLAKE3_AVAILABLE = False

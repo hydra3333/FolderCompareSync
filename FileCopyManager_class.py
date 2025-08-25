@@ -188,9 +188,13 @@ class FileCopyManager_class:
         if source_network or target_network:
             return FileCopyManager_class.CopyStrategy.STAGED
         
-        # Priority 2: Large file size threshold (M01, M03)
-        if file_size >= C.FILECOPY_COPY_STRATEGY_THRESHOLD_BYTES:
-            return FileCopyManager_class.CopyStrategy.STAGED
+        # >>> CHANGE START  # Local files: keep DIRECT; size split handled inside DIRECT path (SMALL vs LARGE)
+        # Previously: large local files were forced to STAGED here. Now commented out.
+        # Now: keep DIRECT for local->local; DIRECT will branch to SMALL/LARGE internally.
+        ### Priority 2: Large file size threshold (M01, M03)
+        ###if file_size >= C.FILECOPY_COPY_STRATEGY_THRESHOLD_BYTES:
+        ###    return FileCopyManager_class.CopyStrategy.STAGED
+        # <<< CHANGE END
         
         # Default: Local small files use DIRECT strategy (M02)
         return FileCopyManager_class.CopyStrategy.DIRECT
@@ -372,10 +376,30 @@ class FileCopyManager_class:
         self._log_status(f"  Size: {file_size:,} bytes")
         self._log_status(f"  Strategy: {strategy.value.upper()}")
 
+        # >>> CHANGE START  # decision explainer (with flushed-logging)
+        try:
+            is_network = FileCopyManager_class._is_network_or_cloud_location(source_path) or FileCopyManager_class._is_network_or_cloud_location(target_path)
+            policy = C.FILECOPY_VERIFY_POLICY
+            if strategy == FileCopyManager_class.CopyStrategy.DIRECT:
+                direct_large = C.FILECOPY_DIRECT_MMAP_COPY_ENABLED and (file_size >= C.FILECOPY_DIRECT_MMAP_COPY_THRESHOLD_BYTES)
+                mode_label = "DIRECT-LARGE" if direct_large else "DIRECT-SMALL"
+                verify_label = "hash verify" if direct_large else "mmap verify"
+                extra = f"win={C.FILECOPY_MMAP_WINDOW_BYTES//(1024**2)}MiB, flush_every={C.FILECOPY_MMAP_FLUSH_EVERY_N_WINDOWS}"
+            else:
+                mode_label = "STAGED"
+                verify_label = "hash verify"
+                extra = f"chunk={C.FILECOPY_NETWORK_CHUNK_BYTES//(1024**2)}MiB"
+            expl = f"  Decision: {mode_label} | verify={verify_label} | policy={policy} | {extra}"
+            self._log_status(expl)
+            log_and_flush(logging.DEBUG, expl)
+        except Exception as _e_decision:
+            log_and_flush(logging.DEBUG, f"Decision explainer failed: {str(_e_decision)}")
+        # <<< CHANGE END
+
         # >>> CHANGE START
         # Respect DRY RUN at the engine level: do not touch the filesystem.
         if getattr(self, "_dry_run", False):
-            self._log_status(f"DRY RUN: Would copy '{source_path}' → '{target_path}' using {strategy.value.upper()}")
+            self._log_status(f"DRY RUN: Would copy '{source_path}' -> '{target_path}' using {strategy.value.upper()}")
             result = FileCopyManager_class.CopyOperationResult(
                 success=True,
                 strategy_used=strategy,
@@ -504,20 +528,28 @@ class FileCopyManager_class:
         result.time_backup = time.time() - backup_start_time
         
         try:
-            # Phase 4: Windows CopyFileExW copy to temporary file
+            # Phase 4: Copy to temporary file (DIRECT-SMALL via Windows CopyFileExW , DIRECT-LARGE via mmap)
             copy_start_time = time.time()
-            copy_result = self._copy_with_windows_api(source_path, temp_file_path)
+            # >>> CHANGE START: DIRECT - use DIRECT-LARGE via mmap, DIRECT-SMALL via Windows CopyFileExW
+            use_mmap_direct = C.FILECOPY_DIRECT_MMAP_COPY_ENABLED and (file_size >= C.FILECOPY_DIRECT_MMAP_COPY_THRESHOLD_BYTES)
+            if use_mmap_direct:
+                self._log_status(f"[DIRECT-LARGE] (mmap window={C.FILECOPY_MMAP_WINDOW_BYTES//(1024**2)} MiB) for local copy")
+                copy_result = self._copy_by_mmap_windows(source_path, temp_file_path, file_size)
+            else:
+                self._log_status(f"[DIRECT-SMALL] Windows CopyFileExW for local copy")
+                copy_result = self._copy_with_windows_api(source_path, temp_file_path)
+            # <<< CHANGE END
             result.time_copy = time.time() - copy_start_time
             
             if not copy_result['success']:
-                # >>> CHANGE START: explicit cancel semantics + cleanup (DIRECT) # per chatGPT change 1.3
+                # >>> CHANGE START # explicit cancel semantics + cleanup (DIRECT)
                 self._cleanup_temp_file(temp_file_path)  # always safe to remove temp
-                result.error_message = copy_result['error']
+                result.error_message = copy_result.get('error', 'Copy failed')
                 result.error_code = copy_result.get('error_code', 0)
                 result.cancelled_by_user = copy_result.get('cancelled', False)
                 if result.cancelled_by_user:
                     self._log_status("User cancelled copy; temp removed; original target preserved")
-                    result.recovery_suggestion = "No changes were made. You can resume later or retry the file."
+                    result.recovery_suggestion = "No changes were made. You can retry the file later."
                 else:
                     result.recovery_suggestion = copy_result.get('recovery_suggestion', "")
                 return result
@@ -528,8 +560,18 @@ class FileCopyManager_class:
             # Phase 5: Verification (if enabled by policy)
             verify_start_time = time.time()
             if self._should_verify_file(file_size):
-                self._log_status(f"Verifying copied file using memory-mapped comparison")
-                verify_result = self._verify_by_mmap_windows(source_path, temp_file_path)
+                if use_mmap_direct:
+                    # DIRECT-LARGE -> verify via hash; source hash computed during copy
+                    result.hash_algorithm = copy_result.get('hash_algorithm', 'SHA-256')
+                    result.computed_hash = copy_result.get('hash')
+                    self._log_status(f"[DIRECT-LARGE] Verifying copied file using hash comparison ({result.hash_algorithm})")
+                    log_and_flush(logging.INFO, f"[DIRECT-LARGE] Verifying copied file using hash comparison ({result.hash_algorithm})")
+                    verify_result = self._verify_by_hash_comparison(temp_file_path, result.computed_hash, result.hash_algorithm)
+                else:
+                    # DIRECT-SMALL -> verify via mmap compare
+                    self._log_status(f"[DIRECT-SMALL] Verifying copied file using memory-mapped comparison")
+                    log_and_flush(logging.INFO, f"[DIRECT-SMALL] Verifying copied file using memory-mapped comparison")
+                    verify_result = self._verify_by_mmap_windows(source_path, temp_file_path)
                 result.verification_mode = self._get_verification_mode()
                 result.verification_passed = verify_result
                 result.time_verify = time.time() - verify_start_time
@@ -549,10 +591,10 @@ class FileCopyManager_class:
             if Path(target_path).exists():
                 backup_path = f"{target_path}.backup_{uuid.uuid4().hex[:8]}"
                 result.backup_path = backup_path
-                os.rename(target_path, backup_path)  # Atomic: original → backup
+                os.rename(target_path, backup_path)  # Atomic: original -> backup
                 self._log_status(f"Original file moved to backup: {backup_path}")
             
-            os.rename(temp_file_path, target_path)  # Atomic: temp → final location
+            os.rename(temp_file_path, target_path)  # Atomic: temp -> final location
             self._log_status(f"Verified file moved to final location: {target_path}")
             
             # Phase 7: Apply source timestamps
@@ -712,7 +754,10 @@ class FileCopyManager_class:
             # Phase 4: Verification (if enabled by policy)
             verify_start_time = time.time()
             if self._should_verify_file(file_size):
-                self._log_status(f"Verifying copied file using hash comparison ({result.hash_algorithm})")
+                # >>> CHANGE START  # label STAGED verify
+                self._log_status(f"[STAGED] Verifying copied file using hash comparison ({result.hash_algorithm})")
+                # <<< CHANGE END
+
                 verify_result = self._verify_by_hash_comparison(temp_file_path, result.computed_hash, result.hash_algorithm)
                 result.verification_mode = self._get_verification_mode()
                 result.verification_passed = verify_result
@@ -733,10 +778,10 @@ class FileCopyManager_class:
             if Path(target_path).exists():
                 backup_path = f"{target_path}.backup_{uuid.uuid4().hex[:8]}"
                 result.backup_path = backup_path
-                os.rename(target_path, backup_path)  # Atomic: original → backup
+                os.rename(target_path, backup_path)  # Atomic: original -> backup
                 self._log_status(f"Original file moved to backup: {backup_path}")
             
-            os.rename(temp_file_path, target_path)  # Atomic: temp → final location
+            os.rename(temp_file_path, target_path)  # Atomic: temp -> final location
             self._log_status(f"Verified file moved to final location: {target_path}")
             
             # Phase 6: Apply source timestamps
@@ -772,7 +817,99 @@ class FileCopyManager_class:
                 result.recovery_suggestion = "Manual intervention required - check backup files"
         
         return result
-    
+
+    # >>> CHANGE START  # DIRECT-LARGE windowed mmap copy with on-the-fly source hashing during copying
+    def _copy_by_mmap_windows(self, source_path: str, temp_path: str, file_size: int) -> dict:
+        """
+        DIRECT-LARGE: Windowed memory-mapped copy with on-the-fly source hashing.
+        Returns: {success: bool, bytes_copied: int, hash: str, hash_algorithm: str, error?: str, cancelled?: bool}
+        """
+        try:
+            # Pre-allocate destination to full size for proper mapping
+            try:
+                with open(temp_path, 'wb') as tf:
+                    tf.truncate(file_size)
+                self._log_status(f"Pre-allocated temp file to {file_size:,} bytes")
+            except Exception as e:
+                return {'success': False, 'error': f'Pre-allocation failed: {e}', 'recovery_suggestion': 'Ensure free space and permissions'}
+
+            # Choose hash algorithm
+            if self.blake3_available:
+                hasher = blake3.blake3()
+                algo = 'BLAKE3'
+            else:
+                hasher = hashlib.sha256()
+                algo = 'SHA-256'
+
+            window = max(1, int(C.FILECOPY_MMAP_WINDOW_BYTES))
+            flush_every = max(0, int(C.FILECOPY_MMAP_FLUSH_EVERY_N_WINDOWS))
+            bytes_copied = 0
+            win_index = 0
+
+            with open(source_path, 'rb') as sf, open(temp_path, 'r+b') as tf:
+                offset = 0
+                total = file_size
+                fd = tf.fileno()
+                while offset < total:
+                    # Cancellation checks
+                    if getattr(self, 'cancel_event', None) and self.cancel_event.is_set():
+                        return {'success': False, 'cancelled': True, 'error': 'Cancelled by user'}
+                    pm = getattr(self, 'progress_manager', None)
+                    if pm and callable(getattr(pm, 'cancellation_callback', None)) and pm.cancellation_callback():
+                        return {'success': False, 'cancelled': True, 'error': 'Cancelled by user'}
+
+                    length = min(window, total - offset)
+                    try:
+                        src_map = mmap.mmap(sf.fileno(), length=length, offset=offset, access=mmap.ACCESS_READ)
+                        dst_map = mmap.mmap(fd, length=length, offset=offset, access=mmap.ACCESS_WRITE)
+                        try:
+                            dst_map[:] = src_map[:]  # Copy bytes
+                            hasher.update(src_map)   # Update hash from source window (zero-copy via the mmap buffer)
+                            bytes_copied += length
+                        finally:
+                            try:
+                                dst_map.flush()
+                            except Exception:
+                                pass
+                            dst_map.close()
+                            src_map.close()
+                    except Exception as e_map:
+                        return {'success': False, 'error': f'mmap window failed at offset {offset}: {e_map}'}
+
+                    win_index += 1
+                    if flush_every and (win_index % flush_every == 0): # Periodic flush to disk for extra safety if configured
+                        try:
+                            tf.flush()
+                            os.fsync(fd)
+                        except Exception:
+                            pass
+
+                    # Progress update
+                    pm = getattr(self, 'progress_manager', None)
+                    if pm and hasattr(pm, 'update_file_progress'):
+                        try:
+                            pm.update_file_progress(source_path, bytes_copied, total, strategy='DIRECT-LARGE')
+                        except Exception:
+                            pass
+                    elif self.status_callback:
+                        mb_total = total / (1024*1024)
+                        mb_copied = bytes_copied / (1024*1024)
+                        self.status_callback(f'Copying (DIRECT-LARGE): {mb_copied:.1f} MB of {mb_total:.1f} MB transferred')
+
+                    offset += length
+
+                # Final flush
+                try:
+                    tf.flush()
+                    os.fsync(fd)
+                except Exception:
+                    pass
+
+            return {'success': True, 'bytes_copied': bytes_copied, 'hash': hasher.hexdigest(), 'hash_algorithm': algo}
+        except Exception as e:
+            return {'success': False, 'error': f'DIRECT-LARGE mmap copy failed: {e}', 'recovery_suggestion': 'Check permissions/disk space'}
+    # <<< CHANGE END
+
     def _copy_with_windows_api(self, source_path: str, temp_path: str) -> dict:
         """
         Windows CopyFileExW implementation with progress callbacks and cancellation.
