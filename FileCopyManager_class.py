@@ -732,7 +732,24 @@ class FileCopyManager_class:
         try:
             # Phase 3: Chunked copy with progressive hash calculation
             copy_start_time = time.time()
+            # >>> CHANGE START: DEBUG preamble for STAGED chunked copy
+            if __DEBUG__:
+                try: _sz = Path(source_path).stat().st_size
+                except Exception: _sz = -1
+                log_and_flush(logging.DEBUG, f"[STAGED] Starting chunked copy: src='{source_path}', temp='{temp_file_path}', size={_sz if _sz>=0 else 'unknown'} bytes, chunk={C.FILECOPY_NETWORK_CHUNK_BYTES//(1024*1024)} MiB")
+            # <<< CHANGE END
             copy_result = self._copy_with_progressive_hash(source_path, temp_file_path)
+            # >>> CHANGE START: DEBUG summary for STAGED chunked copy
+            if __DEBUG__:
+                try:
+                    _elapsed = time.time() - copy_start_time
+                    _bytes = copy_result.get('bytes_copied', 0)
+                    _mb = _bytes / (1024*1024)
+                    _mbps = (_mb / _elapsed) if _elapsed and _elapsed>0 else 0.0
+                    log_and_flush(logging.DEBUG, f"[STAGED] Chunked copy done: {_mb:.1f} MB in {_elapsed:.2f}s ({_mbps:.1f} MB/s)")
+                except Exception:
+                    pass
+            # <<< CHANGE END
             result.time_copy = time.time() - copy_start_time
             
             if not copy_result['success']:
@@ -923,24 +940,18 @@ class FileCopyManager_class:
         --------
         dict: Copy result with success status, bytes copied, and error information
         """
-        # Commented out and replaced per chatGPT change 1.2 below ...
-        #def copy_progress_callback(total_size, transferred, stream_size, 
-        #                          stream_transferred, stream_num, reason,
-        #                          src_handle, dst_handle, user_data):
-        #    """Windows progress callback - called by OS during copy operation."""
-        #    
-        #    # # DEBUG: Uncomment for detailed progress tracking
-        #    # if transferred % (64 * 1024 * 1024) == 0:  # Every 64MB
-        #    #     progress_pct = (transferred / total_size * 100) if total_size > 0 else 0
-        #    #     log_and_flush(logging.DEBUG, f"Copy progress: {progress_pct:.1f}% ({transferred:,} / {total_size:,} bytes)")
-        #    
-        #    # Update progress if callback available
-        #    if self.status_callback:
-        #        progress_percentage = (transferred / total_size) * 100 if total_size > 0 else 0
-        #        if transferred > 0:  # Avoid spam for initial callback
-        #            self.status_callback(f"Copying: {progress_percentage:.1f}% ({transferred:,} bytes)")
-        #    
-        #    return C.FILECOPY_PROGRESS_CONTINUE
+        # >>> CHANGE START: DEBUG preamble for DIRECT-SMALL (CopyFileExW)
+        if __debug__:
+            try:
+                _sz = Path(source_path).stat().st_size
+            except Exception:
+                _sz = -1
+            log_and_flush(
+                logging.DEBUG,
+                f"[DIRECT-SMALL] Starting CopyFileExW: src='{source_path}', temp='{temp_path}', "
+                f"size={_sz if _sz >= 0 else 'unknown'} bytes, verify_policy={getattr(C, 'FILECOPY_VERIFY_POLICY', 'n/a')}"
+            )
+        # <<< CHANGE END
 
         # >>> CHANGE START: Progress + cancel wiring for DIRECT (CopyFileExW) # per chatGPT change 1.2
         cancel_flag = wintypes.BOOL(0)  # module-level global, LPBOOL for CopyFileExW
@@ -967,6 +978,16 @@ class FileCopyManager_class:
                     pct = (transferred / total_size) * 100
                     if transferred > 0:
                         self.status_callback(f"Copying: {pct:.1f}% ({transferred:,} bytes)")
+
+            # >>> CHANGE START: DEBUG trace inside CopyFileExW progress callback (throttled by UI)
+            if __debug__ and total_size:
+                try:
+                    _mb_done = transferred / (1024 * 1024)
+                    _mb_total = total_size / (1024 * 1024)
+                    log_and_flush(logging.DEBUG, f"[DIRECT-SMALL] CopyFileExW progress: {_mb_done:.1f} MB of {_mb_total:.1f} MB")
+                except Exception:
+                    pass
+            # <<< CHANGE END
 
             return C.FILECOPY_PROGRESS_CONTINUE
         # <<< CHANGE END
@@ -1003,7 +1024,18 @@ class FileCopyManager_class:
                         'recovery_suggestion': self._get_recovery_suggestion_for_error(error_code)
                     }
             
+            # >>> CHANGE START: DEBUG summary for DIRECT-SMALL (CopyFileExW)
+            try:
+                _elapsed = time.time() - start_time if 'start_time' in locals() else None
+            except Exception:
+                _elapsed = None
             bytes_copied = Path(source_path).stat().st_size
+            if __debug__ and (bytes_copied is not None) and _elapsed:
+                _mb = bytes_copied / (1024 * 1024)
+                _mbps = (_mb / _elapsed) if _elapsed > 0 else 0.0
+                log_and_flush(logging.DEBUG, f"[DIRECT-SMALL] CopyFileExW done: {_mb:.1f} MB in {_elapsed:.2f}s ({_mbps:.1f} MB/s)")
+            # <<< CHANGE END
+
             return {
                 'success': True, 
                 'bytes_copied': bytes_copied
@@ -1068,26 +1100,24 @@ class FileCopyManager_class:
                         try:
                             total_size = Path(source_path).stat().st_size
                             pm.update_file_progress(source_path, bytes_copied, total_size, strategy="STAGED")
+
+                            # >>> CHANGE START: DEBUG stage-chunk progress
+                            if __DEBUG__ and total_size:
+                                _mb_done = bytes_copied / (1024*1024)
+                                _mb_total = total_size / (1024*1024)
+                                log_and_flush(logging.DEBUG, f"[STAGED] chunk progress: {_mb_done:.1f} MB of {_mb_total:.1f} MB")
+                            # <<< CHANGE END
                             mb_copied = bytes_copied / (1024 * 1024)
                             mb_total_size = total_size / (1024 * 1024)
-                            log_and_flush(logging.DEBUG, f"Copying (STAGED): 'update_file_progress': {mb_copied} MB of {mb_total_size} MB transferred")
+                            log_and_flush(logging.DEBUG, f"[STAGED] Copying: 'update_file_progress': {mb_copied} MB of {mb_total_size} MB transferred")
                         except Exception:
                             pass
                     elif self.status_callback and bytes_copied % (chunk_size * 4) == 0:
                         mb_copied = bytes_copied / (1024 * 1024)
                         mb_total_size = total_size / (1024 * 1024)
-                        self.status_callback(f"Copying (STAGED): no hasattr 'update_file_progress': {mb_copied:.1f} MB or of {mb_total_size} MB transferred")
-                        #log_and_flush(logging.DEBUG, f"Copying (STAGED): no hasattr 'update_file_progress': {mb_copied:.1f} MB or of {mb_total_size} MB transferred")
+                        self.status_callback(f"[STAGED] Copying: no hasattr 'update_file_progress': {mb_copied:.1f} MB or of {mb_total_size} MB transferred")
+                        log_and_flush(logging.DEBUG, f"[STAGED] Copying: no hasattr 'update_file_progress': {mb_copied:.1f} MB or of {mb_total_size} MB transferred")
                     # <<< CHANGE END
-                    
-                    # # DEBUG: Uncomment for detailed chunked copy tracking
-                    # if bytes_copied % (chunk_size * 10) == 0:  # Every 10 chunks
-                    #     log_and_flush(logging.DEBUG, f"Chunked copy progress: {bytes_copied:,} bytes")
-
-                    # Progress update with throttling
-                    #if self.status_callback and bytes_copied % (chunk_size * 4) == 0:  # Every 16MB
-                    #    mb_copied = bytes_copied / (1024 * 1024)
-                    #    self.status_callback(f"Copying (STAGED): {mb_copied:.1f} MB transferred")
             
             computed_hash = hasher.hexdigest()
             
@@ -1155,9 +1185,13 @@ class FileCopyManager_class:
                         except Exception:
                             pass
                     # <<< CHANGE END
-
+                    # >>> CHANGE START: DEBUG verify window progress
+                    if __DEBUG__ and source_size:
+                        _mb_done = offset / (1024*1024)
+                        _mb_total = source_size / (1024*1024)
+                        log_and_flush(logging.DEBUG, f"[DIRECT VERIFY/mmap] {_mb_done:.1f} MB of {_mb_total:.1f} MB")
+                    # <<< CHANGE END
                     current_window_size = min(window_size, source_size - offset)
-                    
                     try:
                         # Try memory mapping for this window
                         with mmap.mmap(src_file.fileno(), current_window_size, offset=offset, access=mmap.ACCESS_READ) as src_map:
