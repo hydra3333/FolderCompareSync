@@ -841,15 +841,15 @@ class FileCopyManager_class:
         
         return result
 
-    # >>> CHANGE START  # DIRECT-LARGE windowed mmap copy with on-the-fly source hashing during copying
     def _copy_by_mmap_windows(self, source_path: str, temp_path: str, file_size: int) -> dict:
+        # 
         """
-        DIRECT-LARGE: Windowed memory-mapped copy with on-the-fly source hashing.
+        DIRECT-LARGE: Windowed memory-mapped copy with on-the-fly source hashing during copying
         Returns: {success: bool, bytes_copied: int, hash: str, hash_algorithm: str, error?: str, cancelled?: bool}
         """
         try:
             # Pre-allocate destination to full size for proper mapping
-            # >>> CHANGE START: Fast one-shot pre-allocation via Win32 (FileAllocationInfo + single EOF set)
+            # Fast one-shot pre-allocation via Win32 (FileAllocationInfo + single EOF set)
             ##try:
             ##    self._log_status(f"Pre-allocating temp file '{temp_path}' to {file_size:,} bytes")
             ##    log_and_flush(logging.INFO, f"Start Pre-allocate temp file '{temp_path}' to {file_size:,} bytes")
@@ -863,6 +863,28 @@ class FileCopyManager_class:
             try:
                 self._log_status(f"Pre-allocating temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
                 log_and_flush(logging.INFO, f"Start Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
+                # >>> CHANGE START: DIAG — volume/filesystem info for temp_path (to diagnose ERROR_INVALID_PARAMETER)
+                #======================================================================================================================================================================================
+                try:
+                    drive_root = os.path.splitdrive(temp_path)[0] + '\\'
+                    vol_name_buf = ctypes.create_unicode_buffer(260)
+                    fs_name_buf  = ctypes.create_unicode_buffer(260)
+                    serial = ctypes.c_uint32(0); max_comp = ctypes.c_uint32(0); fs_flags = ctypes.c_uint32(0)
+                    ok = kernel32.GetVolumeInformationW(
+                        ctypes.c_wchar_p(drive_root),
+                        vol_name_buf, ctypes.sizeof(vol_name_buf),
+                        ctypes.byref(serial), ctypes.byref(max_comp), ctypes.byref(fs_flags),
+                        fs_name_buf, ctypes.sizeof(fs_name_buf)
+                    )
+                    if ok:
+                        log_and_flush(logging.DEBUG, f"[DIAG BEFORE Pre-allocating temp file] temp drive='{drive_root}', volume='{vol_name_buf.value}', fs='{fs_name_buf.value}', flags=0x{fs_flags.value:08X}")
+                    else:
+                        err = kernel32.GetLastError()
+                        log_and_flush(logging.DEBUG, f"[DIAG BEFORE Pre-allocating temp file] GetVolumeInformationW('{drive_root}') failed: {err}")
+                except Exception as _e_diag:
+                    log_and_flush(logging.DEBUG, f"[DIAG BEFORE Pre-allocating temp file] volume/fs probe error: {_e_diag}")
+                #======================================================================================================================================================================================
+                # <<< CHANGE END
                 # Ensure the file exists (cheap) before we obtain a handle
                 try:
                     with open(temp_path, 'ab'):
@@ -875,6 +897,21 @@ class FileCopyManager_class:
                 # Then set EOF in one step so the logical file size == file_size
                 with open(temp_path, 'r+b') as tf:
                     h = msvcrt.get_osfhandle(tf.fileno())
+                    # >>> CHANGE START: DIAG fast pre-alloc A
+                    # Check file attributes — FileAllocationInfo is not supported on COMPRESSED or SPARSE files.
+                    attrs = kernel32.GetFileAttributesW(ctypes.c_wchar_p(temp_path))
+                    FILE_ATTRIBUTE_COMPRESSED  = 0x800
+                    FILE_ATTRIBUTE_SPARSE_FILE = 0x200
+                    if attrs == 0xFFFFFFFF:  # INVALID_FILE_ATTRIBUTES
+                        err = kernel32.GetLastError()
+                        msg = f"[DIAG BEFORE Pre-allocating temp file] GetFileAttributesW failed for temp '{temp_path}': {err}"
+                        log_and_flush(logging.ERROR, msg)
+                        raise OSError(msg)
+                    if attrs & FILE_ATTRIBUTE_COMPRESSED:
+                        log_and_flush(logging.WARNING, f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is COMPRESSED *********")
+                    if attrs & FILE_ATTRIBUTE_SPARSE_FILE:
+                        log_and_flush(logging.WARNING, f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is SPARSE *********")
+                    # <<< CHANGE END: DIAG fast pre-alloc A
                     # Build FILE_ALLOCATION_INFO with proper nested LARGE_INTEGER
                     alloc = FILE_ALLOCATION_INFO()
                     alloc.AllocationSize.QuadPart = ctypes.c_longlong(file_size)
@@ -884,29 +921,34 @@ class FileCopyManager_class:
                         ctypes.byref(alloc),
                         wintypes.DWORD(ctypes.sizeof(alloc))
                     )
+                    # >>> CHANGE START: DIAG fast pre-alloc B
                     if not ok:
                         err = kernel32.GetLastError()
-                        raise OSError(f"SetFileInformationByHandle(FileAllocationInfo) failed, error={err}")
-                    # SetFilePointerEx + SetEndOfFile to set logical file size once (fast)
+                        msg = f"[DIAG AFTER Pre-allocating temp file] kernel32.SetFileInformationByHandle(FileAllocationInfo) failed, error={err}"
+                        log_and_flush(logging.ERROR, msg)
+                        raise OSError(msg)
+                    log_and_flush(logging.DEBUG, "[DIAG AFTER Pre-allocating temp file] kernel32.SetFileInformationByHandle pre-alloc succeeded.")
+                    # <<< CHANGE END: DIAG fast pre-alloc B
+                    # SetFilePointerEx + SetEndOfFile to set logical file size once (not fast)
+                    # >>> CHANGE START: DIAG fast pre-alloc C
                     FILE_BEGIN = 0
-                    # Provide signatures locally (safe even if already set elsewhere)
-                    #kernel32.SetFilePointerEx.argtypes = [wintypes.HANDLE, ctypes.c_longlong, ctypes.POINTER(ctypes.c_longlong), wintypes.DWORD]
-                    #kernel32.SetFilePointerEx.restype = wintypes.BOOL
-                    #kernel32.SetEndOfFile.argtypes = [wintypes.HANDLE]
-                    #kernel32.SetEndOfFile.restype = wintypes.BOOL
                     new_pos = ctypes.c_longlong(0)
                     if not kernel32.SetFilePointerEx(wintypes.HANDLE(h), ctypes.c_longlong(file_size), ctypes.byref(new_pos), FILE_BEGIN):
                         err = kernel32.GetLastError()
-                        raise OSError(f"SetFilePointerEx failed, error={err}")
+                        msg = f"DIAG AFTER Pre-allocating temp file] SetFilePointerEx failed, error={err}"
+                        log_and_flush(logging.ERROR, msg)
+                        raise OSError(msg)
                     if not kernel32.SetEndOfFile(wintypes.HANDLE(h)):
                         err = kernel32.GetLastError()
-                        raise OSError(f"SetEndOfFile failed, error={err}")
+                        msg = f"DIAG AFTER Pre-allocating temp file]SetEndOfFile failed, error={err}"
+                        log_and_flush(logging.ERROR, msg)
+                        raise OSError(msg)
+                    # <<< CHANGE END: DIAG fast pre-alloc C
                 self._log_status(f"Pre-allocated temp file '{temp_path}' to {file_size:,} bytes")
                 log_and_flush(logging.INFO, f"End Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
             except Exception as e:
-                log_and_flush(logging.INFO, f"Failed Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast): {e}")
+                log_and_flush(logging.ERROR, f"Failed Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast): {e}")
                 return {'success': False, 'error': f'Pre-allocation for \"{temp_path}\" to {file_size:,} bytes failed: {e}', 'recovery_suggestion': 'Ensure free space and permissions'}
-            # <<< CHANGE END
 
             # Choose hash algorithm
             if self.blake3_available:
@@ -1014,7 +1056,6 @@ class FileCopyManager_class:
             return {'success': True, 'bytes_copied': bytes_copied, 'hash': hasher.hexdigest(), 'hash_algorithm': algo}
         except Exception as e:
             return {'success': False, 'error': f'DIRECT-LARGE mmap copy failed: {e}', 'recovery_suggestion': 'Check permissions/disk space'}
-    # <<< CHANGE END
 
     def _copy_with_windows_api(self, source_path: str, temp_path: str) -> dict:
         """
