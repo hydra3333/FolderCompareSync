@@ -1216,9 +1216,17 @@ class FileCopyManager_class:
                 _sz = Path(source_path).stat().st_size
             except Exception:
                 _sz = -1
+            if os.path.exists(source_path):
+                source_exists = "exists"
+            else:
+                source_exists = "NOT exists"
+            if os.path.exists(temp_path):
+                temp_path_exists = "exists"
+            else:
+                temp_path_exists = "NOT exists"
             log_and_flush(
                 logging.DEBUG,
-                f"[DIRECT-SMALL] Starting CopyFileExW: src='{source_path}', temp='{temp_path}', "
+                f"[DIRECT-SMALL] Starting CopyFileExW: src='{source_path}' {source_exists}, temp='{temp_path}' {temp_path_exists}, "
                 f"size={_sz if _sz >= 0 else 'unknown'} bytes, verify_policy={getattr(C, 'FILECOPY_VERIFY_POLICY', 'n/a')}"
             )
         # <<< CHANGE END
@@ -1282,14 +1290,14 @@ class FileCopyManager_class:
                     return {
                         'success': False, 
                         'cancelled': True, 
-                        'error': "Copy operation cancelled by user",
+                        'error': f"Copy operation cancelled by user '{source_path}' to '{temp_path}'",
                         'error_code': error_code
                     }
                 else:
                     error_msg = self._get_windows_error_message(error_code)
                     return {
                         'success': False, 
-                        'error': f"CopyFileExW failed: {error_msg}",
+                        'error': f"CopyFileExW failed: '{source_path}' to '{temp_path}' {error_msg}",
                         'error_code': error_code,
                         'recovery_suggestion': self._get_recovery_suggestion_for_error(error_code)
                     }
