@@ -527,6 +527,15 @@ class FileCopyManager_class:
         
         # Phase 3: Create secure temporary file path
         target_dir = Path(target_path).parent
+        # Ensure dest folder exists for both CopyFileExW and mmap paths
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            result.error_message = f"Unable to create destination directory '{target_dir}': {e}"
+            result.recovery_suggestion = "Check permissions and path validity for the destination folder"
+            result.success = False
+            result.error_code = e
+            return result
         target_name = Path(target_path).name
         temp_file_path = str(target_dir / f"{target_name}.tmp_{uuid.uuid4().hex[:8]}")
         result.temp_path = temp_file_path
@@ -729,6 +738,15 @@ class FileCopyManager_class:
 
         # Phase 2.1: Create secure temporary file path
         target_dir = Path(target_path).parent
+        # Ensure dest folder exists for both CopyFileExW and mmap paths
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            result.error_message = f"Unable to create destination directory '{target_dir}': {e}"
+            result.recovery_suggestion = "Check permissions and path validity for the destination folder"
+            result.success = False
+            result.error_code = e
+            return result
         target_name = Path(target_path).name
         temp_file_path = str(target_dir / f"{target_name}.tmp_{uuid.uuid4().hex[:8]}")
         result.temp_path = temp_file_path
@@ -1274,6 +1292,15 @@ class FileCopyManager_class:
         callback_func = PROGRESS_ROUTINE(copy_progress_callback)
         
         try:
+            # Ensure dest folder exists for both CopyFileExW and mmap paths
+            try:
+                Path(temp_path).parent.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                result.error_message = f"Unable to create destination directory '{target_dir}': {e}"
+                result.recovery_suggestion = "Check permissions and path validity for the destination folder"
+                result.success = False
+                result.error_code = e
+                return result
             # Execute Windows CopyFileExW
             result = kernel32.CopyFileExW(
                 ctypes.c_wchar_p(source_path),
@@ -1295,11 +1322,12 @@ class FileCopyManager_class:
                     }
                 else:
                     error_msg = self._get_windows_error_message(error_code)
+                    error_recovery = self._get_recovery_suggestion_for_error(error_code)
                     return {
                         'success': False, 
                         'error': f"CopyFileExW failed: '{source_path}' to '{temp_path}' {error_msg}",
                         'error_code': error_code,
-                        'recovery_suggestion': self._get_recovery_suggestion_for_error(error_code)
+                        'recovery_suggestion': error_recovery
                     }
             
             # >>> CHANGE START: DEBUG summary for DIRECT-SMALL (CopyFileExW)
