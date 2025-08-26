@@ -235,7 +235,25 @@ def setup_windows_api_bindings():
     
     # Get kernel32 handle
     kernel32 = ctypes.windll.kernel32
+
+    # Correct LARGE_INTEGER definition (it's a union in Windows)
+    class LARGE_INTEGER(ctypes.Union):
+        class _STRUCT(ctypes.Structure):
+            _fields_ = [
+                ("LowPart", wintypes.DWORD),
+                ("HighPart", ctypes.c_long),
+            ]
+        
+        _anonymous_ = ("u",)
+        _fields_ = [
+            ("QuadPart", ctypes.c_longlong),
+            ("u", _STRUCT),
+        ]
     
+    # Correct FILE_ALLOCATION_INFO structure
+    class FILE_ALLOCATION_INFO(ctypes.Structure):
+        _fields_ = [("AllocationSize", LARGE_INTEGER)]
+
     # ============================================================================
     # PROGRESS CALLBACK FUNCTION TYPE
     # ============================================================================
@@ -278,11 +296,6 @@ def setup_windows_api_bindings():
     # BOOL SetFileInformationByHandle(HANDLE, FILE_INFO_BY_HANDLE_CLASS, LPVOID, DWORD)
     kernel32.SetFileInformationByHandle.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD]
     kernel32.SetFileInformationByHandle.restype  = wintypes.BOOL
-    # Proper LARGE_INTEGER + FILE_ALLOCATION_INFO definitions
-    class _LARGE_INTEGER(ctypes.Structure):
-        _fields_ = [("QuadPart", ctypes.c_longlong)]
-    class FILE_ALLOCATION_INFO(ctypes.Structure):
-        _fields_ = [("AllocationSize", _LARGE_INTEGER)]
     # Export commonly used constants (FILE_INFO_BY_HANDLE_CLASS)
     FILE_INFO_BY_HANDLE_FileAllocationInfo = 19  # matches Win32 FILE_INFO_BY_HANDLE_CLASS::FileAllocationInfo
     FILE_INFO_BY_HANDLE_FileEndOfFileInfo  = 20  # (not used here but handy)
@@ -290,14 +303,19 @@ def setup_windows_api_bindings():
     FILE_BEGIN   = 0
     FILE_CURRENT = 1
     FILE_END     = 2
+    FILE_ATTRIBUTE_COMPRESSED = 0x800
+    FILE_ATTRIBUTE_SPARSE_FILE = 0x200
     # Make these available to star-importers
     g = globals()
+    g['LARGE_INTEGER'] = LARGE_INTEGER
     g['FILE_ALLOCATION_INFO'] = FILE_ALLOCATION_INFO
     g['FILE_INFO_BY_HANDLE_FileAllocationInfo'] = FILE_INFO_BY_HANDLE_FileAllocationInfo
     g['FILE_INFO_BY_HANDLE_FileEndOfFileInfo']  = FILE_INFO_BY_HANDLE_FileEndOfFileInfo
+    _export_name('LARGE_INTEGER')
     _export_name('FILE_ALLOCATION_INFO')
     _export_name('FILE_INFO_BY_HANDLE_FileAllocationInfo')
     _export_name('FILE_INFO_BY_HANDLE_FileEndOfFileInfo')
+    _export_name('FILE_ATTRIBUTE_COMPRESSED'); _export_name('FILE_ATTRIBUTE_SPARSE_FILE')
     _export_name('FILE_BEGIN'); _export_name('FILE_CURRENT'); _export_name('FILE_END')
     # <<< CHANGE END
 

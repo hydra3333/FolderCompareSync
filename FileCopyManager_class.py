@@ -863,7 +863,6 @@ class FileCopyManager_class:
             try:
                 self._log_status(f"Pre-allocating temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
                 log_and_flush(logging.INFO, f"Start Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
-                # >>> CHANGE START: DIAG — volume/filesystem info for temp_path (to diagnose ERROR_INVALID_PARAMETER)
                 #======================================================================================================================================================================================
                 try:
                     drive_root = os.path.splitdrive(temp_path)[0] + '\\'
@@ -890,7 +889,6 @@ class FileCopyManager_class:
                     raise SystemExit(msg) # raise(msg)
                     #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
                 #======================================================================================================================================================================================
-                # <<< CHANGE END
                 # Ensure the file exists (cheap) before we obtain a handle
                 try:
                     with open(temp_path, 'ab'):
@@ -901,13 +899,11 @@ class FileCopyManager_class:
                         pass
                 # Reserve clusters quickly without zeroing using FileAllocationInfo
                 # Then set EOF in one step so the logical file size == file_size
+                preallocation_success = False
                 with open(temp_path, 'r+b') as tf:
                     h = msvcrt.get_osfhandle(tf.fileno())
-                    # >>> CHANGE START: DIAG fast pre-alloc A
                     # Check file attributes — FileAllocationInfo is not supported on COMPRESSED or SPARSE files.
                     attrs = kernel32.GetFileAttributesW(ctypes.c_wchar_p(temp_path))
-                    FILE_ATTRIBUTE_COMPRESSED  = 0x800
-                    FILE_ATTRIBUTE_SPARSE_FILE = 0x200
                     if attrs == 0xFFFFFFFF:  # INVALID_FILE_ATTRIBUTES
                         err = kernel32.GetLastError()
                         msg = f"[DIAG BEFORE Pre-allocating temp file] GetFileAttributesW failed for temp '{temp_path}': {err}"
@@ -915,33 +911,34 @@ class FileCopyManager_class:
                         raise SystemExit(msg) # raise(msg)
                         #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
                     if attrs & FILE_ATTRIBUTE_COMPRESSED:
-                        log_and_flush(logging.WARNING, f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is COMPRESSED *********")
+                        msg = f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is COMPRESSED ********* File attributes incompatible with SetFileInformationByHandle"
+                        log_and_flush(logging.WARNING, msg)
+                        raise SystemExit(msg) # raise(msg)
                     if attrs & FILE_ATTRIBUTE_SPARSE_FILE:
-                        log_and_flush(logging.WARNING, f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is SPARSE *********")
-                    # <<< CHANGE END: DIAG fast pre-alloc A
-                    # Build FILE_ALLOCATION_INFO with proper nested LARGE_INTEGER
+                        msg = f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is SPARSE ********* File attributes incompatible with SetFileInformationByHandle"
+                        log_and_flush(logging.WARNING, msg)
+                        raise SystemExit(msg) # raise(msg)
+                    # Build FILE_ALLOCATION_INFO with corrected structure
                     alloc = FILE_ALLOCATION_INFO()
-                    alloc.AllocationSize.QuadPart = ctypes.c_longlong(file_size)
+                    alloc.AllocationSize.QuadPart = file_size
+                    # Try Windows API allocation
                     ok = kernel32.SetFileInformationByHandle(
                         wintypes.HANDLE(h),
                         wintypes.DWORD(FILE_INFO_BY_HANDLE_FileAllocationInfo),
                         ctypes.byref(alloc),
                         wintypes.DWORD(ctypes.sizeof(alloc))
                     )
-                    # >>> CHANGE START: DIAG fast pre-alloc B
                     if not ok:
                         err = kernel32.GetLastError()
                         msg = f"[DIAG AFTER Pre-allocating temp file] kernel32.SetFileInformationByHandle(FileAllocationInfo) failed, error={err}"
                         log_and_flush(logging.ERROR, msg)
                         raise SystemExit(msg) # raise(msg)
-                        #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
+                        os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
                     log_and_flush(logging.DEBUG, "[DIAG AFTER Pre-allocating temp file] kernel32.SetFileInformationByHandle pre-alloc succeeded.")
-                    # <<< CHANGE END: DIAG fast pre-alloc B
-                    # SetFilePointerEx + SetEndOfFile to set logical file size once (not fast)
-                    # >>> CHANGE START: DIAG fast pre-alloc C
-                    FILE_BEGIN = 0
-                    new_pos = ctypes.c_longlong(0)
-                    if not kernel32.SetFilePointerEx(wintypes.HANDLE(h), ctypes.c_longlong(file_size), ctypes.byref(new_pos), FILE_BEGIN):
+                    # Set EOF to make logical size match allocated size
+                    ##new_pos = ctypes.c_longlong(0)
+                    ##if not kernel32.SetFilePointerEx(wintypes.HANDLE(h), ctypes.c_longlong(file_size), ctypes.byref(new_pos), FILE_BEGIN):
+                    if not kernel32.SetFilePointerEx(wintypes.HANDLE(h), ctypes.c_longlong(file_size), None, FILE_BEGIN):
                         err = kernel32.GetLastError()
                         msg = f"DIAG AFTER Pre-allocating temp file] SetFilePointerEx failed, error={err}"
                         log_and_flush(logging.ERROR, msg)
@@ -953,11 +950,12 @@ class FileCopyManager_class:
                         log_and_flush(logging.ERROR, msg)
                         raise SystemExit(msg) # raise(msg)
                         #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-                    # <<< CHANGE END: DIAG fast pre-alloc C
-                self._log_status(f"Pre-allocated temp file '{temp_path}' to {file_size:,} bytes")
-                log_and_flush(logging.INFO, f"End Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
+                    preallocation_success = True
+                    #log_and_flush(logging.INFO, f"Windows API pre-allocation successful: {file_size:,} bytes")
+                self._log_status(f"Successfully Pre-allocated temp file '{temp_path}' to {file_size:,} bytes")
+                log_and_flush(logging.INFO, f"End Pre-allocate SUCCESS temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
             except Exception as e:
-                msg = f"Failed Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast): {e}"
+                msg = f"FAILED Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast): {e}"
                 log_and_flush(logging.ERROR, msg)
                 raise SystemExit(msg) # raise(msg) # temporarily raise so program ends ??????????????????????????????????????????????
                 #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
@@ -1069,7 +1067,7 @@ class FileCopyManager_class:
                     pass
             if __debug__:
                 log_and_flush(logging.DEBUG, f"Finished DIRECT-LARGE mmap copying to temp file '{temp_path}' to {file_size:,} bytes")
-                log_and_flush(logging.DEBUG, "*" * 80))
+                log_and_flush(logging.DEBUG, "*" * 80)
             return {'success': True, 'bytes_copied': bytes_copied, 'hash': hasher.hexdigest(), 'hash_algorithm': algo}
         except Exception as e:
             msg = f'DIRECT-LARGE mmap copy failed: {e}'
