@@ -847,121 +847,205 @@ class FileCopyManager_class:
         DIRECT-LARGE: Windowed memory-mapped copy with on-the-fly source hashing during copying
         Returns: {success: bool, bytes_copied: int, hash: str, hash_algorithm: str, error?: str, cancelled?: bool}
         """
+        # Pre-allocate destination to full size for proper mapping
         try:
-            # Pre-allocate destination to full size for proper mapping
-            # Fast one-shot pre-allocation via Win32 (FileAllocationInfo + single EOF set)
-            ##try:
-            ##    self._log_status(f"Pre-allocating temp file '{temp_path}' to {file_size:,} bytes")
-            ##    log_and_flush(logging.INFO, f"Start Pre-allocate temp file '{temp_path}' to {file_size:,} bytes")
-            ##    with open(temp_path, 'wb') as tf:
-            ##        tf.truncate(file_size)
-            ##    self._log_status(f"Pre-allocated temp file '{temp_path}' to {file_size:,} bytes")
-            ##    log_and_flush(logging.INFO, f"End Pre-allocate temp file '{temp_path}' to {file_size:,} bytes")
-            ##except Exception as e:
-            ##    log_and_flush(logging.INFO, f"Failed Pre-allocate temp file '{temp_path}' to {file_size:,} bytes")
-            ##    return {'success': False, 'error': f'Pre-allocation for "{temp_path}" to {file_size:,} bytes failed: {e}', 'recovery_suggestion': 'Ensure free space and permissions'}
+            self._log_status(f"Pre-allocating temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
+            log_and_flush(logging.INFO, f"Start Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
+            #======================================================================================================================================================================================
             try:
-                self._log_status(f"Pre-allocating temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
-                log_and_flush(logging.INFO, f"Start Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
-                #======================================================================================================================================================================================
-                try:
-                    drive_root = os.path.splitdrive(temp_path)[0] + '\\'
-                    vol_name_buf = ctypes.create_unicode_buffer(260)
-                    fs_name_buf  = ctypes.create_unicode_buffer(260)
-                    serial = ctypes.c_uint32(0); max_comp = ctypes.c_uint32(0); fs_flags = ctypes.c_uint32(0)
-                    ok = kernel32.GetVolumeInformationW(
-                        ctypes.c_wchar_p(drive_root),
-                        vol_name_buf, ctypes.sizeof(vol_name_buf),
-                        ctypes.byref(serial), ctypes.byref(max_comp), ctypes.byref(fs_flags),
-                        fs_name_buf, ctypes.sizeof(fs_name_buf)
-                    )
-                    if ok:
-                        log_and_flush(logging.DEBUG, f"[DIAG BEFORE Pre-allocating temp file] kernel32.GetVolumeInformationW: temp drive='{drive_root}', volume='{vol_name_buf.value}', fs='{fs_name_buf.value}', flags=0x{fs_flags.value:08X}")
-                    else:
-                        err = kernel32.GetLastError()
-                        msg = f"[DIAG BEFORE Pre-allocating temp file] kernel32.GetVolumeInformationW('{drive_root}') failed: {err}"
-                        log_and_flush(logging.ERROR, msg)
-                        raise SystemExit(msg) # raise(msg)
-                        #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-                except Exception as _e_diag:
-                    msg = f"[DIAG BEFORE Pre-allocating temp file] kernel32.GetVolumeInformationW .. volume/fs probe error: {_e_diag}"
+                drive_root = os.path.splitdrive(temp_path)[0] + '\\'
+                vol_name_buf = ctypes.create_unicode_buffer(260)
+                fs_name_buf  = ctypes.create_unicode_buffer(260)
+                serial = ctypes.c_uint32(0)
+                max_comp = ctypes.c_uint32(0)
+                fs_flags = ctypes.c_uint32(0)
+                ok = kernel32.GetVolumeInformationW(
+                    ctypes.c_wchar_p(drive_root),
+                    vol_name_buf, ctypes.sizeof(vol_name_buf),
+                    ctypes.byref(serial), ctypes.byref(max_comp), ctypes.byref(fs_flags),
+                    fs_name_buf, ctypes.sizeof(fs_name_buf)
+                )
+                if ok:
+                    log_and_flush(logging.DEBUG, 
+                                    f"[DIAG BEFORE Pre-allocating temp file] kernel32.GetVolumeInformationW: "
+                                    f"temp drive='{drive_root}', "
+                                    f"Volume='{vol_name_buf.value}', "
+                                    f"fs='{fs_name_buf.value}', "
+                                    f"flags=0x{fs_flags.value:08X}")
+                else:
+                    err = kernel32.GetLastError()
+                    msg = f"[DIAG BEFORE Pre-allocating temp file] kernel32.GetVolumeInformationW('{drive_root}') failed: {err}"
                     log_and_flush(logging.ERROR, msg)
                     raise SystemExit(msg) # raise(msg)
                     #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-                #======================================================================================================================================================================================
-                # Ensure the file exists (cheap) before we obtain a handle
-                try:
-                    with open(temp_path, 'ab'):
-                        pass
-                except Exception:
-                    # Parent dirs should already exist earlier in the flow; if not, we avoid making assumptions here
-                    with open(temp_path, 'wb'):
-                        pass
-                # Reserve clusters quickly without zeroing using FileAllocationInfo
-                # Then set EOF in one step so the logical file size == file_size
-                preallocation_success = False
-                with open(temp_path, 'r+b') as tf:
-                    h = msvcrt.get_osfhandle(tf.fileno())
-                    # Check file attributes — FileAllocationInfo is not supported on COMPRESSED or SPARSE files.
-                    attrs = kernel32.GetFileAttributesW(ctypes.c_wchar_p(temp_path))
-                    if attrs == 0xFFFFFFFF:  # INVALID_FILE_ATTRIBUTES
-                        err = kernel32.GetLastError()
-                        msg = f"[DIAG BEFORE Pre-allocating temp file] GetFileAttributesW failed for temp '{temp_path}': {err}"
-                        log_and_flush(logging.ERROR, msg)
-                        raise SystemExit(msg) # raise(msg)
-                        #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-                    if attrs & FILE_ATTRIBUTE_COMPRESSED:
-                        msg = f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is COMPRESSED ********* File attributes incompatible with SetFileInformationByHandle"
-                        log_and_flush(logging.WARNING, msg)
-                        raise SystemExit(msg) # raise(msg)
-                    if attrs & FILE_ATTRIBUTE_SPARSE_FILE:
-                        msg = f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is SPARSE ********* File attributes incompatible with SetFileInformationByHandle"
-                        log_and_flush(logging.WARNING, msg)
-                        raise SystemExit(msg) # raise(msg)
-                    # Build FILE_ALLOCATION_INFO with corrected structure
-                    alloc = FILE_ALLOCATION_INFO()
-                    alloc.AllocationSize.QuadPart = file_size
-                    # Try Windows API allocation
-                    ok = kernel32.SetFileInformationByHandle(
-                        wintypes.HANDLE(h),
-                        wintypes.DWORD(FILE_INFO_BY_HANDLE_FileAllocationInfo),
-                        ctypes.byref(alloc),
-                        wintypes.DWORD(ctypes.sizeof(alloc))
-                    )
-                    if not ok:
-                        err = kernel32.GetLastError()
-                        msg = f"[DIAG AFTER Pre-allocating temp file] kernel32.SetFileInformationByHandle(FileAllocationInfo) failed, error={err}"
-                        log_and_flush(logging.ERROR, msg)
-                        raise SystemExit(msg) # raise(msg)
-                        os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-                    log_and_flush(logging.DEBUG, "[DIAG AFTER Pre-allocating temp file] kernel32.SetFileInformationByHandle pre-alloc succeeded.")
-                    # Set EOF to make logical size match allocated size
-                    ##new_pos = ctypes.c_longlong(0)
-                    ##if not kernel32.SetFilePointerEx(wintypes.HANDLE(h), ctypes.c_longlong(file_size), ctypes.byref(new_pos), FILE_BEGIN):
-                    if not kernel32.SetFilePointerEx(wintypes.HANDLE(h), ctypes.c_longlong(file_size), None, FILE_BEGIN):
-                        err = kernel32.GetLastError()
-                        msg = f"DIAG AFTER Pre-allocating temp file] SetFilePointerEx failed, error={err}"
-                        log_and_flush(logging.ERROR, msg)
-                        raise SystemExit(msg) # raise(msg)
-                        #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-                    if not kernel32.SetEndOfFile(wintypes.HANDLE(h)):
-                        err = kernel32.GetLastError()
-                        msg = f"DIAG AFTER Pre-allocating temp file]SetEndOfFile failed, error={err}"
-                        log_and_flush(logging.ERROR, msg)
-                        raise SystemExit(msg) # raise(msg)
-                        #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-                    preallocation_success = True
-                    #log_and_flush(logging.INFO, f"Windows API pre-allocation successful: {file_size:,} bytes")
-                self._log_status(f"Successfully Pre-allocated temp file '{temp_path}' to {file_size:,} bytes")
-                log_and_flush(logging.INFO, f"End Pre-allocate SUCCESS temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
-            except Exception as e:
-                msg = f"FAILED Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast): {e}"
+            except Exception as _e_diag:
+                msg = f"[DIAG BEFORE Pre-allocating temp file] kernel32.GetVolumeInformationW .. volume/fs probe error: {_e_diag}"
                 log_and_flush(logging.ERROR, msg)
-                raise SystemExit(msg) # raise(msg) # temporarily raise so program ends ??????????????????????????????????????????????
+                raise SystemExit(msg) # raise(msg)
                 #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-                return {'success': False, 'error': f'Pre-allocation for \"{temp_path}\" to {file_size:,} bytes failed: {e}', 'recovery_suggestion': 'Ensure free space and permissions'}
+            #======================================================================================================================================================================================
+            # Ensure the file exists (cheap) before we obtain a handle
+            # Create file using direct Windows API with explicit access rights
+            preallocation_success = False
 
-            # Choose hash algorithm
+            # Ensure parent directory exists
+            Path(temp_path).parent.mkdir(parents=True, exist_ok=True)
+
+            # Create file with explicit access rights for allocation
+            # Create file handle with proper access rights
+            preallocation_success = False
+            try:
+                # Create file handle with proper access rights
+                file_handle = None
+                file_handle = kernel32.CreateFileW(
+                    ctypes.c_wchar_p(temp_path),
+                    wintypes.DWORD(GENERIC_READ | GENERIC_WRITE | FILE_WRITE_DATA),
+                    wintypes.DWORD(FILE_SHARE_READ | FILE_SHARE_WRITE), 
+                    None,  # Security attributes
+                    wintypes.DWORD(CREATE_ALWAYS),
+                    wintypes.DWORD(FILE_ATTRIBUTE_NORMAL),
+                    None   # Template file
+                )
+            except Exception as e:
+                msg = f"[DIAG BEFORE Pre-allocating temp file] FAILED kernel32.CreateFileW: {e}"
+                log_and_flush(logging.ERROR, msg)
+                raise SystemExit(msg) # raise(msg)
+
+            if file_handle == -1 or file_handle == 0:  # INVALID_HANDLE_VALUE
+                err = kernel32.GetLastError()
+                msg = f"[DIAG BEFORE Pre-allocating temp file] FAILED kernel32.CreateFileW: Invalid File Handle. {err}"
+                log_and_flush(logging.ERROR, msg)
+                raise SystemExit(msg) # raise(msg)
+
+            log_and_flush(logging.DEBUG, f"[DIAG BEFORE Pre-allocating temp file] kernel32.CreateFileW Created file with handle: {file_handle}")
+
+            #---
+            # Check for problematic file attributes on source file
+            try:
+                attrs = kernel32.GetFileAttributesW(ctypes.c_wchar_p(source_path))
+            except Exception as e:
+                msg = f"[DIAG BEFORE Pre-allocating temp file] FAILED kernel32.GetFileAttributesW for Source '{source_path}': {e}"
+                log_and_flush(logging.ERROR, msg)
+                raise SystemExit(msg) # raise(msg)
+            if attrs == 0xFFFFFFFF:  # INVALID_FILE_ATTRIBUTES
+                err = kernel32.GetLastError()
+                msg = f"[DIAG BEFORE Pre-allocating temp file] GetFileAttributesW failed for Source '{source_path}': {err}"
+                log_and_flush(logging.ERROR, msg)
+                raise SystemExit(msg) # raise(msg)
+                #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
+            if attrs & FILE_ATTRIBUTE_COMPRESSED:
+                msg = f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Source file is COMPRESSED ********* COPYING WILL NOT WORK"
+                log_and_flush(logging.WARNING, msg)
+                raise SystemExit(msg) # raise(msg)
+            if attrs & FILE_ATTRIBUTE_SPARSE_FILE:
+                msg = f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Source file is SPARSE ********* COPYING WILL NOT WORK"
+                log_and_flush(logging.WARNING, msg)
+                raise SystemExit(msg) # raise(msg)
+            #---
+            # Check for problematic file attributes on target temp file
+            try:
+                attrs = kernel32.GetFileAttributesW(ctypes.c_wchar_p(temp_path))
+            except Exception as e:
+                msg = f"[DIAG BEFORE Pre-allocating temp file] FAILED kernel32.GetFileAttributesW for temp '{temp_path}': {e}"
+                log_and_flush(logging.ERROR, msg)
+                raise SystemExit(msg) # raise(msg)
+            if attrs == 0xFFFFFFFF:  # INVALID_FILE_ATTRIBUTES
+                err = kernel32.GetLastError()
+                msg = f"[DIAG BEFORE Pre-allocating temp file] GetFileAttributesW failed for temp '{temp_path}': {err}"
+                log_and_flush(logging.ERROR, msg)
+                raise SystemExit(msg) # raise(msg)
+                #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
+            if attrs & FILE_ATTRIBUTE_COMPRESSED:
+                msg = f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is COMPRESSED ********* File attributes incompatible with SetFileInformationByHandle. COPYING WILL NOT WORK"
+                log_and_flush(logging.WARNING, msg)
+                raise SystemExit(msg) # raise(msg)
+            if attrs & FILE_ATTRIBUTE_SPARSE_FILE:
+                msg = f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is SPARSE ********* File attributes incompatible with SetFileInformationByHandle. COPYING WILL NOT WORK"
+                log_and_flush(logging.WARNING, msg)
+                raise SystemExit(msg) # raise(msg)
+            #---
+
+            # Build FILE_ALLOCATION_INFO with proper LARGE_INTEGER
+            alloc = FILE_ALLOCATION_INFO()
+            alloc.AllocationSize.QuadPart = file_size
+            log_and_flush(logging.DEBUG, f"Setting allocation size to: {file_size:,} bytes")
+            log_and_flush(logging.DEBUG, f"Structure size: {ctypes.sizeof(alloc)} bytes")
+            log_and_flush(logging.DEBUG, f"QuadPart value: {alloc.AllocationSize.QuadPart}")
+               
+            # Try to pre-allocate the disk space
+            try:
+                # Try Windows API allocation with better error reporting
+                ok = kernel32.SetFileInformationByHandle(
+                        wintypes.HANDLE(file_handle),
+                        wintypes.DWORD(FILE_INFO_BY_HANDLE_FileAllocationInfo),
+                        ctypes.byref(alloc),                    # ctypes.pointer(alloc),
+                        wintypes.DWORD(ctypes.sizeof(alloc))    # ctypes.sizeof(alloc)
+                )
+            except Exception as e:
+                msg = f"[DIAG AFTER Pre-allocating temp file] FAILED kernel32.SetFileInformationByHandle: {e}"
+                log_and_flush(logging.ERROR, msg)
+                raise SystemExit(msg) # raise(msg)
+            if not ok:
+                err = kernel32.GetLastError()
+                # Get more detailed error info
+                error_details = {
+                    5: "ERROR_ACCESS_DENIED - Handle lacks FILE_WRITE_DATA access",
+                    87: "ERROR_INVALID_PARAMETER - Invalid parameter to SetFileInformationByHandle",
+                    112: "ERROR_DISK_FULL - Insufficient disk space",
+                    1224: "ERROR_USER_MAPPED_FILE - File is memory mapped",
+                }
+                error_desc = error_details.get(err, f"Unknown error {err}")
+                msg = f"[DIAG AFTER Pre-allocating temp file] FAILED kernel32.SetFileInformationByHandle:\n{e}\n{error_desc}"
+                log_and_flush(logging.ERROR, msg)
+                raise SystemExit(msg) # raise(msg)
+            # SUCCESS for pre-allocation
+            log_and_flush(logging.DEBUG, "[DIAG AFTER Pre-allocating temp file] SUCCESS kernel32.SetFileInformationByHandle pre-alloc succeeded.")
+            # Set EOF to make logical size match allocated size
+            new_pos = ctypes.c_longlong(0)
+            ##       kernel32.SetFilePointerEx(wintypes.HANDLE(file_handle), ctypes.c_longlong(file_size), ctypes.byref(new_pos), FILE_BEGIN):
+            ##       kernel32.SetFilePointerEx(wintypes.HANDLE(file_handle), ctypes.c_longlong(file_size), None,                  0)
+            ##       kernel32.SetFilePointerEx(wintypes.HANDLE(file_handle), ctypes.c_longlong(file_size), None,                  FILE_BEGIN):
+            if not kernel32.SetFilePointerEx(wintypes.HANDLE(file_handle), ctypes.c_longlong(file_size), ctypes.byref(new_pos), FILE_BEGIN):
+                err = kernel32.GetLastError()
+                msg = f"[DIAG AFTER Pre-allocating temp file] SetFilePointerEx failed, error={err}"
+                log_and_flush(logging.ERROR, msg)
+                raise SystemExit(msg) # raise(msg)
+                #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
+            if not kernel32.SetEndOfFile(wintypes.HANDLE(file_handle)):
+                err = kernel32.GetLastError()
+                msg = f"[DIAG AFTER Pre-allocating temp file]SetEndOfFile failed, error={err}"
+                log_and_flush(logging.ERROR, msg)
+                raise SystemExit(msg) # raise(msg)
+                #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
+            preallocation_success = True
+        except Exception as e:
+            err = kernel32.GetLastError()
+            msg = f"[DIAG DURING Pre-allocating temp file] FAIL: an error occurred during the process, error={err}"
+            log_and_flush(logging.ERROR, msg)
+            raise SystemExit(msg) # raise(msg)
+            #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
+        finally:
+            # Only close if handle was actually created
+            if file_handle and file_handle != -1 and file_handle != 0:
+                try:
+                    kernel32.CloseHandle(wintypes.HANDLE(file_handle))
+                    log_and_flush(logging.DEBUG, "[DIAG AFTER Pre-allocating temp file] File handle closed")
+                except Exception as e:
+                    log_and_flush(logging.WARNING, f"[DIAG AFTER Pre-allocating temp file] WARNING: Fail: Could not close file handle (ignopring the error): {e}")
+            if preallocation_success:
+                log_and_flush(logging.INFO, f"[DIAG AFTER Pre-allocating temp file] Windows API pre-allocation successful: {file_size:,} bytes")
+            else:
+                msg = f"[DIAG AFTER Pre-allocating temp file] Windows API pre-allocation FAIL: preallocation_success={preallocation_success}"
+                log_and_flush(logging.INFO, msg)
+                raise SystemExit(msg) # raise(msg)
+                #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
+
+        self._log_status(f"Successfully Pre-allocated temp file '{temp_path}' to {file_size:,} bytes")
+        log_and_flush(logging.INFO, f"End Pre-allocate SUCCESS temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
+
+        # Now for the mmap copying and progressively calculating hash during copying
+        try:
+            # Choose hash algorithm 
             if self.blake3_available:
                 hasher = blake3.blake3()
                 algo = 'BLAKE3'
@@ -974,9 +1058,8 @@ class FileCopyManager_class:
             bytes_copied = 0
             win_index = 0
 
-            if __debug__:
-                log_and_flush(logging.DEBUG, "*" * 80)
-                log_and_flush(logging.DEBUG, f"Start DIRECT-LARGE mmap copying to temp file '{temp_path}' to {file_size:,} bytes")
+            log_and_flush(logging.DEBUG, "*" * 80)
+            log_and_flush(logging.DEBUG, f"Start DIRECT-LARGE mmap copying to temp file '{temp_path}' to {file_size:,} bytes")
             with open(source_path, 'rb') as sf, open(temp_path, 'r+b') as tf:
                 offset = 0
                 total = file_size
@@ -1065,12 +1148,12 @@ class FileCopyManager_class:
                         log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Finished Final flushing destination mmap window")
                 except Exception:
                     pass
-            if __debug__:
-                log_and_flush(logging.DEBUG, f"Finished DIRECT-LARGE mmap copying to temp file '{temp_path}' to {file_size:,} bytes")
-                log_and_flush(logging.DEBUG, "*" * 80)
+            log_and_flush(logging.DEBUG, f"Finished DIRECT-LARGE mmap copying to temp file '{temp_path}' to {file_size:,} bytes")
+            log_and_flush(logging.DEBUG, "*" * 80)
+            
             return {'success': True, 'bytes_copied': bytes_copied, 'hash': hasher.hexdigest(), 'hash_algorithm': algo}
         except Exception as e:
-            msg = f'DIRECT-LARGE mmap copy failed: {e}'
+            msg = f'DIRECT-LARGE mmap copy with prigressive hash calculation failed: {e}'
             log_and_flush(logging.ERROR, msg)
             raise SystemExit(msg) # raise(msg) # temporarily raise so program ends ?????????????????????????????????????????????
             #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing

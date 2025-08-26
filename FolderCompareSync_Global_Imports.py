@@ -296,27 +296,57 @@ def setup_windows_api_bindings():
     # BOOL SetFileInformationByHandle(HANDLE, FILE_INFO_BY_HANDLE_CLASS, LPVOID, DWORD)
     kernel32.SetFileInformationByHandle.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD]
     kernel32.SetFileInformationByHandle.restype  = wintypes.BOOL
-    # Export commonly used constants (FILE_INFO_BY_HANDLE_CLASS)
-    FILE_INFO_BY_HANDLE_FileAllocationInfo = 19  # matches Win32 FILE_INFO_BY_HANDLE_CLASS::FileAllocationInfo
-    FILE_INFO_BY_HANDLE_FileEndOfFileInfo  = 20  # (not used here but handy)
+    # Export commonly used constants (FILE_INFO_BY_HANDLE_CLASS ENUM)
+    FILE_INFO_BY_HANDLE_FileAllocationInfo = 5    # OLD BAD: 19  # matches Win32 FILE_INFO_BY_HANDLE_CLASS::FileAllocationInfo
+    FILE_INFO_BY_HANDLE_FileEndOfFileInfo  = 6    # OLD BAD: 20  # (not used here but handy)
     # Common move-method constants (FILE_BEGIN/FILE_CURRENT/FILE_END)
     FILE_BEGIN   = 0
     FILE_CURRENT = 1
     FILE_END     = 2
     FILE_ATTRIBUTE_COMPRESSED = 0x800
     FILE_ATTRIBUTE_SPARSE_FILE = 0x200
+    # Common create-file constants
+    GENERIC_READ = 0x80000000
+    GENERIC_WRITE = 0x40000000
+    FILE_WRITE_DATA = 0x0002
+    FILE_SHARE_READ = 0x00000001
+    FILE_SHARE_WRITE = 0x00000002
+    CREATE_ALWAYS = 2  # Creates new file, overwrites if exists
+    FILE_ATTRIBUTE_NORMAL = 0x80
     # Make these available to star-importers
     g = globals()
     g['LARGE_INTEGER'] = LARGE_INTEGER
     g['FILE_ALLOCATION_INFO'] = FILE_ALLOCATION_INFO
     g['FILE_INFO_BY_HANDLE_FileAllocationInfo'] = FILE_INFO_BY_HANDLE_FileAllocationInfo
     g['FILE_INFO_BY_HANDLE_FileEndOfFileInfo']  = FILE_INFO_BY_HANDLE_FileEndOfFileInfo
+    g['FILE_BEGIN']    = FILE_BEGIN
+    g['FILE_CURRENT']  = FILE_CURRENT
+    g['FILE_END']      = FILE_END
+    g['FILE_ATTRIBUTE_COMPRESSED']  = FILE_ATTRIBUTE_COMPRESSED
+    g['FILE_ATTRIBUTE_SPARSE_FILE'] = FILE_ATTRIBUTE_SPARSE_FILE
+    g['GENERIC_READ'] = GENERIC_READ
+    g['GENERIC_WRITE'] = GENERIC_WRITE
+    g['FILE_WRITE_DATA'] = FILE_WRITE_DATA
+    g['FILE_SHARE_READ'] = FILE_SHARE_READ
+    g['FILE_SHARE_WRITE'] = FILE_SHARE_WRITE
+    g['CREATE_ALWAYS'] = CREATE_ALWAYS
+    g['FILE_ATTRIBUTE_NORMAL'] = FILE_ATTRIBUTE_NORMAL
     _export_name('LARGE_INTEGER')
     _export_name('FILE_ALLOCATION_INFO')
     _export_name('FILE_INFO_BY_HANDLE_FileAllocationInfo')
     _export_name('FILE_INFO_BY_HANDLE_FileEndOfFileInfo')
-    _export_name('FILE_ATTRIBUTE_COMPRESSED'); _export_name('FILE_ATTRIBUTE_SPARSE_FILE')
-    _export_name('FILE_BEGIN'); _export_name('FILE_CURRENT'); _export_name('FILE_END')
+    _export_name('FILE_BEGIN')
+    _export_name('FILE_CURRENT')
+    _export_name('FILE_END')
+    _export_name('FILE_ATTRIBUTE_COMPRESSED')
+    _export_name('FILE_ATTRIBUTE_SPARSE_FILE')
+    _export_name('GENERIC_READ')
+    _export_name('GENERIC_WRITE')
+    _export_name('FILE_WRITE_DATA')
+    _export_name('FILE_SHARE_READ')
+    _export_name('FILE_SHARE_WRITE')
+    _export_name('CREATE_ALWAYS')
+    _export_name('FILE_ATTRIBUTE_NORMAL')
     # <<< CHANGE END
 
     # GetDiskFreeSpaceExW - Disk space checking
