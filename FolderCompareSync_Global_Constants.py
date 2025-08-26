@@ -109,7 +109,7 @@ FILECOPY_MMAP_FALLBACK_MAX_CONSECUTIVE_FAILURES = 5      # Max consecutive mmap 
 # >>> CHANGE START  # Enable DIRECT-LARGE and set threshold/flush cadence
 FILECOPY_DIRECT_MMAP_COPY_ENABLED = True                 # Enable DIRECT-LARGE windowed mmap copy for local files
 FILECOPY_DIRECT_MMAP_COPY_THRESHOLD_BYTES = 1 * 1024**3  # 1 GiB threshold for DIRECT-LARGE selection
-FILECOPY_MMAP_FLUSH_EVERY_N_WINDOWS = 2                  # Flush every N windows (1–1000); 0 disables extra flushes
+FILECOPY_MMAP_FLUSH_EVERY_N_WINDOWS = 5                  # Flush every N windows (1–1000); 0 disables extra flushes
 # <<< CHANGE END
 
 # Performance Tuning - STAGED Strategy (M08) 
