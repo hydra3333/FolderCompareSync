@@ -877,12 +877,18 @@ class FileCopyManager_class:
                         fs_name_buf, ctypes.sizeof(fs_name_buf)
                     )
                     if ok:
-                        log_and_flush(logging.DEBUG, f"[DIAG BEFORE Pre-allocating temp file] temp drive='{drive_root}', volume='{vol_name_buf.value}', fs='{fs_name_buf.value}', flags=0x{fs_flags.value:08X}")
+                        log_and_flush(logging.DEBUG, f"[DIAG BEFORE Pre-allocating temp file] kernel32.GetVolumeInformationW: temp drive='{drive_root}', volume='{vol_name_buf.value}', fs='{fs_name_buf.value}', flags=0x{fs_flags.value:08X}")
                     else:
                         err = kernel32.GetLastError()
-                        log_and_flush(logging.DEBUG, f"[DIAG BEFORE Pre-allocating temp file] GetVolumeInformationW('{drive_root}') failed: {err}")
+                        msg = f"[DIAG BEFORE Pre-allocating temp file] kernel32.GetVolumeInformationW('{drive_root}') failed: {err}"
+                        log_and_flush(logging.ERROR, msg)
+                        raise SystemExit(msg) # raise(msg)
+                        #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
                 except Exception as _e_diag:
-                    log_and_flush(logging.DEBUG, f"[DIAG BEFORE Pre-allocating temp file] volume/fs probe error: {_e_diag}")
+                    msg = f"[DIAG BEFORE Pre-allocating temp file] kernel32.GetVolumeInformationW .. volume/fs probe error: {_e_diag}"
+                    log_and_flush(logging.ERROR, msg)
+                    raise SystemExit(msg) # raise(msg)
+                    #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
                 #======================================================================================================================================================================================
                 # <<< CHANGE END
                 # Ensure the file exists (cheap) before we obtain a handle
@@ -906,7 +912,8 @@ class FileCopyManager_class:
                         err = kernel32.GetLastError()
                         msg = f"[DIAG BEFORE Pre-allocating temp file] GetFileAttributesW failed for temp '{temp_path}': {err}"
                         log_and_flush(logging.ERROR, msg)
-                        raise OSError(msg)
+                        raise SystemExit(msg) # raise(msg)
+                        #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
                     if attrs & FILE_ATTRIBUTE_COMPRESSED:
                         log_and_flush(logging.WARNING, f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is COMPRESSED *********")
                     if attrs & FILE_ATTRIBUTE_SPARSE_FILE:
@@ -926,7 +933,8 @@ class FileCopyManager_class:
                         err = kernel32.GetLastError()
                         msg = f"[DIAG AFTER Pre-allocating temp file] kernel32.SetFileInformationByHandle(FileAllocationInfo) failed, error={err}"
                         log_and_flush(logging.ERROR, msg)
-                        raise OSError(msg)
+                        raise SystemExit(msg) # raise(msg)
+                        #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
                     log_and_flush(logging.DEBUG, "[DIAG AFTER Pre-allocating temp file] kernel32.SetFileInformationByHandle pre-alloc succeeded.")
                     # <<< CHANGE END: DIAG fast pre-alloc B
                     # SetFilePointerEx + SetEndOfFile to set logical file size once (not fast)
@@ -937,17 +945,22 @@ class FileCopyManager_class:
                         err = kernel32.GetLastError()
                         msg = f"DIAG AFTER Pre-allocating temp file] SetFilePointerEx failed, error={err}"
                         log_and_flush(logging.ERROR, msg)
-                        raise OSError(msg)
+                        raise SystemExit(msg) # raise(msg)
+                        #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
                     if not kernel32.SetEndOfFile(wintypes.HANDLE(h)):
                         err = kernel32.GetLastError()
                         msg = f"DIAG AFTER Pre-allocating temp file]SetEndOfFile failed, error={err}"
                         log_and_flush(logging.ERROR, msg)
-                        raise OSError(msg)
+                        raise SystemExit(msg) # raise(msg)
+                        #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
                     # <<< CHANGE END: DIAG fast pre-alloc C
                 self._log_status(f"Pre-allocated temp file '{temp_path}' to {file_size:,} bytes")
                 log_and_flush(logging.INFO, f"End Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
             except Exception as e:
-                log_and_flush(logging.ERROR, f"Failed Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast): {e}")
+                msg = f"Failed Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast): {e}"
+                log_and_flush(logging.ERROR, msg)
+                raise SystemExit(msg) # raise(msg) # temporarily raise so program ends ??????????????????????????????????????????????
+                #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
                 return {'success': False, 'error': f'Pre-allocation for \"{temp_path}\" to {file_size:,} bytes failed: {e}', 'recovery_suggestion': 'Ensure free space and permissions'}
 
             # Choose hash algorithm
@@ -964,7 +977,7 @@ class FileCopyManager_class:
             win_index = 0
 
             if __debug__:
-                log_and_flush(logging.DEBUG, log_and_flush(logging.INFO, "*" * 80))
+                log_and_flush(logging.DEBUG, "*" * 80)
                 log_and_flush(logging.DEBUG, f"Start DIRECT-LARGE mmap copying to temp file '{temp_path}' to {file_size:,} bytes")
             with open(source_path, 'rb') as sf, open(temp_path, 'r+b') as tf:
                 offset = 0
@@ -1012,7 +1025,11 @@ class FileCopyManager_class:
                             if __debug__:
                                 log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Finished closing mmap windows")
                     except Exception as e_map:
-                        return {'success': False, 'error': f'mmap window failed at offset {offset}: {e_map}'}
+                        msg = f'mmap window failed at offset {offset}: {e_map}'
+                        log_and_flush(logging.ERROR, msg)
+                        raise SystemExit(msg) # raise(msg) # temporarily raise so program ends ??????????????????????????????????????????????
+                        #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
+                        return {'success': False, 'error': msg}
 
                     win_index += 1
                     if flush_every and (win_index % flush_every == 0): # Periodic flush to disk for extra safety if configured
@@ -1052,10 +1069,14 @@ class FileCopyManager_class:
                     pass
             if __debug__:
                 log_and_flush(logging.DEBUG, f"Finished DIRECT-LARGE mmap copying to temp file '{temp_path}' to {file_size:,} bytes")
-                log_and_flush(logging.DEBUG, log_and_flush(logging.INFO, "*" * 80))
+                log_and_flush(logging.DEBUG, "*" * 80))
             return {'success': True, 'bytes_copied': bytes_copied, 'hash': hasher.hexdigest(), 'hash_algorithm': algo}
         except Exception as e:
-            return {'success': False, 'error': f'DIRECT-LARGE mmap copy failed: {e}', 'recovery_suggestion': 'Check permissions/disk space'}
+            msg = f'DIRECT-LARGE mmap copy failed: {e}'
+            log_and_flush(logging.ERROR, msg)
+            raise SystemExit(msg) # raise(msg) # temporarily raise so program ends ?????????????????????????????????????????????
+            #os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
+            return {'success': False, 'error': msg, 'recovery_suggestion': 'Check permissions/disk space'}
 
     def _copy_with_windows_api(self, source_path: str, temp_path: str) -> dict:
         """
