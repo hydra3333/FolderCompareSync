@@ -518,7 +518,7 @@ def setup_filesystem_capability_helpers() -> None:
         """
         global kernel32
         attrs = kernel32.GetFileAttributesW(path)
-        if attrs == W("INVALID_FILE_ATTRIBUTES", default=0xFFFFFFFF):
+        if attrs == win32con.INVALID_FILE_ATTRIBUTES:
             err = kernel32.GetLastError()
             return None, err, format_last_error(err)
         return attrs, None, None
@@ -586,9 +586,9 @@ def setup_filesystem_capability_helpers() -> None:
                     return False, None, None
             return True, None, None
         except FileNotFoundError:
-            return None, W("ERROR_FILE_NOT_FOUND", default=2), "The system cannot find the file specified."
+            return None, winerror.ERROR_FILE_NOT_FOUND, "The system cannot find the file specified."
         except PermissionError:
-            err = W("ERROR_ACCESS_DENIED", default=5)
+            err = winerror.ERROR_ACCESS_DENIED
             return None, err, format_last_error(err)
         except Exception as ex:
             err = kernel32.GetLastError()
@@ -599,6 +599,8 @@ def setup_filesystem_capability_helpers() -> None:
         """
         Open a handle for attributes-only writes (timestamps, basic attrs).
         Non-destructive: uses OPEN_EXISTING; will NOT create/overwrite/delete.
+        NOTE: not for FSCTLs (compression/sparse/etc.). Use the dedicated helpers
+              that open with GENERIC_READ|GENERIC_WRITE and proper share flags.
 
         Examples:
           h = open_for_attribute_write(r"C:\\file.txt"); h != INVALID_HANDLE_VALUE -> usable
@@ -614,7 +616,7 @@ def setup_filesystem_capability_helpers() -> None:
         return kernel32.CreateFileW(
             path,
             win32con.FILE_WRITE_ATTRIBUTES,
-            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | W("FILE_SHARE_DELETE", default=0x00000004),
+            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
             None,
             win32con.OPEN_EXISTING,
             flags,
@@ -635,14 +637,14 @@ def setup_filesystem_capability_helpers() -> None:
         ro, err, msg = is_file_readonly(path)
         if ro is True:
             return False, None, "read-only attribute set"
-        desired = W("FILE_WRITE_DATA", default=0x0002)
+        desired = win32con.FILE_WRITE_DATA
         h = kernel32.CreateFileW(
             path, desired,
-            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | W("FILE_SHARE_DELETE", default=0x00000004),
+            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
             None, win32con.OPEN_EXISTING,
             win32con.FILE_ATTRIBUTE_NORMAL, None
         )
-        if h == W("INVALID_HANDLE_VALUE", default=-1):
+        if h == win32file.INVALID_HANDLE_VALUE:
             e = kernel32.GetLastError()
             return False, e, format_last_error(e)
         kernel32.CloseHandle(h)
@@ -657,15 +659,15 @@ def setup_filesystem_capability_helpers() -> None:
           is_folder_writable(r"C:\\missing") -> (None, 3, "The system cannot find the path specified.")
         """
         global kernel32
-        desired = W("FILE_ADD_FILE", default=0x0002)
+        desired = win32con.FILE_ADD_FILE
         flags = win32con.FILE_FLAG_BACKUP_SEMANTICS
         h = kernel32.CreateFileW(
             path, desired,
-            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | W("FILE_SHARE_DELETE", default=0x00000004),
+            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
             None, win32con.OPEN_EXISTING,
             flags, None
         )
-        if h == W("INVALID_HANDLE_VALUE", default=-1):
+        if h == win32file.INVALID_HANDLE_VALUE:
             e = kernel32.GetLastError()
             return False, e, format_last_error(e)
         kernel32.CloseHandle(h)
@@ -688,11 +690,11 @@ def setup_filesystem_capability_helpers() -> None:
             return False, None, "read-only attribute set"
         h = kernel32.CreateFileW(
             path, win32con.DELETE,
-            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | W("FILE_SHARE_DELETE", default=0x00000004),
+            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
             None, win32con.OPEN_EXISTING,
             win32con.FILE_ATTRIBUTE_NORMAL, None
         )
-        if h == W("INVALID_HANDLE_VALUE", default=-1):
+        if h == win32file.INVALID_HANDLE_VALUE:
             e = kernel32.GetLastError()
             return False, e, format_last_error(e)
         kernel32.CloseHandle(h)
@@ -718,11 +720,11 @@ def setup_filesystem_capability_helpers() -> None:
         flags = win32con.FILE_FLAG_BACKUP_SEMANTICS
         h = kernel32.CreateFileW(
             path, win32con.DELETE,
-            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | W("FILE_SHARE_DELETE", default=0x00000004),
+            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
             None, win32con.OPEN_EXISTING,
             flags, None
         )
-        if h == W("INVALID_HANDLE_VALUE", default=-1):
+        if h == win32file.INVALID_HANDLE_VALUE:
             e = kernel32.GetLastError()
             return False, e, format_last_error(e)
         kernel32.CloseHandle(h)
@@ -744,11 +746,11 @@ def setup_filesystem_capability_helpers() -> None:
         access = win32con.GENERIC_READ
         h = kernel32.CreateFileW(
             path, access,
-            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE,
+            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
             None, win32con.OPEN_EXISTING,
             flags, None
         )
-        if h == W("INVALID_HANDLE_VALUE", default=-1):
+        if h == win32file.INVALID_HANDLE_VALUE:
             e = kernel32.GetLastError()
             return None, e, format_last_error(e)
         try:
@@ -781,15 +783,15 @@ def setup_filesystem_capability_helpers() -> None:
         access = win32con.GENERIC_READ | win32con.GENERIC_WRITE
         h = kernel32.CreateFileW(
             path, access,
-            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE,
+            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
             None, win32con.OPEN_EXISTING,
             flags, None
         )
-        if h == W("INVALID_HANDLE_VALUE", default=-1):
+        if h == win32file.INVALID_HANDLE_VALUE:
             e = kernel32.GetLastError()
             return False, e, format_last_error(e)
         try:
-            fmt_val = W("COMPRESSION_FORMAT_DEFAULT", default=1) if enable else W("COMPRESSION_FORMAT_NONE", default=0)
+            fmt_val = winioctlcon.COMPRESSION_FORMAT_DEFAULT if enable else winioctlcon.COMPRESSION_FORMAT_NONE
             fmt = ctypes.c_ushort(fmt_val)
             br = wintypes.DWORD(0)
             ok = kernel32.DeviceIoControl(
@@ -817,7 +819,7 @@ def setup_filesystem_capability_helpers() -> None:
         global kernel32
         fmt, err, msg = _fsctl_get_compression(path, dir_handle=False)
         if fmt is not None:
-            return (fmt != W("COMPRESSION_FORMAT_NONE", default=0)), None, None
+            return (fmt != winioctlcon.COMPRESSION_FORMAT_NONE), None, None
         attrs, aerr, amsg = get_file_attributes(path)
         if attrs is None:
             return None, err or aerr, msg or amsg
@@ -833,7 +835,7 @@ def setup_filesystem_capability_helpers() -> None:
         global kernel32
         fmt, err, msg = _fsctl_get_compression(path, dir_handle=True)
         if fmt is not None:
-            return (fmt != W("COMPRESSION_FORMAT_NONE", default=0)), None, None
+            return (fmt != winioctlcon.COMPRESSION_FORMAT_NONE), None, None
         attrs, aerr, amsg = get_file_attributes(path)
         if attrs is None:
             return None, err or aerr, msg or amsg
