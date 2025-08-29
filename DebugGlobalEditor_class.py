@@ -178,7 +178,7 @@ class DebugGlobalEditor_class:
           • (No other behavior changed here.)
         """
         if not __debug__:
-            log_and_flush("DebugGlobalEditor_class is debug-only and requires __debug__ == True.")
+            log_and_flush(logging.CRITICAL, "DebugGlobalEditor_class is debug-only and requires __debug__ == True.")
             raise RuntimeError("DebugGlobalEditor_class is debug-only and requires __debug__ == True.")
 
         log_and_flush(logging.DEBUG, f"Entered DebugGlobalEditor_class, __init__")
@@ -390,9 +390,8 @@ class DebugGlobalEditor_class:
             log_and_flush(logging.CRITICAL, "AST parse failed for %s (key=%s). err=%r. Recompute disabled.",
                            filename, self._module_key, e)
             if self.abort_on_missing_source:
-                raise RuntimeError("AST parse failed for %s (key=%s). err=%r. Recompute disabled.",
-                           filename, self._module_key, e)
-    
+                raise RuntimeError(f"AST parse failed for {filename} (key={self._module_key}). err={e!r}. Recompute disabled.")
+
         DebugGlobalEditor_class._DEP_CACHE[self._module_key] = (info_by_name, deps)
 
         log_and_flush(logging.DEBUG, f"Exiting DebugGlobalEditor_class, _build_dep_graph at end of def with info_by_name=\n{info_by_name}\ndeps=\n{deps}")
@@ -777,15 +776,14 @@ class DebugGlobalEditor_class:
             try: 
                 log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: about to self.on_apply(changes) where changes={changes}")
                 self.on_apply(changes)
-            except Exception: 
+            except Exception as ex: 
                 log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception on self.on_apply(changes) where changes={changes}")
                 log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception {ex!r}")
-
         self.last_changes = changes
         try: 
             log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: about to self.root.event_generate(...)")
             self.root.event_generate("<<DebugGlobalsApplied>>", when="tail")
-        except Exception: 
+        except Exception as ex: 
             log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception on self.root.event_generate(...)")
             log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception {ex!r}")
 
