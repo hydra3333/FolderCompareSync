@@ -140,16 +140,6 @@ class FileTimestampManager_class:
     kernel32.GetLastError.argtypes = []
     kernel32.GetLastError.restype = wintypes.DWORD
 
-    # Windows constants for timestamp operations
-    INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
-    GENERIC_WRITE = 0x40000000
-    FILE_WRITE_ATTRIBUTES = 0x100  # More specific than GENERIC_WRITE for just changing attributes
-    FILE_SHARE_READ = 0x00000001
-    FILE_SHARE_WRITE = 0x00000002
-    OPEN_EXISTING = 3
-    FILE_ATTRIBUTE_NORMAL = 0x80
-    FILE_FLAG_BACKUP_SEMANTICS = 0x02000000  # Required for opening directories
-
     @staticmethod
     def u64_to_FILETIME(u64: int) -> 'FileTimestampManager_class.FILETIME':
         """
@@ -545,26 +535,17 @@ class FileTimestampManager_class:
             is_directory = os.path.isdir(file_path)
             
             # Set appropriate flags
-            flags = FileTimestampManager_class.FILE_ATTRIBUTE_NORMAL
+            flags = win32con.FILE_ATTRIBUTE_NORMAL
             if is_directory:
                 # Must use FILE_FLAG_BACKUP_SEMANTICS to open directories
-                flags = FileTimestampManager_class.FILE_FLAG_BACKUP_SEMANTICS
+                flags = win32con.FILE_FLAG_BACKUP_SEMANTICS
             
-            # Open file/directory handle
-            # Using FILE_WRITE_ATTRIBUTES is more specific than GENERIC_WRITE
-            handle = FileTimestampManager_class.kernel32.CreateFileW(
-                file_path,
-                FileTimestampManager_class.FILE_WRITE_ATTRIBUTES,  # Only need attribute write access
-                FileTimestampManager_class.FILE_SHARE_READ | FileTimestampManager_class.FILE_SHARE_WRITE,  # Allow other processes to read/write
-                None,  # Default security
-                FileTimestampManager_class.OPEN_EXISTING,  # File must exist
-                flags,
-                None  # No template file
-            )
-            
-            if handle == FileTimestampManager_class.INVALID_HANDLE_VALUE:
-                error_code = FileTimestampManager_class.kernel32.GetLastError()
-                log_and_flush(logging.DEBUG, f"CreateFileW failed with error code: {error_code}")
+            # Open file/directory handle via global helper (attributes-only, non-destructive, adds BACKUP_SEMANTICS for dirs)
+            handle = open_for_attribute_write(file_path)
+
+            if handle == W("INVALID_HANDLE_VALUE", default=-1):
+                err = FileTimestampManager_class.kernel32.GetLastError()
+                log_and_flush(logging.DEBUG, f"CreateFileW failed with error {err}: {format_last_error(err)}")
                 return False
             
             # Prepare FILETIME structures using consolidated utility functions
@@ -587,11 +568,10 @@ class FileTimestampManager_class:
                 None,                 # Last access time (unchanged)
                 modification_ft_ptr   # Modification time
             )
-            
             if not result:
-                error_code = FileTimestampManager_class.kernel32.GetLastError()
-                log_and_flush(logging.DEBUG, f"SetFileTime failed with error code: {error_code}")
-            
+                err = FileTimestampManager_class.kernel32.GetLastError()
+                log_and_flush(logging.DEBUG, f"SetFileTime failed with error {err}: {format_last_error(err)}")
+
             return bool(result)
             
         except Exception as e:
@@ -599,7 +579,7 @@ class FileTimestampManager_class:
             return False
         finally:
             # Always close the handle if it was opened
-            if handle and handle != FileTimestampManager_class.INVALID_HANDLE_VALUE:
+            if handle and handle != W("INVALID_HANDLE_VALUE", default=-1):
                 FileTimestampManager_class.kernel32.CloseHandle(handle)
     
     def _set_file_times_windows_fallback(self, file_path: str, 
@@ -627,22 +607,17 @@ class FileTimestampManager_class:
             is_directory = os.path.isdir(file_path)
             
             # Set appropriate flags
-            flags = FileTimestampManager_class.FILE_ATTRIBUTE_NORMAL
+            flags = win32con.FILE_ATTRIBUTE_NORMAL
             if is_directory:
-                flags = FileTimestampManager_class.FILE_FLAG_BACKUP_SEMANTICS
+                flags = win32con.FILE_FLAG_BACKUP_SEMANTICS
             
-            # Open file/directory handle (using simpler approach without type hints)
-            handle = ctypes.windll.kernel32.CreateFileW(
-                file_path,
-                wintypes.DWORD(FileTimestampManager_class.GENERIC_WRITE),
-                wintypes.DWORD(FileTimestampManager_class.FILE_SHARE_READ | FileTimestampManager_class.FILE_SHARE_WRITE),
-                None,
-                wintypes.DWORD(FileTimestampManager_class.OPEN_EXISTING),
-                wintypes.DWORD(flags),
-                None
-            )
-            
-            if handle == -1:  # Simple comparison for INVALID_HANDLE_VALUE
+            # Open file/directory handle 
+            # Open via global helper (attributes-only, non-destructive)
+            # Open via global helper (attributes-only, non-destructive)
+            handle = open_for_attribute_write(file_path)
+            if handle == W("INVALID_HANDLE_VALUE", default=-1):
+                err = FileTimestampManager_class.kernel32.GetLastError()
+                log_and_flush(logging.DEBUG, f"_set_file_times_windows_fallback (fallback) failed with error {err}: {format_last_error(err)}")
                 return False
             
             # Prepare FILETIME as c_ulonglong (fallback method)
@@ -670,8 +645,8 @@ class FileTimestampManager_class:
             return False
         finally:
             # Always close the handle if it was opened
-            if handle and handle != -1:
-                ctypes.windll.kernel32.CloseHandle(handle)
+            if handle and handle != W("INVALID_HANDLE_VALUE", default=-1):
+                FileTimestampManager_class.kernel32.CloseHandle(handle)
     
     def copy_timestamps(self, source_file: Union[str, Path], 
                        target_file: Union[str, Path]) -> bool:
