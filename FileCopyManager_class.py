@@ -232,7 +232,7 @@ class FileCopyManager_class:
             drive = Path(path).drive or Path(path).parts[0] if Path(path).parts else ""
             if drive:
                 drive_type = kernel32.GetDriveTypeW(drive + '\\' if not drive.endswith('\\') else drive)
-                if drive_type == C.FILECOPY_DRIVE_REMOTE:
+                if drive_type == win32con.DRIVE_REMOTE:
                     return True
             
             # Layer 2: Cloud storage folder detection (if enabled)
@@ -915,25 +915,30 @@ class FileCopyManager_class:
             try:
                 # Create file handle with proper access rights
                 file_handle = None
-                file_handle = kernel32.CreateFileW(
-                    ctypes.c_wchar_p(temp_path),
-                    wintypes.DWORD(GENERIC_READ | GENERIC_WRITE | FILE_WRITE_DATA),
-                    wintypes.DWORD(FILE_SHARE_READ | FILE_SHARE_WRITE), 
+                wintypes.DWORD(
+                        win32con.GENERIC_READ
+                        | win32con.GENERIC_WRITE
+                        | W("FILE_WRITE_DATA", default=0x0002)
+                    ),
+                    wintypes.DWORD(win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE), 
                     None,  # Security attributes
-                    wintypes.DWORD(CREATE_ALWAYS),
-                    wintypes.DWORD(FILE_ATTRIBUTE_NORMAL),
+                    wintypes.DWORD(win32con.CREATE_ALWAYS),
+                    wintypes.DWORD(win32con.FILE_ATTRIBUTE_NORMAL),
                     None   # Template file
                 )
             except Exception as e:
-                msg = f"[DIAG BEFORE Pre-allocating temp file] FAILED kernel32.CreateFileW: {e}"
+                err = kernel32.GetLastError()
+                msg = f"[DIAG BEFORE Pre-allocating temp file] FAILED kernel32.CreateFileW: {e} | {format_last_error(err)}"
                 log_and_flush(logging.ERROR, msg)
                 #raise SystemExit(msg) # raise(msg)
                 os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
 
             INVALID = ctypes.c_void_p(-1).value  # 0xFFFFFFFFFFFFFFFF on 64-bit
             if file_handle in (0, INVALID):  # INVALID_HANDLE_VALUE
+            if file_handle in (0, W("INVALID_HANDLE_VALUE", default=INVALID)):  # INVALID_HANDLE_VALUE
                 err = kernel32.GetLastError()
-                msg = f"[DIAG BEFORE Pre-allocating temp file] FAILED kernel32.CreateFileW: Invalid File Handle. {err}"
+                msg = (f"[DIAG BEFORE Pre-allocating temp file] FAILED kernel32.CreateFileW: Invalid File Handle. "
+                       f"{err}: {format_last_error(err)}")
                 log_and_flush(logging.ERROR, msg)
                 #raise SystemExit(msg) # raise(msg)
                 os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
@@ -942,54 +947,50 @@ class FileCopyManager_class:
 
             #---
             # Check for problematic file attributes on source file
-            try:
-                attrs = kernel32.GetFileAttributesW(ctypes.c_wchar_p(source_path))
-            except Exception as e:
-                msg = f"[DIAG BEFORE Pre-allocating temp file] FAILED kernel32.GetFileAttributesW for Source '{source_path}': {e}"
+            src_comp, se, sm = is_file_compressed(source_path)
+            if src_comp is None and se is not None:
+                msg = (f"[DIAG BEFORE Pre-allocating temp file] FAILED to query compression for Source '{source_path}': "
+                       f"{se}: {sm}")
                 log_and_flush(logging.ERROR, msg)
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-            if attrs == 0xFFFFFFFF:  # INVALID_FILE_ATTRIBUTES
-                err = kernel32.GetLastError()
-                msg = f"[DIAG BEFORE Pre-allocating temp file] GetFileAttributesW failed for Source '{source_path}': {err}"
+                os._exit(1)
+            if src_comp:
+                msg = "[DIAG BEFORE Pre-allocating temp file] WARNING ********** Source file is COMPRESSED ********* COPYING WILL NOT WORK"
+                log_and_flush(logging.WARNING, msg)
+                os._exit(1)
+
+            src_sparse, se2, sm2 = is_sparse_file(source_path)
+            if src_sparse is None and se2 is not None:
+                msg = (f"[DIAG BEFORE Pre-allocating temp file] FAILED to query sparse for Source '{source_path}': "
+                       f"{se2}: {sm2}")
                 log_and_flush(logging.ERROR, msg)
-                raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-            if attrs & FILE_ATTRIBUTE_COMPRESSED:
-                msg = f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Source file is COMPRESSED ********* COPYING WILL NOT WORK"
+                os._exit(1)
+            if src_sparse:
+                msg = "[DIAG BEFORE Pre-allocating temp file] WARNING ********** Source file is SPARSE ********* COPYING WILL NOT WORK"
                 log_and_flush(logging.WARNING, msg)
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-            if attrs & FILE_ATTRIBUTE_SPARSE_FILE:
-                msg = f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Source file is SPARSE ********* COPYING WILL NOT WORK"
-                log_and_flush(logging.WARNING, msg)
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-            #---
+                os._exit(1)
+
             # Check for problematic file attributes on target temp file
-            try:
-                attrs = kernel32.GetFileAttributesW(ctypes.c_wchar_p(temp_path))
-            except Exception as e:
-                msg = f"[DIAG BEFORE Pre-allocating temp file] FAILED kernel32.GetFileAttributesW for temp '{temp_path}': {e}"
+            tmp_comp, te, tm = is_file_compressed(temp_path)
+            if tmp_comp is None and te is not None:
+                msg = (f"[DIAG BEFORE Pre-allocating temp file] FAILED to query compression for temp '{temp_path}': "
+                       f"{te}: {tm}")
                 log_and_flush(logging.ERROR, msg)
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-            if attrs == 0xFFFFFFFF:  # INVALID_FILE_ATTRIBUTES
-                err = kernel32.GetLastError()
-                msg = f"[DIAG BEFORE Pre-allocating temp file] GetFileAttributesW failed for temp '{temp_path}': {err}"
+                os._exit(1)
+            if tmp_comp:
+                msg = "[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is COMPRESSED ********* File attributes incompatible with SetFileInformationByHandle. COPYING WILL NOT WORK"
+                log_and_flush(logging.WARNING, msg)
+                os._exit(1)
+
+            tmp_sparse, te2, tm2 = is_sparse_file(temp_path)
+            if tmp_sparse is None and te2 is not None:
+                msg = (f"[DIAG BEFORE Pre-allocating temp file] FAILED to query sparse for temp '{temp_path}': "
+                       f"{te2}: {tm2}")
                 log_and_flush(logging.ERROR, msg)
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-            if attrs & FILE_ATTRIBUTE_COMPRESSED:
-                msg = f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is COMPRESSED ********* File attributes incompatible with SetFileInformationByHandle. COPYING WILL NOT WORK"
+                os._exit(1)
+            if tmp_sparse:
+                msg = "[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is SPARSE ********* File attributes incompatible with SetFileInformationByHandle. COPYING WILL NOT WORK"
                 log_and_flush(logging.WARNING, msg)
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-            if attrs & FILE_ATTRIBUTE_SPARSE_FILE:
-                msg = f"[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is SPARSE ********* File attributes incompatible with SetFileInformationByHandle. COPYING WILL NOT WORK"
-                log_and_flush(logging.WARNING, msg)
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
+                os._exit(1)
             #---
 
             # Build FILE_ALLOCATION_INFO with proper LARGE_INTEGER
@@ -1009,20 +1010,20 @@ class FileCopyManager_class:
                         wintypes.DWORD(ctypes.sizeof(alloc))    # ctypes.sizeof(alloc)
                 )
             except Exception as e:
-                msg = f"[DIAG AFTER Pre-allocating temp file] FAILED kernel32.SetFileInformationByHandle: {e}"
-                log_and_flush(logging.ERROR, msg)
+                err = kernel32.GetLastError()
+                msg = f"[DIAG AFTER Pre-allocating temp file] FAILED kernel32.SetFileInformationByHandle: {e} | {format_last_error(err)}"
                 #raise SystemExit(msg) # raise(msg)
                 os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
             if not ok:
                 err = kernel32.GetLastError()
                 # Get more detailed error info
                 error_details = {
-                    5: "ERROR_ACCESS_DENIED - Handle lacks FILE_WRITE_DATA access",
-                    87: "ERROR_INVALID_PARAMETER - Invalid parameter to SetFileInformationByHandle",
-                    112: "ERROR_DISK_FULL - Insufficient disk space",
-                    1224: "ERROR_USER_MAPPED_FILE - File is memory mapped",
+                    winerror.ERROR_ACCESS_DENIED: "ERROR_ACCESS_DENIED - Handle lacks FILE_WRITE_DATA access",
+                    winerror.ERROR_INVALID_PARAMETER: "ERROR_INVALID_PARAMETER - Invalid parameter to SetFileInformationByHandle",
+                    winerror.ERROR_DISK_FULL: "ERROR_DISK_FULL - Insufficient disk space",
+                    W("ERROR_USER_MAPPED_FILE", default=1224): "ERROR_USER_MAPPED_FILE - File is memory mapped",
                 }
-                error_desc = error_details.get(err, f"Unknown error {err}")
+                error_desc = error_details.get(err, f"Unknown error {err}: {format_last_error(err)}")
                 msg = f"[DIAG AFTER Pre-allocating temp file] FAILED kernel32.SetFileInformationByHandle:\n{err}\n{error_desc}"
                 log_and_flush(logging.ERROR, msg)
                 #raise SystemExit(msg) # raise(msg)
@@ -1034,15 +1035,19 @@ class FileCopyManager_class:
             ##       kernel32.SetFilePointerEx(wintypes.HANDLE(file_handle), ctypes.c_longlong(file_size), ctypes.byref(new_pos), FILE_BEGIN):
             ##       kernel32.SetFilePointerEx(wintypes.HANDLE(file_handle), ctypes.c_longlong(file_size), None,                  0)
             ##       kernel32.SetFilePointerEx(wintypes.HANDLE(file_handle), ctypes.c_longlong(file_size), None,                  FILE_BEGIN):
-            if not kernel32.SetFilePointerEx(wintypes.HANDLE(file_handle), ctypes.c_longlong(file_size), ctypes.byref(new_pos), FILE_BEGIN):
-                err = kernel32.GetLastError()
+            if not kernel32.SetFilePointerEx(
+                wintypes.HANDLE(file_handle),
+                ctypes.c_longlong(file_size),
+                ctypes.byref(new_pos),
+                win32con.FILE_BEGIN
+            ):                err = kernel32.GetLastError()
                 msg = f"[DIAG AFTER Pre-allocating temp file] SetFilePointerEx failed, error={err}"
                 log_and_flush(logging.ERROR, msg)
                 #raise SystemExit(msg) # raise(msg)
                 os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
             if not kernel32.SetEndOfFile(wintypes.HANDLE(file_handle)):
                 err = kernel32.GetLastError()
-                msg = f"[DIAG AFTER Pre-allocating temp file]SetEndOfFile failed, error={err}"
+                msg = f"[DIAG AFTER Pre-allocating temp file] SetEndOfFile failed, error={err}: {format_last_error(err)}"
                 log_and_flush(logging.ERROR, msg)
                 #raise SystemExit(msg) # raise(msg)
                 os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
@@ -1308,12 +1313,12 @@ class FileCopyManager_class:
                 callback_func,
                 None,                                    # No user data
                 ctypes.byref(cancel_flag),               # Cancel flag
-                C.FILECOPY_COPY_FILE_RESTARTABLE         # Restartable if interrupted
+                win32con.COPY_FILE_RESTARTABLE           # Restartable if interrupted
             )
             
             if not result:
                 error_code = kernel32.GetLastError()
-                if error_code == C.FILECOPY_ERROR_REQUEST_ABORTED:
+                if error_code == winerror.ERROR_REQUEST_ABORTED:
                     return {
                         'success': False, 
                         'cancelled': True, 
@@ -1321,7 +1326,7 @@ class FileCopyManager_class:
                         'error_code': error_code
                     }
                 else:
-                    error_msg = self._get_windows_error_message(error_code)
+                    error_msg = format_last_error(error_code)
                     error_recovery = self._get_recovery_suggestion_for_error(error_code)
                     return {
                         'success': False, 

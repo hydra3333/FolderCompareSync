@@ -725,12 +725,12 @@ class FolderCompareSync_class:
             #if hasattr(manager, 'result') and manager.result.lower() == 'deleted'.lower() and not self.dry_run_mode.get(): # v001.0018 superseded, [add None check for manager.result before calling .lower()]
             if hasattr(manager, 'result') and manager.result and manager.result.lower() == 'deleted'.lower():   # v001.0018 changed [add None check for manager.result before calling .lower()]
                 self.add_status_message("Enhanced {side_upper} side delete operation completed - refreshing folder comparison...")
-                log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': delete operation completed - refreshing folder comparison...")
+                 log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': delete operation completed - refreshing folder comparison.")
                 # Refresh comparison to show updated state
                 self.refresh_after_copy_or_delete_operation()
             else:
                 log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': Enhanced {side_upper} side delete orphans dialog closed")
-                self.add_status_message("Enhanced {side_upper} side delete orphans dialog closed")
+                self.add_status_message(f"Enhanced {side_upper} side delete orphans dialog closed")
                 
         except Exception as e:
             error_msg = f"Error opening enhanced {side_upper} side delete orphans dialog: {str(e)}"

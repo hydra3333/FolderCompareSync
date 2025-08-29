@@ -34,8 +34,8 @@ class ProgressDialog_class:
     # Dual progress (new for copy operations)
     progress = ProgressDialog_class(parent, "Copying Files", "Copying files...", 
                                    max_value=100, dual_progress=True)
-    progress.update_dual_progress(copy_progress=75, verify_progress=25, 
-                                 "Copy: 75% | Verify: 25%")
+    progress.update_dual_progress(copy_progress=75, verify_progress=25,
+                                  overall_message="Copy: 75% | Verify: 25%")
     progress.close()
     """
     
