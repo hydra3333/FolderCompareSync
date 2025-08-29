@@ -397,7 +397,6 @@ def setup_windows_api_bindings():
     kernel32.CopyFileExW.restype = wintypes.BOOL
 
     #  expose SetFilePointerEx / SetEndOfFile / SetFileInformationByHandle + structs
-    #kernel32.SetFilePointerEx.argtypes = [wintypes.HANDLE, ctypes.c_longlong, ctypes.POINTER(ctypes.c_longlong), wintypes.DWORD]
     kernel32.SetFilePointerEx.argtypes = [
         wintypes.HANDLE,
         LARGE_INTEGER,                       # liDistanceToMove (by value)
@@ -411,17 +410,11 @@ def setup_windows_api_bindings():
     # BOOL SetFileInformationByHandle(HANDLE, FILE_INFO_BY_HANDLE_CLASS, LPVOID, DWORD)
     kernel32.SetFileInformationByHandle.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD]
     kernel32.SetFileInformationByHandle.restype  = wintypes.BOOL
-    # Export commonly used constants (FILE_INFO_BY_HANDLE_CLASS ENUM)
-    FILE_INFO_BY_HANDLE_FileAllocationInfo = 5    # OLD BAD: 19  # matches Win32 FILE_INFO_BY_HANDLE_CLASS::FileAllocationInfo
-    FILE_INFO_BY_HANDLE_FileEndOfFileInfo  = 6    # OLD BAD: 20  # (not used here but handy)
+
     # Make these available to star-importers
     g = globals()
     g['FILE_ALLOCATION_INFO'] = FILE_ALLOCATION_INFO
-    g['FILE_INFO_BY_HANDLE_FileAllocationInfo'] = FILE_INFO_BY_HANDLE_FileAllocationInfo
-    g['FILE_INFO_BY_HANDLE_FileEndOfFileInfo']  = FILE_INFO_BY_HANDLE_FileEndOfFileInfo
     _export_name('FILE_ALLOCATION_INFO')
-    _export_name('FILE_INFO_BY_HANDLE_FileAllocationInfo')
-    _export_name('FILE_INFO_BY_HANDLE_FileEndOfFileInfo')
 
     # GetDiskFreeSpaceExW - Disk space checking
     kernel32.GetDiskFreeSpaceExW.argtypes = [
@@ -460,6 +453,21 @@ def setup_windows_api_bindings():
     # GetLastError - Error code retrieval (still needed for copy operations)
     kernel32.GetLastError.argtypes = []
     kernel32.GetLastError.restype = wintypes.DWORD
+
+    # CreateFileW - Bind core I/O prototypes to avoid handle truncation / wrong return type
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,  # lpFileName
+        wintypes.DWORD,    # dwDesiredAccess
+        wintypes.DWORD,    # dwShareMode
+        wintypes.LPVOID,   # lpSecurityAttributes
+        wintypes.DWORD,    # dwCreationDisposition
+        wintypes.DWORD,    # dwFlagsAndAttributes
+        wintypes.HANDLE    # hTemplateFile
+    ]
+    kernel32.CreateFileW.restype  = wintypes.HANDLE
+    #
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype  = wintypes.BOOL
     
     # Expose these to the global namespace
     g = globals()

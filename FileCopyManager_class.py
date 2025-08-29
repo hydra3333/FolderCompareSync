@@ -1002,9 +1002,9 @@ class FileCopyManager_class:
                 # Try Windows API allocation with better error reporting
                 ok = kernel32.SetFileInformationByHandle(
                         wintypes.HANDLE(file_handle),
-                        wintypes.DWORD(FILE_INFO_BY_HANDLE_FileAllocationInfo),
-                        ctypes.byref(alloc),                    # ctypes.pointer(alloc),
-                        wintypes.DWORD(ctypes.sizeof(alloc))    # ctypes.sizeof(alloc)
+                        wintypes.DWORD(win32file.FileAllocationInfo),  # real pywin32 enum value
+                        ctypes.byref(alloc),
+                        wintypes.DWORD(ctypes.sizeof(alloc))
                 )
             except Exception as e:
                 err = kernel32.GetLastError()
