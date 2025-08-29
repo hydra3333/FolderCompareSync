@@ -623,8 +623,8 @@ def create_edge_cases(left_root: Path, right_root: Path):
             f.write(head)                          # write first 10KB
             f.seek(total - len(tail))              # jump to near the end (creates a sparse hole)
             f.write(tail)                          # write last 10KB; file size extends
-    print(f"[SparseFile] Sparse(file) -> {ok1}, attrs=0x{get_attrs(str(comp_file)):08X}, "
-          f"SPARSE={(get_attrs(str(comp_file)) & FILE_ATTRIBUTE_SPARSE_FILE)!=0}")
+    print(f"[SparseFile] Sparse(file) -> {ok1}, attrs=0x{get_attrs(str(sparse_path)):08X}, "
+          f"SPARSE={(get_attrs(str(sparse_path)) & FILE_ATTRIBUTE_SPARSE_FILE)!=0}")
 
     # Hidden files (Windows)
     hidden_file = left_root / "hidden_test.txt"
