@@ -390,8 +390,9 @@ class DebugGlobalEditor_class:
             log_and_flush(logging.CRITICAL, "AST parse failed for %s (key=%s). err=%r. Recompute disabled.",
                            filename, self._module_key, e)
             if self.abort_on_missing_source:
-                raise RuntimeError(f"AST parse failed for {filename} (key={self._module_key}). err={e!r}. Recompute disabled.")
-
+                raise RuntimeError(
+                    f"AST parse failed for {filename} (key={self._module_key}). err={e!r}. Recompute disabled."
+                )
         DebugGlobalEditor_class._DEP_CACHE[self._module_key] = (info_by_name, deps)
 
         log_and_flush(logging.DEBUG, f"Exiting DebugGlobalEditor_class, _build_dep_graph at end of def with info_by_name=\n{info_by_name}\ndeps=\n{deps}")
@@ -776,8 +777,8 @@ class DebugGlobalEditor_class:
             try: 
                 log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: about to self.on_apply(changes) where changes={changes}")
                 self.on_apply(changes)
-            except Exception as ex: 
-                log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception on self.on_apply(changes) where changes={changes}")
+            except Exception as ex:
+                log_and_flush(logging.DEBUG, f"DebugGlobalEditor...y: Exception on self.on_apply(changes) where changes={changes}")
                 log_and_flush(logging.DEBUG, f"DebugGlobalEditor_class, _on_apply: Exception {ex!r}")
         self.last_changes = changes
         try: 
