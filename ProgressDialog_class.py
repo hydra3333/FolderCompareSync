@@ -166,7 +166,7 @@ class ProgressDialog_class:
         # Close should only be used after completion
         try:
             self.close_button.state(['disabled'])
-        except Exception:
+        except Exception as ex:
             pass
         self._on_cancel = None  # optional handler set via set_cancel_handler()
         # <<< CHANGE END
@@ -264,7 +264,7 @@ class ProgressDialog_class:
         try:
             if hasattr(self, "close_button"):
                 self.close_button.state(['!disabled'])
-        except Exception:
+        except Exception as ex:
             pass
         # <<< CHANGE END
         self.dialog.update_idletasks()
@@ -280,24 +280,24 @@ class ProgressDialog_class:
         try:
             if hasattr(self, "cancel_button"):
                 self.cancel_button.state(['disabled'])
-        except Exception:
+        except Exception as ex:
             pass
         # Give both message areas a hint if present
         try:
             self.message_var.set("Cancelling...")
-        except Exception:
+        except Exception as ex:
             pass
         try:
             if hasattr(self, "overall_status_var"):
                 self.overall_status_var.set("Cancelling...")
-        except Exception:
+        except Exception as ex:
             pass
         self.dialog.update_idletasks()
         # Call through to host if provided
         if getattr(self, "_on_cancel", None):
             try:
                 self._on_cancel()
-            except Exception:
+            except Exception as ex:
                 pass
     # <<< CHANGE END
 
@@ -478,10 +478,10 @@ class CopyProgressManager_class:
         if getattr(self, "current_phase", "") != "verifying":
             try:
                 self.start_verify_phase()
-            except Exception:
+            except Exception as ex:
                 try:
                     self.progress_dialog.set_verify_phase("Verifying files...")
-                except Exception:
+                except Exception as ex:
                     pass
             self.current_phase = "verifying"
         # Compute percent and "MB of MB" text
@@ -500,7 +500,7 @@ class CopyProgressManager_class:
                 verify_message=verify_msg,
                 overall_message=overall_msg
             )
-        except Exception:
+        except Exception as ex:
             pass
         return True
     # <<< CHANGE END

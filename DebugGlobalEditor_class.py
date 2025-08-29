@@ -66,7 +66,7 @@ class DebugGlobalEditor_class:
             if hasattr(sys.stdout, 'reconfigure'):
                 try:
                     sys.stdout.reconfigure(encoding='utf-8')
-                except Exception:
+                except Exception as ex:
                     pass  # If reconfigure fails, continue with default encoding
             handlers.append(console_handler)
         logging.basicConfig(
@@ -85,7 +85,7 @@ class DebugGlobalEditor_class:
             for h in logger.handlers:
                 try:
                     h.flush()
-                except Exception:
+                except Exception as ex:
                     pass  # Ignore handlers that don't support flush
     """
     # --- Config / Whitelists ---
@@ -110,7 +110,7 @@ class DebugGlobalEditor_class:
             # NEW: debug log each identifier discovered
             try:
                 log_and_flush(logging.DEBUG, "DepVisitor: saw name '%s'", node.id)
-            except Exception:
+            except Exception as ex:
                 pass
             self.names.add(node.id)
 
@@ -230,7 +230,7 @@ class DebugGlobalEditor_class:
         if path:
             try:
                 return os.path.realpath(path)
-            except Exception:
+            except Exception as ex:
                 return path
     
         spec = getattr(mod, "__spec__", None)
@@ -276,7 +276,7 @@ class DebugGlobalEditor_class:
     def _unparse(node: ast.AST) -> str | None:
         try:
             return ast.unparse(node)
-        except Exception:
+        except Exception as ex:
             return None
 
     @classmethod
@@ -296,7 +296,7 @@ class DebugGlobalEditor_class:
             summary = ", ".join(f"{name}:{type(rhs).__name__}" for name, rhs in out[:50])
             more = f" (+{len(out)-50} more)" if len(out) > 50 else ""
             log_and_flush(logging.DEBUG, "Top-level assigns: %s%s", summary, more)
-        except Exception:
+        except Exception as ex:
             pass
         return out
 
@@ -414,7 +414,7 @@ class DebugGlobalEditor_class:
             width = max(self.min_size[0], int(sw * 0.90))
             height = max(self.min_size[1], int(sh * 0.93))
             win.geometry(f"{width}x{height}")
-        except Exception:
+        except Exception as ex:
             pass
         win.minsize(*self.min_size)
         win.transient(self.root)
@@ -506,7 +506,7 @@ class DebugGlobalEditor_class:
                     w_val.state(["readonly"])
                     try:
                         w_val.configure(foreground="gray50")
-                    except Exception:
+                    except Exception as ex:
                         pass
                 else:
                     w_val.bind("<KeyRelease>", lambda e, nm=name: self._on_value_changed(nm))
@@ -531,7 +531,7 @@ class DebugGlobalEditor_class:
             w_expr.state(["readonly"])
             try:
                 w_expr.configure(foreground="gray50")
-            except Exception:
+            except Exception as ex:
                 pass
             w_expr.grid(row=row_idx, column=5, sticky="ew", padx=4, pady=2)
     
@@ -541,7 +541,7 @@ class DebugGlobalEditor_class:
             w_deps.state(["readonly"])
             try:
                 w_deps.configure(foreground="gray50")
-            except Exception:
+            except Exception as ex:
                 pass
             w_deps.grid(row=row_idx, column=6, sticky="ew", padx=4, pady=2)
     
@@ -619,7 +619,7 @@ class DebugGlobalEditor_class:
         if vtype is float and self.locale_floats:
             try:
                 return locale.format_string("%f", val, grouping=False).rstrip("0").rstrip(".")
-            except Exception:
+            except Exception as ex:
                 return str(val)
         return str(val)
 
@@ -652,7 +652,7 @@ class DebugGlobalEditor_class:
         valid = True
         try:
             new_val = row["boolvar"].get() if vtype is bool else self._parse(row["candidate"].get(), vtype)
-        except Exception:
+        except Exception as ex:
             new_val, valid = None, False
 
         row["valid"] = valid
@@ -820,7 +820,7 @@ class DebugGlobalEditor_class:
         # Build dep info so we can skip computed variables
         try:
             info_by_name, _ = self._build_dep_graph()
-        except Exception:
+        except Exception as ex:
             info_by_name = {}
     
         data = {}
@@ -836,7 +836,7 @@ class DebugGlobalEditor_class:
             else:
                 try:
                     data[name] = self._parse(row["candidate"].get(), vtype)
-                except Exception:
+                except Exception as ex:
                     pass
     
         try:
@@ -860,7 +860,7 @@ class DebugGlobalEditor_class:
         # Build dep info so we can skip computed variables
         try:
             info_by_name, _ = self._build_dep_graph()
-        except Exception:
+        except Exception as ex:
             info_by_name = {}
     
         for row in self._rows:

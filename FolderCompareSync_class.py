@@ -95,7 +95,7 @@ class FolderCompareSync_class:
                             for chunk in iter(lambda: f.read(8 * 1024 * 1024), b''):
                                 hasher.update(chunk)
                         sha512 = hasher.hexdigest()
-                    except Exception:
+                    except Exception as ex:
                         pass  # Hash computation failed, leave as None
                 
                 return cls(
@@ -108,7 +108,7 @@ class FolderCompareSync_class:
                     sha512=sha512,
                     exists=True
                 )
-            except Exception:
+            except Exception as ex:
                 return cls(path=path, name=p.name, is_folder=False, exists=False)
     
     

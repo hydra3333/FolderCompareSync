@@ -99,7 +99,7 @@ def ensure_global_import(module_name: str, alias: str | None = None) -> ModuleTy
     """
     try:
         mod = importlib.import_module(module_name)
-    except Exception:
+    except Exception as ex:
         return None
     name = alias or module_name.rsplit(".", 1)[-1]
     globals()[name] = mod
@@ -118,7 +118,7 @@ def ensure_global_import_from(module_name: str, *names: str) -> bool:
     """
     try:
         mod = importlib.import_module(module_name)
-    except Exception:
+    except Exception as ex:
         return False
     ok = True
     for n in names:
@@ -261,7 +261,7 @@ def format_last_error(err: int | None = None) -> str:
         err = ctypes.get_last_error()
     try:
         return (win32api.FormatMessage(err) or "").strip()
-    except Exception:
+    except Exception as ex:
         return f"ERROR: Windows Error: {err}"
 
 def shell_error_message(code: int) -> str:
@@ -306,7 +306,7 @@ def shell_error_message(code: int) -> str:
         fm = (win32api.FormatMessage(code) or "").strip()
         if fm:
             return fm
-    except Exception:
+    except Exception as ex:
         pass
     return f"Shell operation failed with error code: 0x{code:X}"
 
@@ -500,7 +500,7 @@ def setup_filesystem_capability_helpers() -> None:
                 wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID
             ]
             kernel32.DeviceIoControl.restype = wintypes.BOOL
-        except Exception:
+        except Exception as ex:
             pass  # already bound or unavailable; fine
 
     # This is being called at the def setup_filesystem_capability_helpers() level, but kernel32 is at module level so all OK:
@@ -590,7 +590,7 @@ def setup_filesystem_capability_helpers() -> None:
         except PermissionError:
             err = W("ERROR_ACCESS_DENIED", default=5)
             return None, err, format_last_error(err)
-        except Exception:
+        except Exception as ex:
             err = kernel32.GetLastError()
             return None, err, format_last_error(err) if err else ("Unexpected error")
 
@@ -609,7 +609,7 @@ def setup_filesystem_capability_helpers() -> None:
         try:
             if os.path.isdir(path):
                 flags |= win32con.FILE_FLAG_BACKUP_SEMANTICS
-        except Exception:
+        except Exception as ex:
             pass
         return kernel32.CreateFileW(
             path,
