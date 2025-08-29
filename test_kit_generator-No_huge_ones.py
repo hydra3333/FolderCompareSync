@@ -165,6 +165,7 @@ def generate_random_content(size: int) -> bytes:
     """Generate random file content of specified size."""
     return os.urandom(size)
 
+# >>> CHANGE START: NTFS helpers (fixed prototypes, access; attribute verification)
 def _try_import_pywin32():
     try:
         import win32con as _w32c
@@ -184,14 +185,17 @@ def _C(mod, name, fallback):
         pass
     return fallback
 
+# Core constants (prefer pywin32; otherwise fallback literal)
+GENERIC_READ            = _C(_win32con, "GENERIC_READ",            0x80000000)
 GENERIC_WRITE           = _C(_win32con, "GENERIC_WRITE",           0x40000000)
 FILE_SHARE_READ         = _C(_win32con, "FILE_SHARE_READ",         0x00000001)
 FILE_SHARE_WRITE        = _C(_win32con, "FILE_SHARE_WRITE",        0x00000002)
 FILE_SHARE_DELETE       = _C(_win32con, "FILE_SHARE_DELETE",       0x00000004)
 OPEN_EXISTING           = _C(_win32con, "OPEN_EXISTING",           3)
-OPEN_ALWAYS             = _C(_win32con, "OPEN_ALWAYS",             4)
 FILE_ATTRIBUTE_NORMAL   = _C(_win32con, "FILE_ATTRIBUTE_NORMAL",   0x00000080)
 FILE_FLAG_BACKUP_SEMANTICS = _C(_win32con, "FILE_FLAG_BACKUP_SEMANTICS", 0x02000000)
+FILE_ATTRIBUTE_COMPRESSED  = _C(_win32con, "FILE_ATTRIBUTE_COMPRESSED",  0x00000800)
+FILE_ATTRIBUTE_SPARSE_FILE = _C(_win32con, "FILE_ATTRIBUTE_SPARSE_FILE", 0x00000200)
 
 FSCTL_SET_COMPRESSION   = _C(_winioctlcon, "FSCTL_SET_COMPRESSION", 0x0009C040)
 FSCTL_SET_SPARSE        = _C(_winioctlcon, "FSCTL_SET_SPARSE",      0x000900C4)
@@ -200,21 +204,48 @@ COMPRESSION_FORMAT_DEFAULT = 1
 
 kernel32 = ctypes.windll.kernel32
 
+# Prototypes (important so handles aren’t truncated and buffers are correct)
+kernel32.CreateFileW.argtypes = [
+    wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+    wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE
+]
+kernel32.CreateFileW.restype  = wintypes.HANDLE
+
+kernel32.DeviceIoControl.argtypes = [
+    wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+    wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID
+]
+kernel32.DeviceIoControl.restype  = wintypes.BOOL
+
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+kernel32.CloseHandle.restype  = wintypes.BOOL
+
+kernel32.GetFileAttributesW.argtypes = [wintypes.LPCWSTR]
+kernel32.GetFileAttributesW.restype  = wintypes.DWORD
+
+INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
+
 def _open_handle_for_attrs(path: str, *, for_directory: bool = False):
+    """
+    Open a file/dir for attribute-changing FSCTLs.
+    Use GENERIC_READ|GENERIC_WRITE and FILE_FLAG_BACKUP_SEMANTICS for directories.
+    Always OPEN_EXISTING (we create files/dirs beforehand if needed).
+    """
     flags = FILE_ATTRIBUTE_NORMAL | (FILE_FLAG_BACKUP_SEMANTICS if for_directory else 0)
     return kernel32.CreateFileW(
         path,
-        GENERIC_WRITE,
+        GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         None,
-        OPEN_ALWAYS if not for_directory else OPEN_EXISTING,
+        OPEN_EXISTING,
         flags,
         None
     )
 
 def set_ntfs_compression(path: str, enable: bool, *, is_dir: bool = False) -> bool:
+    """Enable/disable NTFS compression on a file or directory via FSCTL_SET_COMPRESSION."""
     h = _open_handle_for_attrs(path, for_directory=is_dir)
-    if h == ctypes.c_void_p(-1).value:
+    if h == INVALID_HANDLE_VALUE:
         return False
     try:
         fmt = ctypes.c_ushort(COMPRESSION_FORMAT_DEFAULT if enable else COMPRESSION_FORMAT_NONE)
@@ -230,11 +261,12 @@ def set_ntfs_compression(path: str, enable: bool, *, is_dir: bool = False) -> bo
         kernel32.CloseHandle(h)
 
 def mark_sparse(path: str) -> bool:
+    """Mark a file as sparse via FSCTL_SET_SPARSE."""
     h = _open_handle_for_attrs(path, for_directory=False)
-    if h == ctypes.c_void_p(-1).value:
+    if h == INVALID_HANDLE_VALUE:
         return False
     try:
-        flag = wintypes.DWORD(1)
+        flag = wintypes.DWORD(1)  # non-null input means "set sparse"
         bytes_ret = wintypes.DWORD()
         ok = kernel32.DeviceIoControl(
             h, FSCTL_SET_SPARSE,
@@ -246,8 +278,13 @@ def mark_sparse(path: str) -> bool:
     finally:
         kernel32.CloseHandle(h)
 
+def get_attrs(path: str) -> int:
+    """Return GetFileAttributesW DWORD (or 0xFFFFFFFF on failure)."""
+    return kernel32.GetFileAttributesW(path)
+
 def write_repeating_alphabet(file_path: Path, total_bytes: int):
-    chunk_unit = (b"ABCDEFGHIJKLMNOPQRSTUVWXYZ" * 4096)
+    """Write 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' repeating to reach total_bytes."""
+    chunk_unit = (b"ABCDEFGHIJKLMNOPQRSTUVWXYZ" * 4096)  # ~104 KB
     with open(file_path, "wb") as f:
         remaining = total_bytes
         while remaining > 0:
@@ -550,34 +587,44 @@ def create_edge_cases(left_root: Path, right_root: Path):
     ntfs_root = left_root / "EdgeCases_NTFS"
     ntfs_root.mkdir(parents=True, exist_ok=True)
 
-    # (1) Compressed file (50MB alphabet) in its own folder
+    # (1) Folder with a single compressed file (50MB alphabet data)
     comp_file_dir = ntfs_root / "CompressedFile"
     comp_file_dir.mkdir(exist_ok=True)
     comp_file = comp_file_dir / "alphabet_50MB_compressed.txt"
+    # enable compression on the file before writing for best effect
     comp_file.touch()
-    set_ntfs_compression(str(comp_file), True, is_dir=False)
+    ok1 = set_ntfs_compression(str(comp_file), True, is_dir=False)
     write_repeating_alphabet(comp_file, 50 * 1024 * 1024)
+    print(f"[CompressedFile] set_ntfs_compression(file) -> {ok1}, attrs=0x{get_attrs(str(comp_file)):08X}, "
+          f"COMPRESSED={(get_attrs(str(comp_file)) & FILE_ATTRIBUTE_COMPRESSED)!=0}")
 
-    # (2) Directory set to compressed + one 100MB alphabet file (inherits compression)
+    # (2) Folder set to "compressed" with a 100MB file (inherits compression)
     comp_dir = ntfs_root / "CompressedFolder"
     comp_dir.mkdir(exist_ok=True)
-    set_ntfs_compression(str(comp_dir), True, is_dir=True)
+    ok2 = set_ntfs_compression(str(comp_dir), True, is_dir=True)
+    print(f"[CompressedFolder] set_ntfs_compression(dir) -> {ok2}, attrs=0x{get_attrs(str(comp_dir)):08X}, "
+          f"COMPRESSED={(get_attrs(str(comp_dir)) & FILE_ATTRIBUTE_COMPRESSED)!=0}")
     inherited_file = comp_dir / "alphabet_100MB_inherited.txt"
     write_repeating_alphabet(inherited_file, 100 * 1024 * 1024)
+    print(f"[CompressedFolder] inherited file attrs=0x{get_attrs(str(inherited_file)):08X}, "
+          f"COMPRESSED={(get_attrs(str(inherited_file)) & FILE_ATTRIBUTE_COMPRESSED)!=0}")
 
-    # (3) Sparse file ~100MB with random head/tail and sparse middle
+    # (3) Folder with a sparse file ~100MB (10KB head, sparse middle, 10KB tail)
     sparse_dir = ntfs_root / "SparseFile"
     sparse_dir.mkdir(exist_ok=True)
     sparse_path = sparse_dir / "sparse_100MB_head_tail.bin"
+    # create empty file then mark sparse
     sparse_path.touch()
     if mark_sparse(str(sparse_path)):
         head = os.urandom(10 * 1024)
         tail = os.urandom(10 * 1024)
         total = 100 * 1024 * 1024
         with open(sparse_path, "r+b") as f:
-            f.write(head)
-            f.seek(total - len(tail))
-            f.write(tail)
+            f.write(head)                          # write first 10KB
+            f.seek(total - len(tail))              # jump to near the end (creates a sparse hole)
+            f.write(tail)                          # write last 10KB; file size extends
+    print(f"[SparseFile] Sparse(file) -> {ok1}, attrs=0x{get_attrs(str(comp_file)):08X}, "
+          f"SPARSE={(get_attrs(str(comp_file)) & FILE_ATTRIBUTE_SPARSE_FILE)!=0}")
 
     # Hidden files (Windows)
     hidden_file = left_root / "hidden_test.txt"
