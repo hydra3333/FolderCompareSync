@@ -37,12 +37,7 @@ class DeleteOrphansManager_class:
     # ========================================
     # WINDOWS SHELL API STRUCTURES AND CLASSES
     # ========================================
-    # Windows Shell API constants
-    FO_DELETE = 0x0003                   # Delete operation
-    FOF_ALLOWUNDO = 0x0040               # Allow undo (moves to Recycle Bin)
-    FOF_NOCONFIRMATION = 0x0010          # No confirmation dialogs
-    FOF_SILENT = 0x0004                  # No progress dialog
-    FOF_NOERRORUI = 0x0400               # No error UI dialogs
+
     class SHFILEOPSTRUCT(Structure):
         """
         Structure for SHFileOperation - Windows Shell file operations.
@@ -51,12 +46,12 @@ class DeleteOrphansManager_class:
         _fields_ = [
             ("hwnd", wintypes.HWND),          # Handle to parent window
             ("wFunc", wintypes.UINT),         # Operation type (delete, move, etc.)
-            ("pFrom", c_char_p),              # Source file paths (null-terminated)
-            ("pTo", c_char_p),                # Destination paths (null for delete)
+            ("pFrom", ctypes.c_wchar_p),      # Source path(s), double-NUL terminated
+            ("pTo", ctypes.c_wchar_p),        # Destination path(s) or None
             ("fFlags", wintypes.WORD),        # Operation flags
             ("fAnyOperationsAborted", wintypes.BOOL),  # Set if user cancelled
             ("hNameMappings", c_void_p),      # Handle to name mappings
-            ("lpszProgressTitle", c_char_p),  # Progress dialog title
+            ("lpszProgressTitle", ctypes.c_wchar_p),  # Progress dialog title
         ]
 
     # ========================================================================
@@ -86,54 +81,33 @@ class DeleteOrphansManager_class:
             if not os.path.exists(file_path):
                 return False, f"File not found: {file_path}"
             
-            # Prepare file path with double null termination required by SHFileOperation
-            file_path_bytes = file_path.encode('utf-8') + b'\0\0'
+            # Prepare path list for SHFileOperationW (double-NUL terminated wide string)
+            file_path_w = file_path + '\0\0'
             
             # Configure operation flags
-            flags = DeleteOrphansManager_class.FOF_ALLOWUNDO  # Enable Recycle Bin
+            flags = shellcon.FOF_ALLOWUNDO  # Enable Recycle Bin
             if not show_progress:
-                flags |= DeleteOrphansManager_class.FOF_SILENT | DeleteOrphansManager_class.FOF_NOCONFIRMATION
-            
+                flags |= shellcon.FOF_SILENT | shellcon.FOF_NOCONFIRMATION
+
             # Create operation structure
             file_op = DeleteOrphansManager_class.SHFILEOPSTRUCT()
             file_op.hwnd = None                    # No parent window
-            file_op.wFunc = DeleteOrphansManager_class.FO_DELETE             # Delete operation
-            file_op.pFrom = c_char_p(file_path_bytes)  # Source file
-            file_op.pTo = None                    # No destination (delete)
-            file_op.fFlags = flags                # Operation flags
+            file_op.wFunc = shellcon.FO_DELETE              # Delete operation
+            file_op.pFrom = ctypes.c_wchar_p(file_path_w)   # Source multi-string
+            file_op.pTo = None                               # No destination (delete)
+            file_op.fFlags = flags
             file_op.fAnyOperationsAborted = False
             file_op.hNameMappings = None
-            file_op.lpszProgressTitle = c_char_p(b"Moving to Recycle Bin...")
+            file_op.lpszProgressTitle = ctypes.c_wchar_p("Moving to Recycle Bin...")
             
             # Call Windows Shell API
-            result = ctypes.windll.shell32.SHFileOperationA(byref(file_op))
-            
+            result = ctypes.windll.shell32.SHFileOperationW(byref(file_op))
             if result == 0 and not file_op.fAnyOperationsAborted:
                 return True, ""
             elif file_op.fAnyOperationsAborted:
                 return False, "Operation cancelled by user"
             else:
-                # Map common error codes to user-friendly messages
-                error_messages = {
-                    0x71: "File is being used by another process",
-                    0x72: "Access denied - insufficient permissions",
-                    0x73: "File is read-only or system file",
-                    0x74: "Path not found",
-                    0x75: "Path too long",
-                    0x76: "File name too long",
-                    0x78: "Destination path invalid",
-                    0x79: "Security error",
-                    0x7A: "Source and destination are the same",
-                    0x7C: "Path is invalid",
-                    0x80: "File already exists",
-                    0x81: "Folder is not empty",
-                    0x82: "Operation not supported",
-                    0x83: "Network path not found",
-                    0x84: "Disk full"
-                }
-                error_msg = error_messages.get(result, f"Shell operation failed with error code: 0x{result:X}")
-                return False, error_msg
-                
+                return False, shell_error_message(result)
         except Exception as e:
             return False, f"Exception during Recycle Bin operation: {str(e)}"
 
@@ -194,33 +168,22 @@ class DeleteOrphansManager_class:
             if not os.path.exists(file_path):
                 return False, "Missing"
                 
-            # Check if file is accessible
-            if not os.access(file_path, os.R_OK):
-                return False, "No Read Access"
-                
-            # Check if file can be deleted
-            if not os.access(file_path, os.W_OK):
+            # Windows-aware checks using helpers
+            attrs = get_file_attributes(file_path)
+            if attrs is None:
+                return False, f"Error: {format_last_error()}"
+
+            if attrs & win32con.FILE_ATTRIBUTE_READONLY:
                 return False, "Read-Only"
-                
-            # Check if parent directory allows deletion
-            parent_dir = os.path.dirname(file_path)
-            if not os.access(parent_dir, os.W_OK):
-                return False, "Directory Read-Only"
-                
-            # Additional Windows-specific checks using file attributes
-            try:
-                import stat
-                file_stats = os.stat(file_path)
-                
-                # Check for system or hidden files that might be protected
-                if hasattr(stat, 'FILE_ATTRIBUTE_SYSTEM'):
-                    # Windows-specific attribute checking would go here
-                    # For now, use basic permission checks
-                    pass
-                    
-            except Exception:
-                # If detailed checking fails, assume basic permissions are sufficient
-                pass
+
+            ok_del, reason_del = is_file_deletable(file_path)   # non-destructive DELETE-share probe
+            if not ok_del:
+                return False, reason_del or "No Delete Access"
+
+            parent_dir = os.path.dirname(file_path) or "."
+            ok_dir, reason_dir = is_folder_writable(parent_dir)
+            if not ok_dir:
+                return False, reason_dir or "Directory Read-Only"
                 
             return True, "OK"
             
@@ -262,18 +225,6 @@ class DeleteOrphansManager_class:
             
             if not can_delete:
                 return False, permission_status, metadata
-                
-            # Check if file is currently in use (Windows-specific)
-            try:
-                # Try to open file in exclusive mode to check if it's in use
-                if os.path.isfile(file_path):
-                    with open(file_path, 'r+b'):
-                        pass  # File is accessible
-            except PermissionError:
-                return False, "File In Use", metadata
-            except Exception:
-                # Other errors are not necessarily blocking
-                pass
                 
             return True, "OK", metadata
             

@@ -264,6 +264,52 @@ def format_last_error(err: int | None = None) -> str:
     except Exception:
         return f"ERROR: Windows Error: {err}"
 
+def shell_error_message(code: int) -> str:
+    """
+    Friendly message for SHFileOperation(W) result codes (Shell 'DE_*').
+    Not a Win32 GetLastError value; FormatMessage() usually won't apply.
+    """
+    if code == 0:
+        return "Success"
+
+    # Build once, cache on the function object
+    try:
+        m = shell_error_message._MAP  # type: ignore[attr-defined]
+    except AttributeError:
+        pairs = [
+            ("DE_FILEBUSY",        "File is being used by another process"),
+            ("DE_ACCESSDENIED",    "Access denied - insufficient permissions"),
+            ("DE_INVALIDFILES",    "Invalid file/path"),
+            ("DE_NOSUCHFILE",      "Path not found"),
+            ("DE_INVALIDFILES2",   "Invalid file/path"),
+            ("DE_INVALIDFILES3",   "Invalid file/path"),
+            ("DE_DESTSUBTREE",     "Destination is a subdirectory of the source"),
+            ("DE_INVALIDDEST",     "Destination path invalid"),
+            ("DE_ROOTDIR",         "Cannot operate on a root directory"),
+            ("DE_OPCANCELLED",     "Operation cancelled"),
+            ("DE_SAMEFILE",        "Source and destination are the same"),
+            ("DE_FILEEXISTS",      "File already exists"),
+            ("DE_NOTEMPTY",        "Folder is not empty"),
+            ("DE_NOTSUPPORTED",    "Operation not supported"),
+            ("DE_NETWORKERROR",    "Network path not found or network error"),
+            ("DE_BADPATH",         "Bad path"),
+            ("DE_ACCESSDENIEDSRC", "Access denied (source)"),
+            ("DE_DISKFULL",        "Disk full"),
+        ]
+        m = {getattr(shellcon, n): msg for n, msg in pairs if getattr(shellcon, n, None) is not None}
+        shell_error_message._MAP = m
+
+    # Prefer shell map; if not present, try Win32 FormatMessage as a last resort
+    if code in m:
+        return m[code]
+    try:
+        fm = (win32api.FormatMessage(code) or "").strip()
+        if fm:
+            return fm
+    except Exception:
+        pass
+    return f"Shell operation failed with error code: 0x{code:X}"
+
 # ============================================================================
 # WINDOWS API BINDINGS AND STRUCTURES (M15) - COPY-RELATED ONLY
 # ============================================================================
