@@ -204,6 +204,7 @@ def check_and_import_core_deps() -> None:
         ("pywin32",         "winerror"),      # pywin32: winerror - Windows error codes
         ("pywin32",         "winioctlcon"),   # pywin32: FSCTL_* / IOCTL_* (compression, sparse, allocated ranges)
         ("pywin32",         "win32security"), # pywin32: win32security - Security constants and functions
+        ("pywin32",         "win32com.shell.shellcon"), # pywin32: Shell constants module
     ])
 
     # *** Passed checking
@@ -221,6 +222,7 @@ def check_and_import_core_deps() -> None:
     import winerror
     import winioctlcon
     import win32security
+    from win32com.shell import shellcon
     
     # promote all these new locals into module globals
     g = globals()
@@ -237,7 +239,7 @@ def check_and_import_core_deps() -> None:
 # ============================================================================
 
 MISSING_OBJECT = object()  # unique sentinel
-PYWIN32_MODULES = (win32con, win32api, win32file, winerror, winioctlcon, win32security)
+PYWIN32_MODULES = (win32con, win32api, win32file, winerror, winioctlcon, win32security, shellcon)
 def W(name: str, default: object = MISSING_OBJECT):
     """
     Resolve a Win32 constant by name across pywin32 modules.

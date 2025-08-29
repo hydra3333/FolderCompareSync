@@ -543,7 +543,7 @@ class FileTimestampManager_class:
             # Open file/directory handle via global helper (attributes-only, non-destructive, adds BACKUP_SEMANTICS for dirs)
             handle = open_for_attribute_write(file_path)
 
-            if handle == W("INVALID_HANDLE_VALUE", default=-1):
+            if handle in (0, win32file.INVALID_HANDLE_VALUE):
                 err = FileTimestampManager_class.kernel32.GetLastError()
                 log_and_flush(logging.DEBUG, f"CreateFileW failed with error {err}: {format_last_error(err)}")
                 return False
@@ -579,7 +579,7 @@ class FileTimestampManager_class:
             return False
         finally:
             # Always close the handle if it was opened
-            if handle and handle != W("INVALID_HANDLE_VALUE", default=-1):
+            if handle and handle not in (0, win32file.INVALID_HANDLE_VALUE):
                 FileTimestampManager_class.kernel32.CloseHandle(handle)
     
     def _set_file_times_windows_fallback(self, file_path: str, 
@@ -615,7 +615,7 @@ class FileTimestampManager_class:
             # Open via global helper (attributes-only, non-destructive)
             # Open via global helper (attributes-only, non-destructive)
             handle = open_for_attribute_write(file_path)
-            if handle == W("INVALID_HANDLE_VALUE", default=-1):
+            if handle in (0, win32file.INVALID_HANDLE_VALUE):
                 err = FileTimestampManager_class.kernel32.GetLastError()
                 log_and_flush(logging.DEBUG, f"_set_file_times_windows_fallback (fallback) failed with error {err}: {format_last_error(err)}")
                 return False
@@ -645,7 +645,7 @@ class FileTimestampManager_class:
             return False
         finally:
             # Always close the handle if it was opened
-            if handle and handle != W("INVALID_HANDLE_VALUE", default=-1):
+           if handle and handle not in (0, win32file.INVALID_HANDLE_VALUE):
                 FileTimestampManager_class.kernel32.CloseHandle(handle)
     
     def copy_timestamps(self, source_file: Union[str, Path], 

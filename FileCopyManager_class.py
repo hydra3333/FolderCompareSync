@@ -514,16 +514,15 @@ class FileCopyManager_class:
             result.recovery_suggestion = "Free up disk space on the target drive"
             return result
 
-        # >>> CHANGE START: sparse-file warning (DIRECT) ) # per chatGPT change 6
+        # sparse-file warning (DIRECT) )
         try:
-            attrs = kernel32.GetFileAttributesW(ctypes.c_wchar_p(source_path))
-            if attrs != C.FILECOPY_INVALID_FILE_ATTRIBUTES and (attrs & C.FILECOPY_FILE_ATTRIBUTE_SPARSE_FILE):
+            sparse = is_sparse_file(source_path)
+            if sparse is True:
                 result.sparse_file_detected = True
-                self._log_status(f"WARNING: Source has SPARSE FILE attribute; this copy may MASSIVELY inflate size on target")
-                log_and_flush(logging.WARNING, f"WARNING: Source has SPARSE FILE attribute; this copy may MASSIVELY inflate size on target")
+                self._log_status("WARNING: Source has SPARSE FILE attribute; this copy may MASSIVELY inflate size on target")
+                log_and_flush(logging.WARNING, "WARNING: Source has SPARSE FILE attribute; this copy may MASSIVELY inflate size on target")
         except Exception:
             pass  # Warning best-effort only
-        # <<< CHANGE END
         
         # Phase 3: Create secure temporary file path
         target_dir = Path(target_path).parent
@@ -716,16 +715,15 @@ class FileCopyManager_class:
                 result.recovery_suggestion = "Check target file permissions"
                 return result
 
-        # >>> CHANGE START: sparse-file warning (STAGED) # per chatGPT change 6
+        # sparse-file warning (STAGED)
         try:
-            attrs = kernel32.GetFileAttributesW(ctypes.c_wchar_p(source_path))
-            if attrs != C.FILECOPY_INVALID_FILE_ATTRIBUTES and (attrs & C.FILECOPY_FILE_ATTRIBUTE_SPARSE_FILE):
+            sparse = is_sparse_file(source_path)
+            if sparse is True:
                 result.sparse_file_detected = True
-                self._log_status(f"WARNING: Source has SPARSE FILE attribute; this STAGED copy may MASSIVELY inflate size on target")
-                log_and_flush(logging.WARNING, f"WARNING: Source has SPARSE FILE attribute; this STAGED copy may MASSIVELY inflate size on target")
+                self._log_status("WARNING: Source has SPARSE FILE attribute; this STAGED copy may MASSIVELY inflate size on target")
+                log_and_flush(logging.WARNING, "WARNING: Source has SPARSE FILE attribute; this STAGED copy may MASSIVELY inflate size on target")
         except Exception:
             pass
-        # <<< CHANGE END
         
         # >>> CHANGE START: 
         # Phase 2.0 = Disk space check (was missing in STAGED) # per chatGPT change 4
@@ -918,7 +916,7 @@ class FileCopyManager_class:
                 wintypes.DWORD(
                         win32con.GENERIC_READ
                         | win32con.GENERIC_WRITE
-                        | W("FILE_WRITE_DATA", default=0x0002)
+                        | win32con.FILE_WRITE_DATA 
                     ),
                     wintypes.DWORD(win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE), 
                     None,  # Security attributes
@@ -933,9 +931,8 @@ class FileCopyManager_class:
                 #raise SystemExit(msg) # raise(msg)
                 os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
 
-            INVALID = ctypes.c_void_p(-1).value  # 0xFFFFFFFFFFFFFFFF on 64-bit
-            if file_handle in (0, INVALID):  # INVALID_HANDLE_VALUE
-            if file_handle in (0, W("INVALID_HANDLE_VALUE", default=INVALID)):  # INVALID_HANDLE_VALUE
+            # Compare against the real INVALID_HANDLE_VALUE constant (no hidden magic)
+            if file_handle in (0, win32file.INVALID_HANDLE_VALUE):
                 err = kernel32.GetLastError()
                 msg = (f"[DIAG BEFORE Pre-allocating temp file] FAILED kernel32.CreateFileW: Invalid File Handle. "
                        f"{err}: {format_last_error(err)}")
@@ -1021,7 +1018,7 @@ class FileCopyManager_class:
                     winerror.ERROR_ACCESS_DENIED: "ERROR_ACCESS_DENIED - Handle lacks FILE_WRITE_DATA access",
                     winerror.ERROR_INVALID_PARAMETER: "ERROR_INVALID_PARAMETER - Invalid parameter to SetFileInformationByHandle",
                     winerror.ERROR_DISK_FULL: "ERROR_DISK_FULL - Insufficient disk space",
-                    W("ERROR_USER_MAPPED_FILE", default=1224): "ERROR_USER_MAPPED_FILE - File is memory mapped",
+                    winerror.ERROR_USER_MAPPED_FILE: "ERROR_USER_MAPPED_FILE - File is memory mapped",
                 }
                 error_desc = error_details.get(err, f"Unknown error {err}: {format_last_error(err)}")
                 msg = f"[DIAG AFTER Pre-allocating temp file] FAILED kernel32.SetFileInformationByHandle:\n{err}\n{error_desc}"
@@ -1254,7 +1251,7 @@ class FileCopyManager_class:
             )
         # <<< CHANGE END
 
-        # >>> CHANGE START: Progress + cancel wiring for DIRECT (CopyFileExW) # per chatGPT change 1.2
+        # Progress + cancel wiring for DIRECT (CopyFileExW) # per chatGPT change 1.2
         cancel_flag = wintypes.BOOL(0)  # module-level global, LPBOOL for CopyFileExW
         
         def copy_progress_callback(total_size, transferred, stream_size, 
@@ -1263,10 +1260,10 @@ class FileCopyManager_class:
             """Windows progress callback - called by OS during copy operation."""
             # 1) Cancellation: Event from UI or progress manager
             if getattr(self, "cancel_event", None) and self.cancel_event.is_set():
-                return C.FILECOPY_PROGRESS_CANCEL
+                return win32con.PROGRESS_CANCEL
             pm = getattr(self, "progress_manager", None)
             if pm and callable(getattr(pm, "cancellation_callback", None)) and pm.cancellation_callback():
-                return C.FILECOPY_PROGRESS_CANCEL
+                return win32con.PROGRESS_CANCEL
 
             # 2) Per-file progress to UI (throttling handled by UI)
             if pm and hasattr(pm, "update_file_progress"):
@@ -1280,18 +1277,15 @@ class FileCopyManager_class:
                     if transferred > 0:
                         self.status_callback(f"Copying: {pct:.1f}% ({transferred:,} bytes)")
 
-            # >>> CHANGE START: DEBUG trace inside CopyFileExW progress callback (throttled by UI)
             if __debug__ and total_size:
                 try:
                     _mb_done = transferred / (1024 * 1024)
                     _mb_total = total_size / (1024 * 1024)
-                    log_and_flush(logging.DEBUG, f"[DIRECT-SMALL] CopyFileExW progress: {_mb_done:.1f} MB of {_mb_total:.1f} MB")
+                    log_and_flush(logging.DEBUG, f"[DIRECT...CopyFileExW progress: {_mb_done:.1f} MB of {_mb_total:.1f} MB")
                 except Exception:
                     pass
-            # <<< CHANGE END
 
-            return C.FILECOPY_PROGRESS_CONTINUE
-        # <<< CHANGE END
+            return win32con.PROGRESS_CONTINUE
         
         # Create callback wrapper for Windows
         callback_func = PROGRESS_ROUTINE(copy_progress_callback)
@@ -1313,7 +1307,7 @@ class FileCopyManager_class:
                 callback_func,
                 None,                                    # No user data
                 ctypes.byref(cancel_flag),               # Cancel flag
-                win32con.COPY_FILE_RESTARTABLE           # Restartable if interrupted
+                win32con.COPY_FILE_RESTARTABLE          # Restartable if interrupted
             )
             
             if not result:
@@ -1335,7 +1329,7 @@ class FileCopyManager_class:
                         'recovery_suggestion': error_recovery
                     }
             
-            # >>> CHANGE START: DEBUG summary for DIRECT-SMALL (CopyFileExW)
+            # DEBUG summary for DIRECT-SMALL (CopyFileExW)
             try:
                 _elapsed = time.time() - start_time if 'start_time' in locals() else None
             except Exception:
@@ -1345,7 +1339,6 @@ class FileCopyManager_class:
                 _mb = bytes_copied / (1024 * 1024)
                 _mbps = (_mb / _elapsed) if _elapsed > 0 else 0.0
                 log_and_flush(logging.DEBUG, f"[DIRECT-SMALL] CopyFileExW done: {_mb:.1f} MB in {_elapsed:.2f}s ({_mbps:.1f} MB/s)")
-            # <<< CHANGE END
 
             return {
                 'success': True, 
@@ -1782,29 +1775,29 @@ class FileCopyManager_class:
     
     def _get_windows_error_message(self, error_code: int) -> str:
         """Get human-readable Windows error message."""
+        # >>> CHANGE START: use standard winerror.* symbols
         error_messages = {
-            C.FILECOPY_ERROR_SUCCESS: "Success",
-            C.FILECOPY_ERROR_REQUEST_ABORTED: "Operation cancelled by user",
-            C.FILECOPY_ERROR_DISK_FULL: "Insufficient disk space",
-            C.FILECOPY_ERROR_HANDLE_DISK_FULL: "Disk full",
-            C.FILECOPY_ERROR_NOT_ENOUGH_MEMORY: "Insufficient memory",
-            C.FILECOPY_ERROR_ACCESS_DENIED: "Access denied",
-            C.FILECOPY_ERROR_FILE_NOT_FOUND: "File not found",
-            C.FILECOPY_ERROR_PATH_NOT_FOUND: "Path not found",
-            C.FILECOPY_ERROR_FILE_EXISTS: "File already exists",
-            C.FILECOPY_ERROR_ALREADY_EXISTS: "File already exists"
+            winerror.ERROR_SUCCESS: "Success",
+            winerror.ERROR_REQUEST_ABORTED: "Operation cancelled by user",
+            winerror.ERROR_DISK_FULL: "Insufficient disk space",
+            winerror.ERROR_HANDLE_DISK_FULL: "Disk full",
+            winerror.ERROR_NOT_ENOUGH_MEMORY: "Insufficient memory",
+            winerror.ERROR_ACCESS_DENIED: "Access denied",
+            winerror.ERROR_FILE_NOT_FOUND: "File not found",
+            winerror.ERROR_PATH_NOT_FOUND: "Path not found",
+            winerror.ERROR_FILE_EXISTS: "File already exists",
+            winerror.ERROR_ALREADY_EXISTS: "File already exists",
         }
-        
         return error_messages.get(error_code, f"Windows error {error_code}")
     
     def _get_recovery_suggestion_for_error(self, error_code: int) -> str:
         """Get recovery suggestion for specific Windows error codes."""
         suggestions = {
-            C.FILECOPY_ERROR_DISK_FULL: "Free up disk space on the destination drive",
-            C.FILECOPY_ERROR_ACCESS_DENIED: "Check file permissions or run as administrator",
-            C.FILECOPY_ERROR_FILE_NOT_FOUND: "Verify the source file exists and is accessible",
-            C.FILECOPY_ERROR_PATH_NOT_FOUND: "Check that the target directory exists",
-            C.FILECOPY_ERROR_NOT_ENOUGH_MEMORY: "Close other applications to free memory"
+            winerror.ERROR_DISK_FULL: "Free up disk space on the destination drive",
+            winerror.ERROR_ACCESS_DENIED: "Check file permissions or run as administrator",
+            winerror.ERROR_FILE_NOT_FOUND: "Verify the source file exists and is accessible",
+            winerror.ERROR_PATH_NOT_FOUND: "Check that the target directory exists",
+            winerror.ERROR_NOT_ENOUGH_MEMORY: "Close other applications to free memory",
         }
         
         return suggestions.get(error_code, "Check file paths, permissions, and available resources")
