@@ -27,7 +27,7 @@ echo Major/Minor version dot: '%PYTHON_VERSION_MAJOR_MINOR_DOT%'
 echo Full version:            '%PYTHON_VERSION%'
 
 echo *** Ensuring latest timezone data is available to python by Running: pip install tzdata python-dateutil
-REM pip install --upgrade --retries 10 tzdata python-dateutil
+REM pip install --no-cache-dir --upgrade-strategy eager --upgrade --force-reinstall --retries 10 tzdata python-dateutil pywin32 blake3
 
 echo *** Running: python FolderCompareSync.py
 python FolderCompareSync.py
