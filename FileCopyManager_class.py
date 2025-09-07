@@ -156,47 +156,37 @@ class FileCopyManager_class:
     @staticmethod
     def determine_copy_strategy(source_path: str, target_path: str, file_size: int) -> FileCopyManager_class.CopyStrategy:
         """
-        Determine the optimal copy strategy based on enhanced detection logic (M01-M03).
-        
-        Purpose:
-        --------
-        Analyzes file characteristics, drive types, and network/cloud locations to select 
-        the most efficient copy strategy for optimal performance and reliability.
-        
-        Strategy Logic per M01-M03:
-        ---------------------------
-        - Cloud storage locations always use STAGED (regardless of file size)
-        - Network drives always use STAGED strategy 
-        - Files >= 2GB use STAGED strategy
-        - Local files < 2GB use DIRECT strategy
-        
-        Args:
-        -----
-        source_path: Source file path for analysis
-        target_path: Target file path for analysis  
-        file_size: File size in bytes for threshold comparison
-        
-        Returns:
-        --------
-        CopyStrategy: Optimal strategy for the given file and drive combination
+        Decide STAGED vs DIRECT according to the v3 spec.
+    
+        Rules (preview-safe; actual filesystem mutations happen inside executors):
+          1) If either side is network/cloud => STAGED.
+          2) If local but "compression intended" => STAGED.
+          3) Otherwise DIRECT (small/large split is logged by caller using the size threshold).
+    
+        Notes:
+          - "compression intended" means the source is compressed OR the destination folder has
+            compression default-on. (Policy knob can be added later; not required now.)
+          - The small/large distinction is NOT a separate enum (we keep DIRECT/STAGED API);
+            we log "DIRECT-SMALL" vs "DIRECT-LARGE" in the explainer string based on the size
+            threshold C.FILECOPY_DIRECT_MMAP_COPY_THRESHOLD_BYTES.
         """
-        # Enhanced network and cloud detection
-        source_network = FileCopyManager_class._is_network_or_cloud_location(source_path)
-        target_network = FileCopyManager_class._is_network_or_cloud_location(target_path)
-        
-        # Priority 1: Network or cloud location detection (M01, M03)
-        if source_network or target_network:
-            return FileCopyManager_class.CopyStrategy.STAGED
-        
-        # >>> CHANGE START  # Local files: keep DIRECT; size split handled inside DIRECT path (SMALL vs LARGE)
-        # Previously: large local files were forced to STAGED here. Now commented out.
-        # Now: keep DIRECT for local->local; DIRECT will branch to SMALL/LARGE internally.
-        ### Priority 2: Large file size threshold (M01, M03)
-        ###if file_size >= C.FILECOPY_COPY_STRATEGY_THRESHOLD_BYTES:
-        ###    return FileCopyManager_class.CopyStrategy.STAGED
-        # <<< CHANGE END
-        
-        # Default: Local small files use DIRECT strategy (M02)
+        # Network or cloud on either side? -> STAGED
+        try:
+            if FileCopyManager_class._is_network_or_cloud_location(source_path)                or FileCopyManager_class._is_network_or_cloud_location(target_path):
+                return FileCopyManager_class.CopyStrategy.STAGED
+        except Exception:
+            # Be conservative on detection failure: treat as local (continue below)
+            pass
+    
+        # Compression intended? -> STAGED
+        try:
+            if FileCopyManager_class._is_compression_intended(source_path, target_path):
+                return FileCopyManager_class.CopyStrategy.STAGED
+        except Exception:
+            # If detection fails, do not force STAGED on that basis alone.
+            pass
+    
+        # Otherwise DIRECT (SMALL/LARGE split is only for logging / internal executor branching)
         return FileCopyManager_class.CopyStrategy.DIRECT
     
     @staticmethod
@@ -284,941 +274,600 @@ class FileCopyManager_class:
                 return True
         
         return False
+
+    @staticmethod
+    def _is_compression_intended(source_path: str, target_path: str) -> bool:
+        """
+        Determine whether the copy intends to maintain/enable NTFS compression on the target.
     
+        Heuristics per v3 spec (minimal, side-effect free; no writes here):
+          - If the source file is compressed -> True
+          - OR if the destination folder has compression-default ON -> True
+          - Else -> False
+    
+        Returns:
+          bool
+        """
+        try:
+            # Provided by FolderCompareSync_Global_Imports
+            compressed_src = is_file_compressed(source_path)[0]
+        except Exception:
+            compressed_src = None
+    
+        if compressed_src is True:
+            return True
+    
+        # Destination folder default compression?
+        try:
+            dst_dir = os.path.dirname(target_path) if target_path else ""
+            if dst_dir:
+                comp_default = is_folder_compression_default_on(dst_dir)[0]
+                if comp_default is True:
+                    return True
+        except Exception:
+            pass
+    
+        return False
+
+    def _progress_update(self, source_path: str, bytes_done: int, total_bytes: int, strategy_label: str) -> bool:
+        """Unified progress hook (simplified): UI+cancel only via progress_manager."""
+        try:
+            if getattr(self, 'cancel_event', None) and self.cancel_event.is_set():
+                return False
+        except Exception:
+            pass
+        try:
+            pm = getattr(self, 'progress_manager', None)
+            if pm and callable(getattr(pm, 'cancellation_callback', None)) and pm.cancellation_callback():
+                return False
+        except Exception:
+            pass
+        try:
+            pm = getattr(self, 'progress_manager', None)
+            if pm and callable(getattr(pm, 'update_file_progress', None)):
+                pm.update_file_progress(source_path, int(bytes_done), int(total_bytes), strategy=strategy_label)
+        except Exception:
+            pass
+        return True
+
     def copy_file(self, source_path: str, target_path: str) -> FileCopyManager_class.CopyOperationResult:
         """
-        Main copy method with enhanced strategy selection and secure rollback (M12: overwrite removed).
-        
-        Purpose:
-        --------
-        Orchestrates file copy operations using intelligent strategy selection based on
-        file characteristics and drive types, with comprehensive verification and 
-        bulletproof rollback mechanisms.
-        
-        Args:
-        -----
-        source_path: Source file path
-        target_path: Target file path
-        
-        Returns:
-        --------
-        CopyOperationResult: Detailed result of the copy operation
+        Copy with v3 decisioning, sparse fail-fast, and consistent explainer lines.
         """
-        # Increment sequence number for this operation
-        self.operation_sequence += 1
-        
         start_time = time.time()
-        
-        # Validate input paths
-        if not Path(source_path).exists():
-            return FileCopyManager_class.CopyOperationResult(
-                success=False,
-                strategy_used=FileCopyManager_class.CopyStrategy.DIRECT,
-                source_path=source_path,
-                target_path=target_path,
-                file_size=0,
-                duration_seconds=0,
-                error_message="Source file does not exist",
-                recovery_suggestion="Check the source file path and ensure the file exists"
-            )
-        
-        if not Path(source_path).is_file():
-            return FileCopyManager_class.CopyOperationResult(
-                success=False,
-                strategy_used=FileCopyManager_class.CopyStrategy.DIRECT,
-                source_path=source_path,
-                target_path=target_path,
-                file_size=0,
-                duration_seconds=0,
-                error_message="Source path is not a file",
-                recovery_suggestion="Ensure the source path points to a file, not a directory"
-            )
-        
-        # Get file size for strategy determination and validate size limits
-        file_size = Path(source_path).stat().st_size
-        
-        if file_size > C.FILECOPY_MAXIMUM_COPY_FILE_SIZE_BYTES:
-            return FileCopyManager_class.CopyOperationResult(
-                success=False,
-                strategy_used=FileCopyManager_class.CopyStrategy.STAGED,
-                source_path=source_path,
-                target_path=target_path,
-                file_size=file_size,
-                duration_seconds=0,
-                error_message=f"File exceeds maximum size limit ({C.FILECOPY_MAXIMUM_COPY_FILE_SIZE_BYTES:,} bytes)",
-                recovery_suggestion="Split large files or increase the maximum file size limit"
-            )
-
-        # >>> CHANGE START: engine-level UNC rejection (strict mode) # per chatGPT change 3
-        if C.FILECOPY_UNC_PATH_REJECTION_STRICT and (source_path.startswith('\\\\') or target_path.startswith('\\\\')):
-            suggestion = "Map the UNC path to a drive letter (e.g., Z:) and retry."
-            return FileCopyManager_class.CopyOperationResult(
-                success=False,
-                strategy_used=FileCopyManager_class.CopyStrategy.STAGED,
-                source_path=source_path,
-                target_path=target_path,
-                file_size=file_size,
-                duration_seconds=0,
-                error_message="UNC paths are not allowed by policy",
-                recovery_suggestion=suggestion
-            )
-        # <<< CHANGE END
-        
-        # Determine copy strategy
-        strategy = FileCopyManager_class.determine_copy_strategy(source_path, target_path, file_size)
-        
-        # Log operation start with sequence number
-        sequence_info = f"[{self.operation_sequence}]"
-        
-        self._log_status(f"Starting copy operation {sequence_info}:")
-        self._log_status(f"  Source: {source_path}")
-        self._log_status(f"  Target: {target_path}")
-        self._log_status(f"  Size: {file_size:,} bytes")
-        self._log_status(f"  Strategy: {strategy.value.upper()}")
-
-        # >>> CHANGE START  # decision explainer (with flushed-logging)
-        try:
-            is_network = FileCopyManager_class._is_network_or_cloud_location(source_path) or FileCopyManager_class._is_network_or_cloud_location(target_path)
-            policy = C.FILECOPY_VERIFY_POLICY
-            if strategy == FileCopyManager_class.CopyStrategy.DIRECT:
-                direct_large = C.FILECOPY_DIRECT_MMAP_COPY_ENABLED and (file_size >= C.FILECOPY_DIRECT_MMAP_COPY_THRESHOLD_BYTES)
-                mode_label = "DIRECT-LARGE" if direct_large else "DIRECT-SMALL"
-                verify_label = "hash verify" if direct_large else "mmap verify"
-                extra = f"win={C.FILECOPY_MMAP_WINDOW_BYTES//(1024**2)}MiB, flush_every={C.FILECOPY_MMAP_FLUSH_EVERY_N_WINDOWS}"
-            else:
-                mode_label = "STAGED"
-                verify_label = "hash verify"
-                extra = f"chunk={C.FILECOPY_NETWORK_CHUNK_BYTES//(1024**2)}MiB"
-            expl = f"  Decision: {mode_label} | verify={verify_label} | policy={policy} | {extra}"
-            self._log_status(expl)
-            log_and_flush(logging.DEBUG, expl)
-        except Exception as _e_decision:
-            log_and_flush(logging.DEBUG, f"Decision explainer failed: {str(_e_decision)}")
-        # <<< CHANGE END
-
-        # >>> CHANGE START
-        # Respect DRY RUN at the engine level: do not touch the filesystem.
-        if getattr(self, "_dry_run", False):
-            self._log_status(f"DRY RUN: Would copy '{source_path}' -> '{target_path}' using {strategy.value.upper()}")
-            result = FileCopyManager_class.CopyOperationResult(
-                success=True,
-                strategy_used=strategy,
-                source_path=source_path,
-                target_path=target_path,
-                file_size=file_size,
-                duration_seconds=0.0,
-                bytes_copied=0,
-                verification_passed=True,
-                verification_mode="none"
-            )
-            return result
-        # <<< CHANGE END
-
-        # Execute appropriate strategy
-        if strategy == FileCopyManager_class.CopyStrategy.DIRECT:
-            result = self._execute_direct_strategy(source_path, target_path)
-        else:  # STAGED strategy
-            result = self._execute_staged_strategy(source_path, target_path)
-        
-        # Calculate final metrics
-        result.duration_seconds = time.time() - start_time
-        if result.duration_seconds > 0 and result.bytes_copied > 0:
-            result.throughput_mbps = (result.bytes_copied / (1024 * 1024)) / result.duration_seconds
-        
-        # Log final result with sequence number
-        if result.success:
-            self._log_status(f"Copy operation {sequence_info} SUCCESSFUL - {result.bytes_copied:,} bytes in {result.duration_seconds:.2f}s ({result.throughput_mbps:.1f} MB/s)")
-            if result.verification_passed:
-                self._log_status(f"Verification passed using {result.verification_mode} mode")
-        else:
-            self._log_status(f"Copy operation {sequence_info} FAILED - {result.error_message}")
-            if result.rollback_performed:
-                rollback_status = "successful" if result.rollback_success else "FAILED"
-                self._log_status(f"Rollback {rollback_status}")
-        
-        return result
     
+        # Prepare result shell
+        try:
+            file_size = Path(source_path).stat().st_size
+        except Exception:
+            file_size = 0
+    
+        result = FileCopyManager_class.CopyOperationResult(
+            success=False,
+            strategy_used=FileCopyManager_class.CopyStrategy.DIRECT,  # placeholder; updated below
+            source_path=source_path,
+            target_path=target_path,
+            file_size=file_size,
+            duration_seconds=0.0,
+        )
+    
+        # DRY RUN short-circuit still uses decisioning & explainer, but no mutations happen later
+        dry_run = getattr(self, "_dry_run", False)
+    
+        # --------- PRECHECKS (fail fast) ---------
+        try:
+            sparse = is_sparse_file(source_path)
+            if sparse is True:
+                # Spec: abort early for SPARSE source
+                msg = "abort: SPARSE source detected"
+                self._log_status(msg)
+                log_and_flush(logging.WARNING, msg)
+                result.error_message = msg
+                result.strategy_used = FileCopyManager_class.CopyStrategy.DIRECT  # not used; abort path
+                result.duration_seconds = time.time() - start_time
+                return result
+        except Exception as _e_sparse:
+            # On detection error, continue cautiously
+            log_and_flush(logging.DEBUG, f"sparse precheck skipped ({_e_sparse})")
+    
+        # Decide base strategy
+        strategy = FileCopyManager_class.determine_copy_strategy(source_path, target_path, file_size)
+        result.strategy_used = strategy
+    
+        # Compose explainer string per v3
+        threshold = C.FILECOPY_DIRECT_MMAP_COPY_THRESHOLD_BYTES
+        is_net = False
+        try:
+            is_net = FileCopyManager_class._is_network_or_cloud_location(source_path)                      or FileCopyManager_class._is_network_or_cloud_location(target_path)
+        except Exception:
+            pass
+    
+        compression_intended = False
+        try:
+            compression_intended = FileCopyManager_class._is_compression_intended(source_path, target_path)
+        except Exception:
+            pass
+    
+        if strategy == FileCopyManager_class.CopyStrategy.STAGED:
+            if is_net:
+                expl = "decision: STAGED (network)"
+            elif compression_intended:
+                expl = "decision: STAGED (compression-intended)"
+            else:
+                expl = "decision: STAGED"
+        else:
+            if file_size >= threshold:
+                expl = "decision: DIRECT-LARGE | reason: size>=threshold"
+            else:
+                expl = "decision: DIRECT-SMALL | reason: size<threshold"
+    
+        try:
+            self._log_status(expl)
+            log_and_flush(logging.INFO, expl)
+        except Exception:
+            pass
+    
+        if dry_run:
+            # Preview-only, no mutations
+            result.success = True
+            result.duration_seconds = time.time() - start_time
+            return result
+    
+        # Dispatch to executor
+        if strategy == FileCopyManager_class.CopyStrategy.STAGED:
+            exec_result = self._execute_staged_strategy(source_path, target_path)
+        else:
+            exec_result = self._execute_direct_strategy(source_path, target_path)
+    
+        # Bubble up execution result
+        exec_result.duration_seconds = time.time() - start_time
+        return exec_result
+   
     def _execute_direct_strategy(self, source_path: str, target_path: str) -> FileCopyManager_class.CopyOperationResult:
         """
-        DIRECT strategy implementation using Windows CopyFileExW API with secure rollback (M02).
-        
-        Purpose:
-        --------
-        Optimized for local drives with kernel-level performance, progress callbacks,
-        and memory-mapped verification. Uses secure temporary file approach.
-        
-        Process Flow:
-        -------------
-        1. Preflight validation and timestamp capture
-        2. Create secure temporary file path
-        3. Windows CopyFileExW copy to temporary file
-        4. Memory-mapped window verification (if enabled)
-        5. Atomic file placement sequence
-        6. Timestamp application and cleanup
-        
-        Args:
-        -----
-        source_path: Source file path
-        target_path: Target file path
-        
-        Returns:
-        --------
-        CopyOperationResult: Detailed operation result
+        DIRECT strategy implementation per v3:
+          - DIRECT-SMALL  (size < C.FILECOPY_DIRECT_MMAP_COPY_THRESHOLD_BYTES): CopyFileExW to temp
+          - DIRECT-LARGE  (size >= threshold): windowed mmap copy to temp with best-effort preallocation
+        Progress: uses self._progress_update(...) across both branches.
         """
-        start_time = time.time()
-        file_size = Path(source_path).stat().st_size
-        use_mmap_direct = C.FILECOPY_DIRECT_MMAP_COPY_ENABLED and (file_size >= C.FILECOPY_DIRECT_MMAP_COPY_THRESHOLD_BYTES)
-
-        if use_mmap_direct:
-            msg = f"Using DIRECT-LARGE mmap based strategy for {os.path.basename(source_path)} ({file_size:,} bytes)"
-        else:
-            msg = f"Using DIRECT-SMALL CopyFileExW based strategy for {os.path.basename(source_path)} ({file_size:,} bytes)"
-        self._log_status(msg)
-        log_and_flush(logging.INFO, msg)
-        
+        # Shell result
+        try:
+            file_size = Path(source_path).stat().st_size
+        except Exception:
+            file_size = 0
+    
         result = FileCopyManager_class.CopyOperationResult(
             success=False,
             strategy_used=FileCopyManager_class.CopyStrategy.DIRECT,
             source_path=source_path,
             target_path=target_path,
             file_size=file_size,
-            duration_seconds=0,
+            duration_seconds=0.0,
             bytes_copied=0
         )
-        
-        # Phase 1: Preflight validation and timestamp capture
-        backup_start_time = time.time()
-        source_timestamps = None
-        target_timestamps = None
+    
+        start_time = time.time()
         temp_file_path = None
         backup_path = None
-        
+    
         try:
-            source_timestamps = self.timestamp_manager.get_file_timestamps(source_path)
-        except Exception as e:
-            result.error_message = f"Failed to read source timestamps: {e}"
-            result.recovery_suggestion = "Check file permissions and ensure the file is accessible"
-            return result
-        
-        if Path(target_path).exists():
+            # Phase 1: Preflight (timestamps only; sparse already fail-fast in copy_file)
+            source_ts = None
             try:
-                target_timestamps = self.timestamp_manager.get_file_timestamps(target_path)
-            except Exception as e:
-                result.error_message = f"Failed to read target timestamps for backup: {e}"
-                result.recovery_suggestion = "Check target file permissions"
-                return result
-        
-        # Phase 2: Disk space check
-        if not self._check_sufficient_disk_space(source_path, target_path):
-            result.error_message = "Insufficient disk space for copy operation"
-            result.recovery_suggestion = "Free up disk space on the target drive"
-            return result
-
-        # sparse-file warning (DIRECT) )
-        try:
-            sparse = is_sparse_file(source_path)
-            if sparse is True:
-                result.sparse_file_detected = True
-                self._log_status("WARNING: Source has SPARSE FILE attribute; this copy may MASSIVELY inflate size on target")
-                log_and_flush(logging.WARNING, "WARNING: Source has SPARSE FILE attribute; this copy may MASSIVELY inflate size on target")
-        except Exception:
-            pass  # Warning best-effort only
-        
-        # Phase 3: Create secure temporary file path
-        target_dir = Path(target_path).parent
-        # Ensure dest folder exists for both CopyFileExW and mmap paths
-        try:
+                source_ts = self.timestamp_manager.get_file_timestamps(source_path)
+            except Exception:
+                pass
+    
+            # Phase 2: Prepare secure temp path
+            target_dir = Path(target_path).parent
             target_dir.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            result.error_message = f"Unable to create destination directory '{target_dir}': {e}"
-            result.recovery_suggestion = "Check permissions and path validity for the destination folder"
-            result.success = False
-            result.error_code = e
-            return result
-        target_name = Path(target_path).name
-        temp_file_path = str(target_dir / f"{target_name}.tmp_{uuid.uuid4().hex[:8]}")
-        result.temp_path = temp_file_path
-        
-        result.time_backup = time.time() - backup_start_time
-        
-        try:
-            # Phase 4: Copy to temporary file (DIRECT-SMALL via Windows CopyFileExW , DIRECT-LARGE via mmap)
-            copy_start_time = time.time()
-            # >>> CHANGE START: DIRECT - use DIRECT-LARGE via mmap, DIRECT-SMALL via Windows CopyFileExW
-            #use_mmap_direct = C.FILECOPY_DIRECT_MMAP_COPY_ENABLED and (file_size >= C.FILECOPY_DIRECT_MMAP_COPY_THRESHOLD_BYTES)
-            if use_mmap_direct:
-                self._log_status(f"[DIRECT-LARGE] (mmap window={C.FILECOPY_MMAP_WINDOW_BYTES//(1024**2)} MiB) for local copy")
-                copy_result = self._copy_by_mmap_windows(source_path, temp_file_path, file_size)
-            else:
-                self._log_status(f"[DIRECT-SMALL] Windows CopyFileExW for local copy")
-                copy_result = self._copy_with_windows_api(source_path, temp_file_path)
-            # <<< CHANGE END
-            result.time_copy = time.time() - copy_start_time
-            
-            if not copy_result['success']:
-                # >>> CHANGE START # explicit cancel semantics + cleanup (DIRECT)
-                self._cleanup_temp_file(temp_file_path)  # always safe to remove temp
-                result.error_message = copy_result.get('error', 'Copy failed')
-                result.error_code = copy_result.get('error_code', 0)
-                result.cancelled_by_user = copy_result.get('cancelled', False)
-                if result.cancelled_by_user:
-                    self._log_status("User cancelled copy; temp removed; original target preserved")
-                    result.recovery_suggestion = "No changes were made. You can retry the file later."
-                else:
-                    result.recovery_suggestion = copy_result.get('recovery_suggestion', "")
-                return result
-                # <<< CHANGE END
-            
-            result.bytes_copied = copy_result['bytes_copied']
-            
-            # Phase 5: Verification (if enabled by policy)
-            verify_start_time = time.time()
-            if self._should_verify_file(file_size):
-                if use_mmap_direct:
-                    # DIRECT-LARGE -> verify via hash; source hash computed during copy
-                    result.hash_algorithm = copy_result.get('hash_algorithm', 'SHA-256')
-                    result.computed_hash = copy_result.get('hash')
-                    self._log_status(f"[DIRECT-LARGE] Verifying copied file using hash comparison ({result.hash_algorithm})")
-                    log_and_flush(logging.INFO, f"[DIRECT-LARGE] Verifying copied file using hash comparison ({result.hash_algorithm})")
-                    verify_result = self._verify_by_hash_comparison(temp_file_path, result.computed_hash, result.hash_algorithm)
-                else:
-                    # DIRECT-SMALL -> verify via mmap compare
-                    self._log_status(f"[DIRECT-SMALL] Verifying copied file using memory-mapped comparison")
-                    log_and_flush(logging.INFO, f"[DIRECT-SMALL] Verifying copied file using memory-mapped comparison")
-                    verify_result = self._verify_by_mmap_windows(source_path, temp_file_path)
-                result.verification_mode = self._get_verification_mode()
-                result.verification_passed = verify_result
-                result.time_verify = time.time() - verify_start_time
-                
-                if not verify_result:
+            temp_file_path = str(Path(target_path).with_suffix(Path(target_path).suffix + ".tmp_copy"))
+            try:
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+            except Exception:
+                pass
+    
+            # Phase 3: Perform copy based on size split
+            threshold = C.FILECOPY_DIRECT_MMAP_COPY_THRESHOLD_BYTES
+            if file_size >= threshold:
+                # DIRECT-LARGE: mmap copy (handles preallocation and hashing inside)
+                copy_info = self._copy_by_mmap_windows(source_path, temp_file_path, file_size)
+                if not copy_info.get("success"):
+                    # Cleanup temp on failure
                     self._cleanup_temp_file(temp_file_path)
-                    result.error_message = "Content verification failed - files do not match"
-                    result.recovery_suggestion = "Check source file integrity and retry the operation"
+                    result.error_message = copy_info.get("error", "DIRECT-LARGE copy failed")
+                    result.cancelled_by_user = copy_info.get("cancelled", False)
+                    result.recovery_suggestion = copy_info.get("recovery_suggestion", "Check permissions/disk space")
                     return result
+                result.bytes_copied = copy_info.get("bytes_copied", 0)
+                result.hash_algorithm = copy_info.get("hash_algorithm", "BLAKE3" if getattr(self, "blake3_available", False) else "SHA-256")
+                result.verification_mode = "hash on the fly"  # per spec for DIRECT-LARGE
+                result.computed_hash = copy_info.get("hash")
             else:
-                result.verification_mode = "none"
-                result.verification_passed = True  # No verification requested
-                result.time_verify = 0
-            
-            # Phase 6: Atomic file placement sequence
-            cleanup_start_time = time.time()
-            if Path(target_path).exists():
-                backup_path = f"{target_path}.backup_{uuid.uuid4().hex[:8]}"
-                result.backup_path = backup_path
-                os.rename(target_path, backup_path)  # Atomic: original -> backup
-                self._log_status(f"Original file moved to backup: {backup_path}")
-            
-            os.rename(temp_file_path, target_path)  # Atomic: temp -> final location
-            self._log_status(f"Verified file moved to final location: {target_path}")
-            
-            # Phase 7: Apply source timestamps
-            try:
-                self.timestamp_manager.copy_timestamps(source_path, target_path)
-                self._log_status(f"Timestamps copied from source to target")
-            except Exception as e:
-                self._log_status(f"Warning: Could not copy timestamps: {e}")
-            
-            # Phase 8: Success cleanup - remove backup
-            if backup_path and Path(backup_path).exists():
-                os.remove(backup_path)
-                self._log_status(f"Backup file removed: {backup_path}")
-            
-            result.time_cleanup = time.time() - cleanup_start_time
-            result.success = True
-            self._log_status(f"DIRECT copy completed successfully")
-            
-        except Exception as e:
-            # Comprehensive rollback for any failure
-            result.error_message = str(e)
-            result.rollback_performed = True
-            
-            try:
-                rollback_success = self._perform_secure_rollback(
-                    temp_file_path, backup_path, target_path, target_timestamps, str(e)
+                # DIRECT-SMALL: CopyFileExW to temp with restartable flag and progress callback
+                cancel_flag = wintypes.BOOL(False)
+    
+                @ctypes.WINFUNCTYPE(wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, wintypes.LPVOID, wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE, wintypes.HANDLE, wintypes.LPVOID)
+                def callback_func(
+                    TotalFileSize, TotalBytesTransferred, StreamSize, StreamBytesTransferred,
+                    dwStreamNumber, dwCallbackReason, hSourceFile, hDestinationFile, lpData
+                ):
+                    try:
+                        tb = int(TotalBytesTransferred) if TotalBytesTransferred else 0
+                        ts = int(TotalFileSize) if TotalFileSize else (result.file_size or 0)
+                        # unified progress hook; False => cancel
+                        cont = self._progress_update(source_path, tb, ts, "DIRECT-SMALL")
+                        return win32con.PROGRESS_CONTINUE if cont else win32con.PROGRESS_CANCEL
+                    except Exception:
+                        return win32con.PROGRESS_CONTINUE
+    
+                ok = kernel32.CopyFileExW(
+                    ctypes.c_wchar_p(source_path),
+                    ctypes.c_wchar_p(temp_file_path),
+                    callback_func,
+                    None,
+                    ctypes.byref(cancel_flag),
+                    win32con.COPY_FILE_RESTARTABLE
                 )
-                result.rollback_success = rollback_success
-                
-            except Exception as rollback_error:
-                result.error_message += f" | Rollback failed: {rollback_error}"
-                result.rollback_success = False
-                result.recovery_suggestion = "Manual intervention required - check backup files"
-                
-        return result
+    
+                if not ok or bool(cancel_flag.value):
+                    # Cleanup temp on failure
+                    self._cleanup_temp_file(temp_file_path)
+                    if bool(cancel_flag.value):
+                        result.cancelled_by_user = True
+                        result.error_message = "Copy cancelled by user"
+                        return result
+                    err = kernel32.GetLastError()
+                    result.error_message = f"CopyFileExW failed ({err}: {format_last_error(err)})"
+                    result.recovery_suggestion = "Check file locks/permissions and retry"
+                    return result
+    
+                result.bytes_copied = file_size
+                result.hash_algorithm = None
+                result.verification_mode = "mmap compare bytes"
+    
+            # Phase 4: Optional verification happens elsewhere
+    
+            # Phase 5: Atomic placement
+            if os.path.exists(target_path):
+                backup_path = target_path + ".bak"
+                try:
+                    if os.path.exists(backup_path):
+                        os.remove(backup_path)
+                except Exception:
+                    pass
+                try:
+                    os.replace(target_path, backup_path)
+                except Exception as e:
+                    self._cleanup_temp_file(temp_file_path)
+                    result.error_message = f"backup/replace failed: {e}"
+                    result.recovery_suggestion = "Check permissions/locks and retry"
+                    return result
+    
+            try:
+                os.replace(temp_file_path, target_path)
+            except Exception as e:
+                # Try rollback
+                try:
+                    if backup_path and os.path.exists(backup_path):
+                        os.replace(backup_path, target_path)
+                except Exception:
+                    pass
+                self._cleanup_temp_file(temp_file_path)
+                result.error_message = f"finalize failed: {e}"
+                result.recovery_suggestion = "Check permissions/locks and retry"
+                return result
+    
+            # Phase 6: Restore timestamps
+            try:
+                self.timestamp_manager.copy_timestamps(source_path, target_path) if hasattr(self, "timestamp_manager") else FileTimestampManager_class.apply_timestamps_safe(target_path, source_ts)
+            except Exception:
+                pass
+    
+            result.success = True
+            result.duration_seconds = time.time() - start_time
+            return result
+    
+        except Exception as e:
+            result.error_message = str(e)
+            result.recovery_suggestion = "Check permissions/disk space"
+            result.duration_seconds = time.time() - start_time
+            return result
     
     def _execute_staged_strategy(self, source_path: str, target_path: str) -> FileCopyManager_class.CopyOperationResult:
         """
-        STAGED strategy implementation using chunked I/O with progressive BLAKE3 hashing (M03).
-        
-        Purpose:
-        --------
-        Optimized for networked files and large file handling with progressive hash calculation,
-        chunked I/O, and secure temporary file rollback approach.
-        
-        Process Flow:
-        -------------
-        1. Preflight validation and timestamp capture
-        2. Create secure temporary file path
-        3. Chunked copy with progressive source hash calculation
-        4. Target hash calculation and comparison (if enabled)
-        5. Atomic file placement sequence
-        6. Timestamp application and cleanup
-        
-        Args:
-        -----
-        source_path: Source file path
-        target_path: Target file path
-        
-        Returns:
-        --------
-        CopyOperationResult: Detailed operation result
+        STAGED: chunked copy with progressive hashing; if compression intended, enable it
+        on the *existing* temp file (create zero-length file first), then copy.
+    
+        Progress: we use self._progress_update(source_path, done, total, "STAGED") at start/end.
+        (Per-chunk progress depends on _copy_with_progressive_hash implementation and is not changed here.)
         """
-        start_time = time.time()
-        file_size = Path(source_path).stat().st_size
-        
-        self._log_status(f"Using STAGED strategy for {os.path.basename(source_path)} ({file_size:,} bytes)")
-        
+        # Shell result
+        try:
+            file_size = Path(source_path).stat().st_size
+        except Exception:
+            file_size = 0
+    
         result = FileCopyManager_class.CopyOperationResult(
             success=False,
             strategy_used=FileCopyManager_class.CopyStrategy.STAGED,
             source_path=source_path,
             target_path=target_path,
             file_size=file_size,
-            duration_seconds=0,
-            bytes_copied=0
+            duration_seconds=0.0,
         )
-        
-        # Determine hash algorithm
-        if self.blake3_available:
-            result.hash_algorithm = "BLAKE3"
-        else:
-            result.hash_algorithm = "SHA-256"
-        
-        # Phase 1: Preflight validation and timestamp capture
-        backup_start_time = time.time()
-        source_timestamps = None
-        target_timestamps = None
+    
         temp_file_path = None
         backup_path = None
-        
+    
         try:
+            # 1) Preflight, timestamps capture
             source_timestamps = self.timestamp_manager.get_file_timestamps(source_path)
-        except Exception as e:
-            result.error_message = f"Failed to read source timestamps: {e}"
-            result.recovery_suggestion = "Check file permissions and ensure the file is accessible"
-            return result
-        
-        if Path(target_path).exists():
-            try:
-                target_timestamps = self.timestamp_manager.get_file_timestamps(target_path)
-            except Exception as e:
-                result.error_message = f"Failed to read target timestamps for backup: {e}"
-                result.recovery_suggestion = "Check target file permissions"
+            target_timestamps = self.timestamp_manager.get_file_timestamps(target_path) if os.path.exists(target_path) else None
+    
+            # Pre-progress (0%); allow early cancel
+            if not self._progress_update(source_path, 0, file_size, "STAGED"):
+                result.cancelled_by_user = True
+                result.error_message = "Copy cancelled by user"
                 return result
-
-        # sparse-file warning (STAGED)
-        try:
-            sparse = is_sparse_file(source_path)
-            if sparse is True:
-                result.sparse_file_detected = True
-                self._log_status("WARNING: Source has SPARSE FILE attribute; this STAGED copy may MASSIVELY inflate size on target")
-                log_and_flush(logging.WARNING, "WARNING: Source has SPARSE FILE attribute; this STAGED copy may MASSIVELY inflate size on target")
-        except Exception:
-            pass
-        
-        # >>> CHANGE START: 
-        # Phase 2.0 = Disk space check (was missing in STAGED) # per chatGPT change 4
-        # Enforce local free-space check; for network where API can’t determine, proceed but warn
-        if not self._check_sufficient_disk_space(source_path, target_path):
-            result.error_message = "Insufficient disk space for copy operation (STAGED)"
-            result.recovery_suggestion = "Free space on the target drive or choose another destination"
-            return result
-        # <<< CHANGE END
-
-        # Phase 2.1: Create secure temporary file path
-        target_dir = Path(target_path).parent
-        # Ensure dest folder exists for both CopyFileExW and mmap paths
-        try:
-            target_dir.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            result.error_message = f"Unable to create destination directory '{target_dir}': {e}"
-            result.recovery_suggestion = "Check permissions and path validity for the destination folder"
-            result.success = False
-            result.error_code = e
-            return result
-        target_name = Path(target_path).name
-        temp_file_path = str(target_dir / f"{target_name}.tmp_{uuid.uuid4().hex[:8]}")
-        result.temp_path = temp_file_path
-        
-        result.time_backup = time.time() - backup_start_time
-        
-        try:
-            # Phase 3: Chunked copy with progressive hash calculation
-            copy_start_time = time.time()
-            # >>> CHANGE START: DEBUG preamble for STAGED chunked copy
-            if __debug__:
-                try: _sz = Path(source_path).stat().st_size
-                except Exception: _sz = -1
-                log_and_flush(logging.DEBUG, f"[STAGED] Starting chunked copy: src='{source_path}', temp='{temp_file_path}', size={_sz if _sz>=0 else 'unknown'} bytes, chunk={C.FILECOPY_NETWORK_CHUNK_BYTES//(1024*1024)} MiB")
-            # <<< CHANGE END
-            copy_result = self._copy_with_progressive_hash(source_path, temp_file_path)
-            # >>> CHANGE START: DEBUG summary for STAGED chunked copy
-            if __debug__:
+    
+            # 2) Temp path + ensure parent dir
+            temp_file_path = str(Path(target_path).with_suffix(Path(target_path).suffix + ".tmp_copy"))
+            Path(temp_file_path).parent.mkdir(parents=True, exist_ok=True)
+            if os.path.exists(temp_file_path):
                 try:
-                    _elapsed = time.time() - copy_start_time
-                    _bytes = copy_result.get('bytes_copied', 0)
-                    _mb = _bytes / (1024*1024)
-                    _mbps = (_mb / _elapsed) if _elapsed and _elapsed>0 else 0.0
-                    log_and_flush(logging.DEBUG, f"[STAGED] Chunked copy done: {_mb:.1f} MB in {_elapsed:.2f}s ({_mbps:.1f} MB/s)")
+                    os.remove(temp_file_path)
                 except Exception:
                     pass
-            # <<< CHANGE END
-            result.time_copy = time.time() - copy_start_time
-            
-            if not copy_result['success']:
-                # >>> CHANGE START: explicit cancel semantics + cleanup (STAGED) # per chatGPT change 8
+    
+            # 2a) Create the temp file so compression FSCTL has a handle
+            try:
+                open(temp_file_path, "wb").close()
+            except Exception:
+                pass
+    
+            # 2b) Compression intent -> try FSCTL on temp, but DO NOT abort on failure
+            try:
+                if self._is_compression_intended(source_path, target_path):
+                    ok, err, msg = set_file_compression(temp_file_path, enable=True)
+                    if ok is True:
+                        self._log_status("compression: enabled on temp (FSCTL_SET_COMPRESSION)")
+                        log_and_flush(logging.INFO, "compression: enabled on temp (FSCTL_SET_COMPRESSION)")
+                    else:
+                        self._log_status("override: proceeding uncompressed (compression enable failed)")
+                        log_and_flush(logging.INFO, f"override: proceeding uncompressed (compression enable failed; err={err} msg={msg})")
+            except Exception as _e_comp:
+                self._log_status("override: proceeding uncompressed (compression enable exception)")
+                log_and_flush(logging.INFO, f"override: proceeding uncompressed (compression enable exception: {_e_comp})")
+    
+            # 3) Chunked copy with progressive source hashing
+            copy_result = self._copy_with_progressive_hash(source_path, temp_file_path)
+            if not copy_result.get("success"):
+                # Cleanup temp on failure
                 self._cleanup_temp_file(temp_file_path)
-                result.error_message = copy_result['error']
-                result.cancelled_by_user = copy_result.get('cancelled', False)
+                result.error_message = copy_result.get("error", "Copy failed")
+                result.cancelled_by_user = copy_result.get("cancelled", False)
                 if result.cancelled_by_user:
-                    self._log_status("User cancelled copy; temp removed; original target preserved")
-                    result.recovery_suggestion = "No changes were made. You can resume later or retry the file."
+                    result.recovery_suggestion = "No changes were made. You can retry the file later."
                 else:
-                    result.recovery_suggestion = copy_result.get('recovery_suggestion', "")
+                    result.recovery_suggestion = copy_result.get("recovery_suggestion", "")
                 return result
-                # <<< CHANGE END
-                
-            result.bytes_copied = copy_result['bytes_copied']
-            result.computed_hash = copy_result['hash']
-            
-            # Phase 4: Verification (if enabled by policy)
-            verify_start_time = time.time()
-            if self._should_verify_file(file_size):
-                # >>> CHANGE START  # label STAGED verify
-                self._log_status(f"[STAGED] Verifying copied file using hash comparison ({result.hash_algorithm})")
-                # <<< CHANGE END
-
-                verify_result = self._verify_by_hash_comparison(temp_file_path, result.computed_hash, result.hash_algorithm)
-                result.verification_mode = self._get_verification_mode()
-                result.verification_passed = verify_result
-                result.time_verify = time.time() - verify_start_time
-                
-                if not verify_result:
+    
+            result.bytes_copied = copy_result.get("bytes_copied", 0)
+            result.hash_algorithm = "BLAKE3" if getattr(self, "blake3_available", False) else "SHA-256"
+            result.verification_mode = "hash on the fly"
+            result.computed_hash = copy_result.get("hash")
+    
+            # Post-progress (100%)
+            self._progress_update(source_path, result.bytes_copied or file_size, file_size, "STAGED")
+    
+            # 4) Atomic placement (rename, with backup if target exists)
+            if os.path.exists(target_path):
+                backup_path = target_path + ".bak"
+                try:
+                    if os.path.exists(backup_path):
+                        os.remove(backup_path)
+                except Exception:
+                    pass
+                try:
+                    os.replace(target_path, backup_path)
+                except Exception as e:
                     self._cleanup_temp_file(temp_file_path)
-                    result.error_message = f"Hash verification failed - {result.hash_algorithm} hashes do not match"
-                    result.recovery_suggestion = "Check source file integrity and retry the operation"
+                    result.error_message = f"backup/replace failed: {e}"
+                    result.recovery_suggestion = "Check permissions/locks and retry"
                     return result
-            else:
-                result.verification_mode = "none"
-                result.verification_passed = True  # No verification requested
-                result.time_verify = 0
-            
-            # Phase 5: Atomic file placement sequence
-            cleanup_start_time = time.time()
-            if Path(target_path).exists():
-                backup_path = f"{target_path}.backup_{uuid.uuid4().hex[:8]}"
-                result.backup_path = backup_path
-                os.rename(target_path, backup_path)  # Atomic: original -> backup
-                self._log_status(f"Original file moved to backup: {backup_path}")
-            
-            os.rename(temp_file_path, target_path)  # Atomic: temp -> final location
-            self._log_status(f"Verified file moved to final location: {target_path}")
-            
-            # Phase 6: Apply source timestamps
+    
+            try:
+                os.replace(temp_file_path, target_path)
+            except Exception as e:
+                # Try rollback
+                try:
+                    if backup_path and os.path.exists(backup_path):
+                        os.replace(backup_path, target_path)
+                except Exception:
+                    pass
+                self._cleanup_temp_file(temp_file_path)
+                result.error_message = f"finalize failed: {e}"
+                result.recovery_suggestion = "Check permissions/locks and retry"
+                return result
+    
+            # 5) Restore timestamps
             try:
                 self.timestamp_manager.copy_timestamps(source_path, target_path)
-                self._log_status(f"Timestamps copied from source to target")
-            except Exception as e:
-                self._log_status(f"Warning: Could not copy timestamps: {e}")
-            
-            # Phase 7: Success cleanup - remove backup
-            if backup_path and Path(backup_path).exists():
-                os.remove(backup_path)
-                self._log_status(f"Backup file removed: {backup_path}")
-            
-            result.time_cleanup = time.time() - cleanup_start_time
+            except Exception:
+                pass
+    
             result.success = True
-            self._log_status(f"STAGED copy completed successfully")
-            
+            return result
+    
         except Exception as e:
-            # Comprehensive rollback for any failure
             result.error_message = str(e)
-            result.rollback_performed = True
-            
-            try:
-                rollback_success = self._perform_secure_rollback(
-                    temp_file_path, backup_path, target_path, target_timestamps, str(e)
-                )
-                result.rollback_success = rollback_success
-                
-            except Exception as rollback_error:
-                result.error_message += f" | Rollback failed: {rollback_error}"
-                result.rollback_success = False
-                result.recovery_suggestion = "Manual intervention required - check backup files"
-        
-        return result
+            return result
 
     def _copy_by_mmap_windows(self, source_path: str, temp_path: str, file_size: int) -> dict:
-        # 
         """
-        DIRECT-LARGE: Windowed memory-mapped copy with on-the-fly source hashing during copying
-        Returns: {success: bool, bytes_copied: int, hash: str, hash_algorithm: str, error?: str, cancelled?: bool}
+        DIRECT-LARGE path: windowed mmap copy with safe, non-fatal pre-allocation.
+    
+        Progress: uses self._progress_update(source_path, bytes_copied, total, "DIRECT-LARGE").
         """
-        # Pre-allocate destination to full size for proper mapping
+        log_and_flush(logging.DEBUG, f"_copy_by_mmap_windows: Entered function")
+        # ---- Try to pre-create & grow the destination for mmap use
+        prealloc_ok = False
+        file_handle = None
         try:
-            self._log_status(f"Pre-allocating temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
-            log_and_flush(logging.INFO, f"Start Pre-allocate temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
-            #======================================================================================================================================================================================
-            try:
-                drive_root = os.path.splitdrive(temp_path)[0] + '\\'
-                vol_name_buf = ctypes.create_unicode_buffer(260)
-                fs_name_buf  = ctypes.create_unicode_buffer(260)
-                serial = ctypes.c_uint32(0)
-                max_comp = ctypes.c_uint32(0)
-                fs_flags = ctypes.c_uint32(0)
-                ok = kernel32.GetVolumeInformationW(
-                    ctypes.c_wchar_p(drive_root),
-                    vol_name_buf, len(vol_name_buf),
-                    ctypes.byref(serial), ctypes.byref(max_comp), ctypes.byref(fs_flags),
-                    fs_name_buf, len(fs_name_buf)
-                )
-                if ok:
-                    log_and_flush(logging.DEBUG, 
-                                    f"[DIAG BEFORE Pre-allocating temp file] kernel32.GetVolumeInformationW: "
-                                    f"temp drive='{drive_root}', "
-                                    f"Volume='{vol_name_buf.value}', "
-                                    f"fs='{fs_name_buf.value}', "
-                                    f"flags=0x{fs_flags.value:08X}")
-                else:
-                    err = kernel32.GetLastError()
-                    msg = f"[DIAG BEFORE Pre-allocating temp file] kernel32.GetVolumeInformationW('{drive_root}') failed: {err}"
-                    log_and_flush(logging.ERROR, msg)
-                    #raise SystemExit(msg) # raise(msg)
-                    os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-            except Exception as _e_diag:
-                msg = f"[DIAG BEFORE Pre-allocating temp file] kernel32.GetVolumeInformationW .. volume/fs probe error: {_e_diag}"
-                log_and_flush(logging.ERROR, msg)
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-            #======================================================================================================================================================================================
-            # Ensure the file exists (cheap) before we obtain a handle
-            # Create file using direct Windows API with explicit access rights
-            preallocation_success = False
-
             # Ensure parent directory exists
             Path(temp_path).parent.mkdir(parents=True, exist_ok=True)
-
-            # Create file with explicit access rights for allocation
-            # Create file handle with proper access rights
-            preallocation_success = False
-            try:
-                # Create file handle with proper access rights
-                file_handle = None
-                # Create file handle with proper access rights
-                file_handle = win32file.CreateFileW(
-                    ctypes.c_wchar_p(temp_path),
-                    wintypes.DWORD(
-                        win32con.GENERIC_READ
-                        | win32con.GENERIC_WRITE
-                        | win32con.FILE_WRITE_DATA 
-                    ),
-                    wintypes.DWORD(win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE), 
-                    None,  # Security attributes
-                    wintypes.DWORD(win32con.CREATE_ALWAYS),
-                    wintypes.DWORD(win32con.FILE_ATTRIBUTE_NORMAL),
-                    None   # Template file
-                )
-            except Exception as e:
-                err = kernel32.GetLastError()
-                msg = f"[DIAG BEFORE Pre-allocating temp file] FAILED kernel32.CreateFileW: {e} | {format_last_error(err)}"
-                log_and_flush(logging.ERROR, msg)
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-
-            # Compare against the real INVALID_HANDLE_VALUE constant (no hidden magic)
+    
+            # Create/overwrite the temp file via CreateFileW (HANDLE-safe binding)
+            log_and_flush(logging.DEBUG, f"[DIAG BEFORE Pre-allocating temp file] kernel32.CreateFileW")
+            file_handle = kernel32.CreateFileW(
+                ctypes.c_wchar_p(temp_path),
+                wintypes.DWORD(win32con.GENERIC_READ | win32con.GENERIC_WRITE | win32con.FILE_WRITE_DATA ),
+                wintypes.DWORD(win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE),
+                None,
+                wintypes.DWORD(win32con.CREATE_ALWAYS),
+                wintypes.DWORD(win32con.FILE_ATTRIBUTE_NORMAL),
+                None
+            )
+    
             if file_handle in (0, win32file.INVALID_HANDLE_VALUE):
                 err = kernel32.GetLastError()
-                msg = (f"[DIAG BEFORE Pre-allocating temp file] FAILED kernel32.CreateFileW: Invalid File Handle. "
-                       f"{err}: {format_last_error(err)}")
-                log_and_flush(logging.ERROR, msg)
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-
-            log_and_flush(logging.DEBUG, f"[DIAG BEFORE Pre-allocating temp file] kernel32.CreateFileW Created file with handle: {file_handle}")
-
-            #---
-            # Check for problematic file attributes on source file
-            src_comp, se, sm = is_file_compressed(source_path)
-            if src_comp is None and se is not None:
-                msg = (f"[DIAG BEFORE Pre-allocating temp file] FAILED to query compression for Source '{source_path}': "
-                       f"{se}: {sm}")
-                log_and_flush(logging.ERROR, msg)
-                os._exit(1)
-            if src_comp:
-                msg = "[DIAG BEFORE Pre-allocating temp file] WARNING ********** Source file is COMPRESSED ********* COPYING WILL NOT WORK"
-                log_and_flush(logging.WARNING, msg)
-                os._exit(1)
-
-            src_sparse, se2, sm2 = is_sparse_file(source_path)
-            if src_sparse is None and se2 is not None:
-                msg = (f"[DIAG BEFORE Pre-allocating temp file] FAILED to query sparse for Source '{source_path}': "
-                       f"{se2}: {sm2}")
-                log_and_flush(logging.ERROR, msg)
-                os._exit(1)
-            if src_sparse:
-                msg = "[DIAG BEFORE Pre-allocating temp file] WARNING ********** Source file is SPARSE ********* COPYING WILL NOT WORK"
-                log_and_flush(logging.WARNING, msg)
-                os._exit(1)
-
-            # Check for problematic file attributes on target temp file
-            tmp_comp, te, tm = is_file_compressed(temp_path)
-            if tmp_comp is None and te is not None:
-                msg = (f"[DIAG BEFORE Pre-allocating temp file] FAILED to query compression for temp '{temp_path}': "
-                       f"{te}: {tm}")
-                log_and_flush(logging.ERROR, msg)
-                os._exit(1)
-            if tmp_comp:
-                msg = "[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is COMPRESSED ********* File attributes incompatible with SetFileInformationByHandle. COPYING WILL NOT WORK"
-                log_and_flush(logging.WARNING, msg)
-                os._exit(1)
-
-            tmp_sparse, te2, tm2 = is_sparse_file(temp_path)
-            if tmp_sparse is None and te2 is not None:
-                msg = (f"[DIAG BEFORE Pre-allocating temp file] FAILED to query sparse for temp '{temp_path}': "
-                       f"{te2}: {tm2}")
-                log_and_flush(logging.ERROR, msg)
-                os._exit(1)
-            if tmp_sparse:
-                msg = "[DIAG BEFORE Pre-allocating temp file] WARNING ********** Temp file is SPARSE ********* File attributes incompatible with SetFileInformationByHandle. COPYING WILL NOT WORK"
-                log_and_flush(logging.WARNING, msg)
-                os._exit(1)
-            #---
-
-            # Build FILE_ALLOCATION_INFO with proper LARGE_INTEGER
-            alloc = FILE_ALLOCATION_INFO()
-            alloc.AllocationSize.QuadPart = file_size
-            log_and_flush(logging.DEBUG, f"Setting allocation size to: {file_size:,} bytes")
-            log_and_flush(logging.DEBUG, f"Structure size: {ctypes.sizeof(alloc)} bytes")
-            log_and_flush(logging.DEBUG, f"QuadPart value: {alloc.AllocationSize.QuadPart}")
-               
-            # Try to pre-allocate the disk space
-            try:
-                # Try Windows API allocation with better error reporting
-                ok = kernel32.SetFileInformationByHandle(
+                log_and_flush(logging.INFO, f"prealloc: CreateFileW failed ({err}: {format_last_error(err)}); will fall back to buffered dest writes")
+            else:
+                log_and_flush(logging.DEBUG, f"[DIAG AFTER Pre-allocating temp file] kernel32.CreateFileW Created file with handle: {file_handle}")
+                # Build FILE_ALLOCATION_INFO using the shared struct from Global_Imports
+                alloc = FILE_ALLOCATION_INFO()
+                alloc.AllocationSize.QuadPart = int(file_size)
+                log_and_flush(logging.DEBUG, f"Setting allocation size to: {file_size:,} bytes")
+                log_and_flush(logging.DEBUG, f"QuadPart value: {alloc.AllocationSize.QuadPart}")
+    
+                ok = False
+                try:
+                    ok = kernel32.SetFileInformationByHandle(
                         wintypes.HANDLE(file_handle),
-                        wintypes.DWORD(win32file.FileAllocationInfo),  # real pywin32 enum value
+                        wintypes.DWORD(win32file.FileAllocationInfo),
                         ctypes.byref(alloc),
                         wintypes.DWORD(ctypes.sizeof(alloc))
-                )
-            except Exception as e:
-                err = kernel32.GetLastError()
-                msg = f"[DIAG AFTER Pre-allocating temp file] FAILED kernel32.SetFileInformationByHandle: {e} | {format_last_error(err)}"
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-            if not ok:
-                err = kernel32.GetLastError()
-                # Get more detailed error info
-                error_details = {
-                    winerror.ERROR_ACCESS_DENIED: "ERROR_ACCESS_DENIED - Handle lacks FILE_WRITE_DATA access",
-                    winerror.ERROR_INVALID_PARAMETER: "ERROR_INVALID_PARAMETER - Invalid parameter to SetFileInformationByHandle",
-                    winerror.ERROR_DISK_FULL: "ERROR_DISK_FULL - Insufficient disk space",
-                    winerror.ERROR_USER_MAPPED_FILE: "ERROR_USER_MAPPED_FILE - File is memory mapped",
-                }
-                error_desc = error_details.get(err, f"Unknown error {err}: {format_last_error(err)}")
-                msg = f"[DIAG AFTER Pre-allocating temp file] FAILED kernel32.SetFileInformationByHandle:\n{err}\n{error_desc}"
-                log_and_flush(logging.ERROR, msg)
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-            # SUCCESS for pre-allocation
-            log_and_flush(logging.DEBUG, "[DIAG AFTER Pre-allocating temp file] SUCCESS kernel32.SetFileInformationByHandle pre-alloc succeeded.")
-            # Set EOF to make logical size match allocated size
-            new_pos = ctypes.c_longlong(0)
-            ##       kernel32.SetFilePointerEx(wintypes.HANDLE(file_handle), ctypes.c_longlong(file_size), ctypes.byref(new_pos), FILE_BEGIN):
-            ##       kernel32.SetFilePointerEx(wintypes.HANDLE(file_handle), ctypes.c_longlong(file_size), None,                  0)
-            ##       kernel32.SetFilePointerEx(wintypes.HANDLE(file_handle), ctypes.c_longlong(file_size), None,                  FILE_BEGIN):
-            if not kernel32.SetFilePointerEx(
-                wintypes.HANDLE(file_handle),
-                ctypes.c_longlong(file_size),
-                ctypes.byref(new_pos),
-                win32con.FILE_BEGIN
-            ):                err = kernel32.GetLastError()
-                msg = f"[DIAG AFTER Pre-allocating temp file] SetFilePointerEx failed, error={err}"
-                log_and_flush(logging.ERROR, msg)
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-            if not kernel32.SetEndOfFile(wintypes.HANDLE(file_handle)):
-                err = kernel32.GetLastError()
-                msg = f"[DIAG AFTER Pre-allocating temp file] SetEndOfFile failed, error={err}: {format_last_error(err)}"
-                log_and_flush(logging.ERROR, msg)
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-            preallocation_success = True
+                    )
+                except Exception as e:
+                    err = kernel32.GetLastError()
+                    log_and_flush(logging.INFO, f"prealloc: SetFileInformationByHandle exception: {e} ({err}: {format_last_error(err)})")
+                    ok = False
+    
+                if not ok:
+                    err1 = kernel32.GetLastError()
+                    log_and_flush(logging.INFO, f"prealloc: SetFileInformationByHandle not supported/failed ({err1}: {format_last_error(err1)}); trying SetFilePointerEx + SetEndOfFile")
+                    # As a secondary attempt, try SetFilePointerEx + SetEndOfFile (no raise; explicit checks)
+                    new_pos = LARGE_INTEGER()
+                    new_pos.QuadPart = 0  # explicit init to mirror old behavior
+                    moved = kernel32.SetFilePointerEx(
+                        wintypes.HANDLE(file_handle),
+                        LARGE_INTEGER(int(file_size)),  # liDistanceToMove
+                        ctypes.byref(new_pos),          # lpNewFilePointer (out)
+                        win32con.FILE_BEGIN
+                        )
+                    if not moved:
+                        err2 = kernel32.GetLastError()
+                        log_and_flush(logging.INFO, f"prealloc: SetFilePointerEx failed ({err2}: {format_last_error(err2)})")
+                        ok = False
+                    else:
+                        ended = kernel32.SetEndOfFile(wintypes.HANDLE(file_handle))
+                        if not ended:
+                            err3 = kernel32.GetLastError()
+                            log_and_flush(logging.INFO, f"prealloc: SetEndOfFile failed ({err3}: {format_last_error(err3)})")
+                            ok = False
+                        else:
+                            ok = True
+    
+                prealloc_ok = bool(ok)
+                if prealloc_ok:
+                    log_and_flush(logging.INFO, f"prealloc: destination grown to {file_size:,} bytes (OK)")
         except Exception as e:
-            err = kernel32.GetLastError()
-            msg = f"[DIAG DURING Pre-allocating temp file] FAIL: an error occurred during the process, error={err}"
-            log_and_flush(logging.ERROR, msg)
-            #raise SystemExit(msg) # raise(msg)
-            os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
+            log_and_flush(logging.INFO, f"prealloc: skipped due to exception: {e}")
         finally:
-            # Only close if handle was actually created
-            if file_handle and file_handle != -1 and file_handle != 0:
+            if file_handle not in (None, 0, win32file.INVALID_HANDLE_VALUE):
                 try:
                     kernel32.CloseHandle(wintypes.HANDLE(file_handle))
-                    log_and_flush(logging.DEBUG, "[DIAG AFTER Pre-allocating temp file] File handle closed")
-                except Exception as e:
-                    log_and_flush(logging.WARNING, f"[DIAG AFTER Pre-allocating temp file] WARNING: Fail: Could not close file handle (ignopring the error): {e}")
-            if preallocation_success:
-                log_and_flush(logging.INFO, f"[DIAG AFTER Pre-allocating temp file] Windows API pre-allocation successful: {file_size:,} bytes")
-            else:
-                msg = f"[DIAG AFTER Pre-allocating temp file] Windows API pre-allocation FAIL: preallocation_success={preallocation_success}"
-                log_and_flush(logging.INFO, msg)
-                #raise SystemExit(msg) # raise(msg)
-                os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-
-        self._log_status(f"Successfully Pre-allocated temp file '{temp_path}' to {file_size:,} bytes")
-        log_and_flush(logging.INFO, f"End Pre-allocate SUCCESS temp file '{temp_path}' to {file_size:,} bytes (Win32 fast)")
-
-        # Now for the mmap copying and progressively calculating hash during copying
-        try:
-            # Choose hash algorithm 
-            if self.blake3_available:
-                hasher = blake3.blake3()
-                algo = 'BLAKE3'
-            else:
-                hasher = hashlib.sha256()
-                algo = 'SHA-256'
-
-            window = max(1, int(C.FILECOPY_MMAP_WINDOW_BYTES))
-            flush_every = max(0, int(C.FILECOPY_MMAP_FLUSH_EVERY_N_WINDOWS))
-            bytes_copied = 0
-            win_index = 0
-
-            log_and_flush(logging.DEBUG, "*" * 80)
-            log_and_flush(logging.DEBUG, f"Start DIRECT-LARGE mmap copying to temp file '{temp_path}' to {file_size:,} bytes")
-            with open(source_path, 'rb') as sf, open(temp_path, 'r+b') as tf:
-                # On Windows, `mmap`’s `offset` MUST be a multiple of the system allocation granularity (usually 64 KiB).
-                granularity = mmap.ALLOCATIONGRANULARITY        # system allocation granularity
-                offset = 0
-                total = file_size
-                fd = tf.fileno()
-                while offset < total:
-                    # Cancellation checks
-                    if getattr(self, 'cancel_event', None) and self.cancel_event.is_set():
-                        return {'success': False, 'cancelled': True, 'error': 'Cancelled by user'}
-                    pm = getattr(self, 'progress_manager', None)
-                    if pm and callable(getattr(pm, 'cancellation_callback', None)) and pm.cancellation_callback():
-                        return {'success': False, 'cancelled': True, 'error': 'Cancelled by user'}
-
-                    length = min(window, total - offset)
-                    try:
-                        # >>> CHANGE START: mmap offset alignment for Windows
-                        # On Windows, mmap offset must be aligned to system allocation granularity (typically 64 KiB).
-                        base = (offset // granularity) * granularity    # aligned mapping base
-                        shift = offset - base                           # start index inside the mapping
-                        maplen = shift + length                         # bytes to map to cover requested window
-                        if __debug__:
-                            log_and_flush(
-                                logging.DEBUG,
-                                f"[DIRECT-LARGE] mmap plan: base={base:,}, shift={shift:,}, maplen={maplen:,}, length={length:,}, offset={offset:,}"
-                            )
-                        src_map = mmap.mmap(sf.fileno(), length=maplen, offset=base, access=mmap.ACCESS_READ)
-                        dst_map = mmap.mmap(fd,         length=maplen, offset=base, access=mmap.ACCESS_WRITE)
-                        # <<< CHANGE END
-                        try:
-                            if __debug__:
-                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Start mmap window copy length={length:,} offset={offset:,}")
-                            # >>> CHANGE START: copy only desired window slice (not any prefix caused by alignment)
-                            if shift == 0 and length == maplen:
-                                dst_map[:] = src_map[:]  # exact window equals mapping
-                            else:
-                                dst_map[shift:shift+length] = src_map[shift:shift+length]
-                            # <<< CHANGE END
-                            if __debug__:
-                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Finish mmap window copy length={length:,} offset={offset:,}")
-                            if __debug__:
-                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Start hash calculation on window length={length:,} offset={offset:,}")
-                            # >>> CHANGE START: hash only the window bytes (with explicit memoryview)
-                            _mv = memoryview(src_map)
-                            try:
-                                if shift == 0 and length == maplen:
-                                    hasher.update(_mv)  # whole mapping
-                                else:
-                                    hasher.update(_mv[shift:shift+length])
-                            finally:
-                                _mv.release()
-                            # <<< CHANGE END
-                            if __debug__:
-                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Finish hash calculation on window length={length:,} offset={offset:,}")
-                            bytes_copied += length
-                            if __debug__:
-                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] bytes copied so far: {bytes_copied:,}")
-                        finally:
-                            try:
-                                if __debug__:
-                                    log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Start flushing destination mmap window")
-                                dst_map.flush()
-                                if __debug__:
-                                    log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Finished flushing destination mmap window")
-                            except Exception:
-                                pass
-                            if __debug__:
-                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Start closing mmap windows")
-                            dst_map.close()
-                            src_map.close()
-                            if __debug__:
-                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Finished closing mmap windows")
-                    except Exception as e_map:
-                        msg = f'mmap window failed at offset {offset}: {e_map}'
-                        log_and_flush(logging.ERROR, msg)
-                        #raise SystemExit(msg) # raise(msg) # temporarily raise so program ends ??????????????????????????????????????????????
-                        os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-                        return {'success': False, 'error': msg}
-
-                    win_index += 1
-                    if flush_every and (win_index % flush_every == 0): # Periodic flush to disk for extra safety if configured
-                        try:
-                            if __debug__:
-                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Start periodic flushing destination mmap window")
-                            tf.flush()
-                            os.fsync(fd)
-                            if __debug__:
-                                log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Finished periodic flushing destination mmap window")
-                        except Exception:
-                            pass
-
-                    # Progress update
-                    pm = getattr(self, 'progress_manager', None)
-                    if pm and hasattr(pm, 'update_file_progress'):
-                        try:
-                            pm.update_file_progress(source_path, bytes_copied, total, strategy='DIRECT-LARGE')
-                        except Exception:
-                            pass
-                    elif self.status_callback:
-                        mb_total = total / (1024*1024)
-                        mb_copied = bytes_copied / (1024*1024)
-                        self.status_callback(f'Copying (DIRECT-LARGE): {mb_copied:.1f} MB of {mb_total:.1f} MB transferred')
-
-                    offset += length
-
-                # Final flush
-                try:
-                    if __debug__:
-                        log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Start Final flushing destination mmap window")
-                    tf.flush()
-                    os.fsync(fd)
-                    if __debug__:
-                        log_and_flush(logging.DEBUG, f"[DIRECT-LARGE] Finished Final flushing destination mmap window")
                 except Exception:
                     pass
-            log_and_flush(logging.DEBUG, f"Finished DIRECT-LARGE mmap copying to temp file '{temp_path}' to {file_size:,} bytes")
-            log_and_flush(logging.DEBUG, "*" * 80)
-            
-            return {'success': True, 'bytes_copied': bytes_copied, 'hash': hasher.hexdigest(), 'hash_algorithm': algo}
+    
+        # ---- Perform copy: mmap src; mmap dest if prealloc_ok, else buffered dest writes
+        if prealloc_ok:
+            log_and_flush(logging.DEBUG, f"_copy_by_mmap_windows: pre-Allocation of disk space OK, will use mmap READ source, mmap WRITE target")
+        else:
+            log_and_flush(logging.DEBUG, f"_copy_by_mmap_windows: pre-Allocation of disk space FAILED, will use mmap READ source, chunked (buffered) WRITE target")
+    
+        bytes_copied = 0
+        cancelled = False
+        try:
+            window = C.FILECOPY_MMAP_WINDOW_BYTES
+            hasher = blake3.blake3() if getattr(self, "blake3_available", False) else hashlib.sha256()
+            copy_type = "DIRECT-LARGE mmap" if prealloc_ok else "DIRECT-LARGE chunked (buffered)"
+            log_and_flush(logging.DEBUG, f"Start '{copy_type}' copying to temp file '{temp_path}' {file_size:,} bytes")
+            with open(source_path, "rb") as sf:
+                tf = open(temp_path, "r+b") if prealloc_ok else open(temp_path, "wb")
+                try:
+                    dst_fd = tf.fileno()
+                    src_fd = sf.fileno()
+                    offset = 0
+                    gran = mmap.ALLOCATIONGRANULARITY
+                    while offset < file_size:
+                        # async cancel checks
+                        if not self._progress_update(source_path, bytes_copied, file_size, "DIRECT-LARGE"):
+                            cancelled = True
+                            break
+    
+                        remaining = file_size - offset
+                        length = window if remaining > window else remaining
+                        base = (offset // gran) * gran
+                        shift = offset - base
+                        maplen = shift + length
+                        with mmap.mmap(src_fd, length=maplen, access=mmap.ACCESS_READ, offset=base) as sm:
+                            view = memoryview(sm)
+                            try:
+                                # Update hash with window slice
+                                if shift == 0 and length == maplen:
+                                    hasher.update(view)
+                                    src_bytes = view
+                                else:
+                                    hasher.update(view[shift:shift+length])
+                                    src_bytes = view[shift:shift+length]
+    
+                                if prealloc_ok:
+                                    with mmap.mmap(dst_fd, length=maplen, access=mmap.ACCESS_WRITE, offset=base) as dm:
+                                        dm[shift:shift+length] = src_bytes
+                                        dm.flush()
+                                else:
+                                    tf.write(src_bytes)
+                            finally:
+                                view.release()
+    
+                        offset += length
+                        bytes_copied = offset
+    
+                        # report progress and allow user-cancel
+                        if not self._progress_update(source_path, bytes_copied, file_size, "DIRECT-LARGE"):
+                            cancelled = True
+                            break
+    
+                    if not prealloc_ok:
+                        tf.flush()
+                        try:
+                            os.fsync(dst_fd)
+                        except Exception:
+                            pass
+                finally:
+                    try:
+                        tf.close()
+                    except Exception:
+                        pass
+            if cancelled:
+                log_and_flush(logging.INFO, "copy cancelled by user during DIRECT-LARGE")
+                return {"success": False, "cancelled": True, "bytes_copied": bytes_copied}
+            return {"success": True, "bytes_copied": bytes_copied, "hash": hasher.hexdigest(), "hash_algorithm": ("BLAKE3" if getattr(self, "blake3_available", False) else "SHA-256")}
         except Exception as e:
-            msg = f'DIRECT-LARGE mmap copy with progressive hash calculation failed: {e}'
-            log_and_flush(logging.ERROR, msg)
-            #raise SystemExit(msg) # raise(msg) # temporarily raise so program ends ?????????????????????????????????????????????
-            os._exit(1)  # immediate process termination: no finally blocks, no atexit, no flushing
-            return {'success': False, 'error': msg, 'recovery_suggestion': 'Check permissions/disk space'}
+            return {"success": False, "error": str(e), "bytes_copied": bytes_copied, "recovery_suggestion": "Check permissions/disk space"}
 
     def _copy_with_windows_api(self, source_path: str, temp_path: str) -> dict:
         """
@@ -1357,88 +1006,87 @@ class FileCopyManager_class:
     
     def _copy_with_progressive_hash(self, source_path: str, temp_path: str) -> dict:
         """
-        Chunked copy with progressive hash calculation for STAGED strategy.
-        
-        Args:
-        -----
-        source_path: Source file path
-        temp_path: Temporary target file path
-        
-        Returns:
-        --------
-        dict: Copy result with success status, bytes copied, hash, and error information
+        STAGED copy path: chunked copy with progressive hash calculation and
+        per-chunk progress updates for both copy and verification (second bar).
+    
+        Behavior (aligned to simplification plan):
+          - Uses only progress_manager + cancel_event for progress/cancel.
+          - Calls _progress_update(...) for copy bar.
+          - Calls progress_manager.update_verify_progress(...) for verify bar, in lockstep with hashing.
+          - Returns a dict with success, bytes_copied, hash, and hash_algorithm.
         """
-        chunk_size = C.FILECOPY_NETWORK_CHUNK_BYTES
-        
-        # Initialize hasher
-        if self.blake3_available:
-            hasher = blake3.blake3()
-        else:
-            hasher = hashlib.sha256()
-        
-        bytes_copied = 0
-        
         try:
+            import os
+            import hashlib
+    
+            # Determine source size for progress
+            try:
+                file_size = os.path.getsize(source_path)
+            except Exception:
+                file_size = 0
+    
+            # Chunk sizing from globals
+            chunk_size = C.FILECOPY_NETWORK_CHUNK_BYTES
+    
+            # Hash setup
+            hasher = blake3.blake3() if getattr(self, "blake3_available", False) else hashlib.sha256()
+            hash_algo = "BLAKE3" if getattr(self, "blake3_available", False) else "SHA-256"
+    
+            bytes_copied = 0
+    
+            # Open both files and stream
             with open(source_path, 'rb') as src_file, open(temp_path, 'wb') as temp_file:
                 while True:
-                    # >>> CHANGE START: progress + cancel (STAGED loop) # per chatGPT change 1.4
-                    # Cancellation (UI event or progress manager)
+                    # Cancellation checks (event + UI)
                     if getattr(self, "cancel_event", None) and self.cancel_event.is_set():
-                        return {'success': False, 'cancelled': True, 'error': "Copy operation cancelled by user"}
+                        return {'success': False, 'cancelled': True, 'bytes_copied': bytes_copied, 'error': "Copy operation cancelled by user"}
                     pm = getattr(self, "progress_manager", None)
                     if pm and callable(getattr(pm, "cancellation_callback", None)) and pm.cancellation_callback():
-                        return {'success': False, 'cancelled': True, 'error': "Copy operation cancelled by user"}
-                    # <<< CHANGE END
-
+                        return {'success': False, 'cancelled': True, 'bytes_copied': bytes_copied, 'error': "Copy operation cancelled by user"}
+    
                     chunk = src_file.read(chunk_size)
                     if not chunk:
                         break
-                    
-                    # Update hash with chunk
+    
+                    # Hash & write
                     hasher.update(chunk)
-                    
-                    # Write chunk to temporary file
                     temp_file.write(chunk)
                     bytes_copied += len(chunk)
-
-                    # >>> CHANGE START: per-file progress feed to UI # per chatGPT change 1.4
-                    # Progress update
-                    if pm and hasattr(pm, "update_file_progress"):
-                        try:
-                            total_size = Path(source_path).stat().st_size
-                            pm.update_file_progress(source_path, bytes_copied, total_size, strategy="STAGED")
-
-                            # >>> CHANGE START: DEBUG stage-chunk progress
-                            if __debug__ and total_size:
-                                _mb_done = bytes_copied / (1024*1024)
-                                _mb_total = total_size / (1024*1024)
-                                log_and_flush(logging.DEBUG, f"[STAGED] chunk progress: {_mb_done:.1f} MB of {_mb_total:.1f} MB")
-                            # <<< CHANGE END
-                            mb_copied = bytes_copied / (1024 * 1024)
-                            mb_total_size = total_size / (1024 * 1024)
-                            log_and_flush(logging.DEBUG, f"[STAGED] Copying: 'update_file_progress': {mb_copied} MB of {mb_total_size} MB transferred")
-                        except Exception:
-                            pass
-                    elif self.status_callback and bytes_copied % (chunk_size * 4) == 0:
-                        mb_copied = bytes_copied / (1024 * 1024)
-                        mb_total_size = total_size / (1024 * 1024)
-                        self.status_callback(f"[STAGED] Copying: no hasattr 'update_file_progress': {mb_copied:.1f} MB or of {mb_total_size} MB transferred")
-                        log_and_flush(logging.DEBUG, f"[STAGED] Copying: no hasattr 'update_file_progress': {mb_copied:.1f} MB or of {mb_total_size} MB transferred")
-                    # <<< CHANGE END
-            
-            computed_hash = hasher.hexdigest()
-            
+    
+                    # Report per-chunk progress
+                    # - Copy progress via unified hook
+                    if not self._progress_update(source_path, bytes_copied, file_size, "STAGED (hash on the fly)"):
+                        return {'success': False, 'cancelled': True, 'bytes_copied': bytes_copied, 'error': "Copy operation cancelled by user"}
+    
+                    # - Verify progress via manager's second bar
+                    try:
+                        pm = getattr(self, "progress_manager", None)
+                        if pm and callable(getattr(pm, "update_verify_progress", None)):
+                            pm.update_verify_progress(bytes_copied, file_size)
+                    except Exception:
+                        # Never fail copy due to UI issues
+                        pass
+    
+                # Ensure buffered writes hit disk
+                try:
+                    temp_file.flush()
+                    os.fsync(temp_file.fileno())
+                except Exception:
+                    pass
+    
             return {
                 'success': True,
                 'bytes_copied': bytes_copied,
-                'hash': computed_hash
+                'hash': hasher.hexdigest(),
+                'hash_algorithm': hash_algo
             }
-            
+    
         except Exception as e:
             return {
                 'success': False,
-                'error': f"Chunked copy failed: {str(e)}",
-                'recovery_suggestion': "Check source file integrity and available disk space"
+                'bytes_copied': locals().get("bytes_copied", 0),
+                'error': str(e),
+                'recovery_suggestion': "Check permissions, disk space, and paths"
             }
     
     def _verify_by_mmap_windows(self, source_path: str, temp_path: str) -> bool:

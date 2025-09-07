@@ -315,223 +315,227 @@ class ProgressDialog_class:
         except tk.TclError:
             pass  # Dialog already destroyed
 
-
 class CopyProgressManager_class:
     """
-    Specialized progress manager for copy operations with DIRECT/STAGED strategy support.
-    
-    Purpose:
-    --------
-    Manages progress reporting for the enhanced file copy system with proper
-    phase tracking, cancellation support, and strategy-aware progress updates.
+    Thread-safe progress manager for copy/verify.
+    All updates are queued and applied on the Tk main thread via after_idle.
     """
-    
-    def __init__(self, parent, operation_name: str, total_files: int = 0, 
+
+    def __init__(self, parent, operation_name: str, total_files: int = 0,
                  total_bytes: int = 0, cancellation_callback=None):
-        """
-        Initialize copy progress manager.
-        
-        Args:
-        -----
-        parent: Parent window for progress dialog
-        operation_name: Name of the copy operation
-        total_files: Total number of files to process
-        total_bytes: Total bytes to copy (if known)
-        cancellation_callback: Callback function to check for user cancellation
-        """
+        import time as _time
+        import queue as _queue
+        import FolderCompareSync_Global_Constants as C
+        from ProgressDialog_class import ProgressDialog_class
+
+        self._time = _time
+        self._queue = _queue
         self.parent = parent
         self.operation_name = operation_name
         self.total_files = total_files
         self.total_bytes = total_bytes
         self.cancellation_callback = cancellation_callback
-        
-        # Progress tracking
+
         self.files_processed = 0
         self.bytes_processed = 0
         self.current_phase = "preparing"
         self.current_file = ""
         self.current_strategy = ""
-        
-        # Create dual progress dialog
+
         self.progress_dialog = ProgressDialog_class(
-            parent, 
+            parent,
             f"Copy Operation - {operation_name}",
-            "Preparing copy operation...",
+            "Preparing copy operation.",
             dual_progress=True
         )
-        
-        # Progress update frequency control
-        self.last_update_time = 0
-        self.update_frequency = 1.0 / C.FILECOPY_PROGRESS_UPDATE_FREQUENCY_HZ
-        
-        log_and_flush(logging.DEBUG, f"Created copy progress manager: {operation_name}")
-    
+
+        self.last_update_time = 0.0
+        self.update_frequency = 1.0 / getattr(C, "FILECOPY_PROGRESS_UPDATE_FREQUENCY_HZ", 20.0)
+
+        self._q = self._queue.Queue()
+        self._pump_scheduled = False
+        self._last_verify_msg = None
+        self._cancel_latched = False
+
+    # Phases
     def start_copy_phase(self):
-        """Start the copy phase of the operation."""
         self.current_phase = "copying"
-        self.progress_dialog.set_copy_phase("Copying files...")
-        log_and_flush(logging.DEBUG, "Copy phase started")
-    
+        try:
+            self.progress_dialog.set_copy_phase("Copying files...")
+        except Exception:
+            pass
+
     def start_verify_phase(self):
-        """Start the verification phase of the operation."""
-        self.current_phase = "verifying"  
-        self.progress_dialog.set_verify_phase("Verifying files...")
-        log_and_flush(logging.DEBUG, "Verification phase started")
-    
-    def update_file_progress(self, file_path: str, bytes_copied: int, total_bytes: int, 
-                           strategy: str = ""):
-        """
-        Update progress for current file being processed.
-        
-        Args:
-        -----
-        file_path: Path of file being processed
-        bytes_copied: Bytes copied so far for this file
-        total_bytes: Total bytes for this file
-        strategy: Copy strategy being used (DIRECT/STAGED)
-        """
-        current_time = time.time()
-        
-        # Throttle updates for performance
-        if current_time - self.last_update_time < self.update_frequency:
-            return
-        
-        self.current_file = os.path.basename(file_path)
-        self.current_strategy = strategy
-        self.last_update_time = current_time
-        
-        # Calculate file progress percentage
-        file_progress = (bytes_copied / total_bytes * 100) if total_bytes > 0 else 0
-        
-        # Calculate overall progress
-        overall_copy_progress = 0
-        overall_verify_progress = 0
-        
-        if self.total_files > 0:
-            base_progress = (self.files_processed / self.total_files) * 100
-            
-            if self.current_phase == "copying":
-                overall_copy_progress = min(base_progress + (file_progress / self.total_files), 100)
-                overall_verify_progress = 0
-            elif self.current_phase == "verifying":
-                overall_copy_progress = 100  # Copy phase complete
-                overall_verify_progress = min(base_progress + (file_progress / self.total_files), 100)
-        
-        # Build status message
-        strategy_text = f" ({strategy})" if strategy else ""
-        file_size_text = self._format_bytes(total_bytes) if total_bytes > 0 else ""
-        
-        if self.current_phase == "copying":
-            phase_message = f"Copying{strategy_text}: {self.current_file}"
-            if file_size_text:
-                phase_message += f" ({file_size_text})"
-        else:
-            phase_message = f"Verifying: {self.current_file}"
-            if file_size_text:
-                phase_message += f" ({file_size_text})"
-        
-        overall_message = f"{phase_message} - {self.files_processed + 1}/{self.total_files}"
-        
-        # Update progress dialog
-        self.progress_dialog.update_dual_progress(
-            copy_progress=overall_copy_progress,
-            verify_progress=overall_verify_progress,
-            overall_message=overall_message
-        )
-        
-        # Check for cancellation
-        if self.cancellation_callback and self.cancellation_callback():
-            log_and_flush(logging.DEBUG, "User cancellation detected")
+        self.current_phase = "verifying"
+        try:
+            self.progress_dialog.set_verify_phase("Verifying files...")
+        except Exception:
+            pass
+
+    def complete_file(self, success: bool = True):
+        if success:
+            self.files_processed += 1
+
+    def complete_operation(self, success: bool = True, message: str = ""):
+        try:
+            if success:
+                self.progress_dialog.set_completion_phase("Operation complete")
+            else:
+                self.progress_dialog.set_completion_phase("Operation finished with errors")
+        except Exception:
+            pass
+        try:
+            self.progress_dialog.close()
+        except Exception:
+            pass
+
+    # Public updates (thread-safe)
+    def update_file_progress(self, file_path: str, bytes_copied: int, total_bytes: int, strategy: str = ""):
+        if self._check_cancel():
             return False
-        
+        self._q.put(("file", (file_path, int(bytes_copied), int(total_bytes), str(strategy))))
+        self._schedule_pump()
         return True
 
-    # SUPERSEDED:
-    ## >>> CHANGE START # per chatGPT 5) to wire in pop-up progress dialogue
-    #def update_verify_progress(self, bytes_processed: int, total_bytes: int):
-    #    """Adapter for verification progress used by FileCopyManager.
-    #    Updates the dual progress bars without changing the existing APIs."""
-    #    # Ensure we are in verify phase for correct messaging
-    #    self.current_phase = 'verifying'
-    #    # Compute per-file verification percentage
-    #    if total_bytes and total_bytes > 0:
-    #        verify_pct = (bytes_processed / total_bytes) * 100
-    #    else:
-    #        verify_pct = 0
-    #    # Update only the verify bar; copy bar is left as-is
-    #    self.progress_dialog.update_dual_progress(verify_progress=verify_pct)
-    #    return True
-    ## <<< CHANGE END
-
-    # >>> CHANGE START # per chatGPT 6) to wire in pop-up verify dialogue
     def update_verify_progress(self, bytes_processed: int, total_bytes: int):
-        """
-        Adapter for verification progress (hashing)  used by FileCopyManager.
-        Also shows a friendly 'MB of MB' message on the Verify line.
-        """
-        current_time = time.time()
-        # Throttle UI updates like update_file_progress() does
-        if current_time - self.last_update_time < self.update_frequency:
-            return True
-        self.last_update_time = current_time
-        # Ensure we're visually in the verify phase
+        if self._check_cancel():
+            return False
+        self._q.put(("verify", (int(bytes_processed), int(total_bytes))))
+        self._schedule_pump()
+        return True
+
+    # Pumping
+    def _schedule_pump(self):
+        if self._pump_scheduled:
+            return
+        self._pump_scheduled = True
+        try:
+            widget = getattr(self.progress_dialog, "dialog", None) or self.parent
+            widget.after_idle(self._pump_updates)
+        except Exception:
+            self._pump_scheduled = False
+            self._pump_updates()
+
+    def _pump_updates(self):
+        self._pump_scheduled = False
+        now = self._time.time()
+        if (now - self.last_update_time) < self.update_frequency:
+            self._schedule_pump()
+            return
+
+        coalesced = {"file": None, "verify": None}
+        processed = False
+        try:
+            while True:
+                kind, payload = self._q.get_nowait()
+                coalesced[kind] = payload
+                processed = True
+        except self._queue.Empty:
+            pass
+
+        if not processed:
+            return
+        self.last_update_time = now
+
+        if coalesced["file"] is not None:
+            fp, bc, tb, strat = coalesced["file"]
+            try:
+                self._apply_file_update(fp, bc, tb, strat)
+            except Exception:
+                pass
+        if coalesced["verify"] is not None:
+            bp, tb = coalesced["verify"]
+            try:
+                self._apply_verify_update(bp, tb)
+            except Exception:
+                pass
+
+        if not self._q.empty():
+            self._schedule_pump()
+
+    # Apply helpers
+    def _apply_file_update(self, file_path: str, bytes_copied: int, total_bytes: int, strategy: str):
+        name = (file_path or "").split("/")[-1].split("\\")[-1]
+        self.current_file = name
+        self.current_strategy = strategy or ""
+        file_pct = (bytes_copied / total_bytes * 100.0) if total_bytes > 0 else 0.0
+        overall_copy_pct = 0.0
+        overall_verify_pct = 0.0
+        if self.total_files > 0:
+            base = (self.files_processed / self.total_files) * 100.0
+            if self.current_phase == "copying":
+                overall_copy_pct = min(base + (file_pct / self.total_files), 100.0)
+            elif self.current_phase == "verifying":
+                overall_copy_pct = 100.0
+                overall_verify_pct = min(base + (file_pct / self.total_files), 100.0)
+
+        strat_text = f" ({self.current_strategy})" if self.current_strategy else ""
+        size_text = self._fmt_bytes(total_bytes) if total_bytes > 0 else ""
+        phase_msg = f"Verifying: {name}" if self.current_phase == "verifying" else f"Copying{strat_text}: {name}"
+        if size_text:
+            phase_msg += f" ({size_text})"
+        overall_msg = f"{phase_msg} - {self.files_processed + 1}/{self.total_files}"
+
+        try:
+            self.progress_dialog.update_dual_progress(
+                copy_progress=overall_copy_pct,
+                verify_progress=overall_verify_pct,
+                overall_message=overall_msg
+            )
+        except Exception:
+            pass
+
+    def _apply_verify_update(self, bytes_processed: int, total_bytes: int):
         if getattr(self, "current_phase", "") != "verifying":
             try:
                 self.start_verify_phase()
-            except Exception as ex:
-                try:
-                    self.progress_dialog.set_verify_phase("Verifying files...")
-                except Exception as ex:
-                    pass
+            except Exception:
+                pass
             self.current_phase = "verifying"
-        # Compute percent and "MB of MB" text
-        pct = (bytes_processed / total_bytes * 100) if total_bytes and total_bytes > 0 else 100.0
+
+        pct = (bytes_processed / total_bytes * 100.0) if total_bytes > 0 else 100.0
         mb_done = bytes_processed / (1024 * 1024)
-        mb_total = total_bytes / (1024 * 1024) if total_bytes else mb_done
+        mb_total = (total_bytes / (1024 * 1024)) if total_bytes > 0 else mb_done
         verify_msg = f"{mb_done:.1f} MB of {mb_total:.1f} MB"
-        # Optional overall status line with filename + MB of MB
+        self._last_verify_msg = verify_msg
+
         overall_msg = None
         if getattr(self, "current_file", ""):
             overall_msg = f"Verifying {self.current_file} - {verify_msg}"
-        # Update only the verify bar/message; leave the copy bar as-is
+
         try:
             self.progress_dialog.update_dual_progress(
                 verify_progress=pct,
                 verify_message=verify_msg,
                 overall_message=overall_msg
             )
-        except Exception as ex:
+        except Exception:
             pass
-        return True
-    # <<< CHANGE END
 
-    def complete_file(self, success: bool = True):
-        """Mark current file as complete."""
-        if success:
-            self.files_processed += 1
-            # # DEBUG: Uncomment for detailed file completion logging
-            # log_and_flush(logging.DEBUG, f"File completed: {self.current_file} ({self.files_processed}/{self.total_files})")
-    
-    def complete_operation(self, success: bool = True, message: str = ""):
-        """Complete the copy operation."""
-        if success:
-            completion_msg = message or "Copy operation completed successfully"
-        else:
-            completion_msg = message or "Copy operation failed"
-            
-        self.progress_dialog.set_completion_phase(completion_msg)
-        log_and_flush(logging.DEBUG, f"Copy operation completed: {completion_msg}")
-    
-    def _format_bytes(self, bytes_value: int) -> str:
-        """Format byte value in human readable format."""
-        if bytes_value is None:
-            return ""
-        for unit in ['B', 'KB', 'MB', 'GB']:
-            if bytes_value < 1024.0:
-                return f"{bytes_value:.1f}{unit}"
-            bytes_value /= 1024.0
-        return f"{bytes_value:.1f}TB"
-    
-    def close(self):
-        """Close the progress dialog."""
-        self.progress_dialog.close()
+    @staticmethod
+    def _fmt_bytes(n: int) -> str:
+        try:
+            units = ["B", "KB", "MB", "GB", "TB"]
+            x = float(n)
+            i = 0
+            while x >= 1024.0 and i < len(units) - 1:
+                x /= 1024.0
+                i += 1
+            return f"{x:.1f} {units[i]}"
+        except Exception:
+            return f"{n} B"
+
+    # Cancel helpers
+    def _check_cancel(self) -> bool:
+        if self._cancel_latched:
+            return True
+        try:
+            if self.cancellation_callback and self.cancellation_callback():
+                self._cancel_latched = True
+                return True
+        except Exception:
+            return False
+        return False
+
+    def get_cancelled(self) -> bool:
+        return self._cancel_latched

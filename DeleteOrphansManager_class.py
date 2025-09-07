@@ -891,59 +891,68 @@ class DeleteOrphansManager_class:
         self.add_status_message(f"Initialization complete: {accessible_count} accessible files")
 
     def _initialize_data_with_progress(self, progress):
-        """Initialize orphan data with progress feedback for large datasets using enhanced orphan classification."""
+        """Initialize orphan data with progress feedback for large datasets (thread-safe UI updates)."""
+        def ui_update(pct: int, msg: str):
+            try:
+                # Ensure updates happen on the Tk main thread
+                self.dialog.after(0, lambda: progress.update_progress(int(pct), str(msg)))
+            except Exception:
+                pass
+    
+        def ui_finish_finalize():
+            try:
+                self._finalize_initialization_enhanced()
+            finally:
+                try:
+                    self.dialog.after(0, progress.close)
+                except Exception:
+                    pass
+    
         try:
-            progress.update_progress(10, "Performing enhanced orphan detection...")  # v001.0017 changed [enhanced detection message]
-            
-            # v001.0017 changed [use enhanced detect_orphaned_files method]
-            # Get enhanced orphan detection results
+            ui_update(10, "Performing enhanced orphan detection...")
             orphaned_paths, orphan_detection_metadata = DeleteOrphansManager_class.detect_orphaned_files(
-                self.comparison_results, 
-                self.side, 
+                self.comparison_results,
+                self.side,
                 self.active_filter
             )
-            
+    
             # Update our orphaned_files list with the detected paths
-            self.orphaned_files = orphaned_paths  # v001.0017 added [update orphaned files list]
-            
-            progress.update_progress(30, "Creating enhanced file metadata...")  # v001.0017 changed [enhanced metadata message]
-            
-            # v001.0017 changed [pass enhanced metadata to create_orphan_metadata_dict]
-            # Create metadata with validation and enhanced orphan classification
+            self.orphaned_files = orphaned_paths
+    
+            ui_update(30, "Creating enhanced file metadata...")
             self.orphan_metadata = DeleteOrphansManager_class.create_orphan_metadata_dict(
-                self.comparison_results, 
-                self.orphaned_files, 
-                self.side.upper(), 
+                self.comparison_results,
+                self.orphaned_files,
+                self.side.upper(),
                 self.source_folder,
-                orphan_detection_metadata  # v001.0017 added [pass enhanced detection metadata]
+                orphan_detection_metadata
             )
-            
-            progress.update_progress(60, "Building tree structure...")
-            
-            # Build tree structure
+    
+            ui_update(60, "Building tree structure...")
             self.orphan_tree_data = DeleteOrphansManager_class.build_orphan_tree_structure(self.orphan_metadata)
-            
-            progress.update_progress(80, "Setting up smart selections...")  # v001.0017 changed [smart selection message]
-            
-            # v001.0017 changed [smart selection based on enhanced orphan classification]
-            # Select only true orphans by default, not folders that just contain orphans
-            self.selected_items = set()  # v001.0017 changed [start with empty selection]
+    
+            ui_update(80, "Setting up smart selections...")
+            self.selected_items = set()
             for rel_path, metadata in self.orphan_metadata.items():
-                if metadata.get('selected', False):  # v001.0017 added [respect smart default selection from metadata]
-                    self.selected_items.add(rel_path)  # v001.0017 added [add to selection if default selected]
-            
-            progress.update_progress(90, "Updating display...")
-            
-            # Update UI in main thread
-            self.dialog.after(0, self._finalize_initialization_enhanced)  # v001.0017 changed [use enhanced finalization]
-            
-            progress.update_progress(100, "Complete")
-            
+                if metadata.get('selected', False):
+                    self.selected_items.add(rel_path)
+    
+            ui_update(90, "Updating display...")
+            # Switch to UI thread for finalization and dialog updates
+            self.dialog.after(0, ui_finish_finalize)
+    
+            ui_update(100, "Complete")
+    
         except Exception as e:
-            log_and_flush(logging.ERROR, f"Error during enhanced orphan data initialization: {e}")  # v001.0017 changed [enhanced error message]
-            self.dialog.after(0, lambda: self.add_status_message(f"Enhanced initialization error: {str(e)}"))  # v001.0017 changed [enhanced error message]
-        finally:
-            progress.close()
+            try:
+                log_and_flush(logging.ERROR, f"Error during enhanced orphan data initialization: {e}")
+                self.dialog.after(0, lambda: self.add_status_message(f"Enhanced initialization error: {str(e)}"))
+            except Exception:
+                pass
+            try:
+                self.dialog.after(0, progress.close)
+            except Exception:
+                pass
             
     def _finalize_initialization_enhanced(self):  # v001.0017 added [enhanced finalization for large datasets]
         """Finalize enhanced initialization in orphan main thread for large datasets."""

@@ -742,6 +742,119 @@ class FolderCompareSync_class:
             gc.collect()
         log_and_flush(logging.DEBUG, f"FolderCompareSync_class: delete_orphans: side='{side}': exiting 'delete_orphans'")
 
+    def announce_legend_once(self):
+        if not hasattr(self, "_legend_announced"):
+            self._legend_announced = True
+            try:
+                self.add_status_message("Legend: Blue = compressed; Red = sparse (copy blocked)")
+            except Exception:
+                pass
+
+    def add_visual_legend_banner(self):
+        """
+        Create a tiny visual legend banner above the left/right trees:
+          - "compressed" in blue
+          - "sparse (blocked)" in red
+    
+        This is non-invasive and can be called any time after the trees are constructed.
+        It will only add the banner once per session.
+        """
+        # Already added?
+        if getattr(self, "_legend_banner_frame", None):
+            try:
+                # If it exists but was hidden/detached, ensure it's visible
+                self._legend_banner_frame.pack_configure()
+            except Exception:
+                pass
+            return
+    
+        # Discover the tree container frame using existing widgets
+        try:
+            left_frame = self.left_tree.master                 # LabelFrame for LEFT
+            tree_frame = left_frame.master                     # Container that hosts left/right frames
+        except Exception:
+            # If discovery fails, do nothing
+            return
+    
+        # Create styles (idempotent)
+        try:
+            style = ttk.Style()
+            style.configure("LegendBlue.TLabel", foreground="blue")
+            style.configure("LegendRed.TLabel", foreground="red")
+        except Exception:
+            pass
+    
+        # Build a slim banner frame and pack it *before* the left frame so it sits on top
+        try:
+            banner = ttk.Frame(tree_frame)
+            banner.pack(fill=tk.X, pady=(0, 3), before=left_frame)
+    
+            ttk.Label(banner, text="Legend:", style="Scaled.TLabel").pack(side=tk.LEFT, padx=(0, 8))
+            ttk.Label(banner, text="compressed", style="LegendBlue.TLabel").pack(side=tk.LEFT, padx=(0, 16))
+            ttk.Label(banner, text="sparse (blocked)", style="LegendRed.TLabel").pack(side=tk.LEFT)
+    
+            self._legend_banner_frame = banner
+        except Exception as e:
+            try:
+                self.add_status_message(f"Legend banner unavailable: {e}")
+            except Exception:
+                pass
+
+    def _ensure_tree_legend_banner(self, parent):
+        """
+        Tiny visual legend banner to place *above the trees*.
+        - Blue = "compressed"
+        - Red  = "sparse (blocked)"
+        Creates or rebuilds self._legend_banner_frame within the given parent.
+        Returns the frame widget.
+    
+        Usage:
+            # In setup_ui(), after creating the container above the trees:
+            self._ensure_tree_legend_banner(some_parent_frame)
+        """
+        try:
+            # Destroy previous banner if present
+            old = getattr(self, "_legend_banner_frame", None)
+            if old is not None:
+                try:
+                    old.destroy()
+                except Exception:
+                    pass
+    
+            # Build new banner
+            frame = ttk.Frame(parent)
+            self._legend_banner_frame = frame
+    
+            # Helper to make a colored swatch
+            def swatch(parent_, color_name):
+                box = tk.Label(parent_, width=2, height=1, bg=color_name, relief="solid", bd=1)
+                return box
+    
+            # Layout: [blue box] compressed   [spacer]   [red box] sparse (blocked)
+            blue = swatch(frame, "dodgerblue")
+            blue.pack(side=tk.LEFT, padx=(2, 4), pady=2)
+            ttk.Label(frame, text="compressed").pack(side=tk.LEFT, padx=(0, 8))
+    
+            red = swatch(frame, "red")
+            red.pack(side=tk.LEFT, padx=(8, 4), pady=2)
+            ttk.Label(frame, text="sparse (blocked)").pack(side=tk.LEFT, padx=(0, 8))
+    
+            # Subtle separator line under legend to visually separate from trees
+            sep = ttk.Separator(frame, orient="horizontal")
+            sep.pack(fill=tk.X, pady=(4, 0))
+    
+            # Place within parent
+            frame.pack(fill=tk.X, padx=4, pady=(4, 4))
+    
+            return frame
+    
+        except Exception as e:
+            try:
+                log_and_flush(logging.DEBUG, f"Legend banner creation failed: {e}")
+            except Exception:
+                pass
+            return None
+
     def setup_ui(self):
         """
         Initialize the user interface with enhanced copy system features including verification policy radio buttons (M04).
@@ -927,6 +1040,11 @@ class FolderCompareSync_class:
         # Tree comparison frame (adjusted height to make room for status log)
         tree_frame = ttk.Frame(main_frame)
         tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 3)) # v001.0014 changed [tightened padding from pady=(0, 5) to pady=(0, 3)]
+        # Insert legend banner above the trees
+        try:
+            self._ensure_tree_legend_banner(tree_frame)
+        except Exception:
+            pass
         
         # Left tree with columns
         left_frame = ttk.LabelFrame(tree_frame, text=C.LEFT_SIDE_UPPERCASE, padding=5)
@@ -1469,33 +1587,55 @@ class FolderCompareSync_class:
         return None
                 
     def handle_tree_click(self, tree, side, event):
-        """
-        Handle clicks on tree items (for checkbox behavior) with limit checking.
-        
-        Purpose:
-        --------
-        Processes user clicks on tree items to toggle selection state
-        while ignoring clicks on missing items and respecting limits.
-        """
+        """Toggle selection checkboxes, but block SPARSE sources (v3)."""
         if self.limit_exceeded:
-            return  # Don't process clicks when limits exceeded
-
-        # Ignore clicks on the +/- indicator (expand/collapse control) and column headers/separators
+            return
+    
         element = tree.identify('element', event.x, event.y)
         region  = tree.identify('region',  event.x, event.y)
         if element == 'Treeitem.indicator' or region in ('heading', 'separator'):
             return
-            
-        item = tree.identify('item', event.x, event.y)
-        if item:
-            # Check if item is missing and ignore clicks on missing items
-            if self.is_missing_item(tree, item):
-                if __debug__:
-                    log_and_flush(logging.DEBUG, f"Ignoring click on missing item: {item}")
-                return  # Don't process clicks on missing items
-                
-            # Toggle selection for this item if it's not missing
-            self.toggle_item_selection(item, side)
+    
+        item_id = tree.identify_row(event.y)
+        if not item_id:
+            return
+    
+        # Prevent selecting missing items
+        if self.is_missing_item(tree, item_id):
+            return
+    
+        # SPARSE guard: block selection if the file on this side is sparse
+        try:
+            rel_path = self.get_item_relative_path(item_id, side)
+        except Exception:
+            rel_path = None
+    
+        if rel_path:
+            abs_path = os.path.join(self.left_folder.get() if side.lower() == C.LEFT_SIDE_LOWERCASE else self.right_folder.get(),
+                                    rel_path)
+            try:
+                if os.path.isfile(abs_path) and is_sparse_file(abs_path) is True:
+                    # Block and notify
+                    self.add_status_message(f"blocked: sparse source -> {rel_path}")
+                    return
+            except Exception:
+                # If detection fails, do not block
+                pass
+    
+        # Existing toggle logic (preserve your selection data structures)
+        try:
+            # Toggle selection set for the side
+            selected_set = self.selected_left if side.lower() == C.LEFT_SIDE_LOWERCASE else self.selected_right
+            if item_id in selected_set:
+                selected_set.discard(item_id)
+                # Also untick parents safely
+                self.untick_parents_with_root_safety(item_id, side)
+            else:
+                selected_set.add(item_id)
+            # Update visuals if needed
+            self.update_tree_display_safe()
+        except Exception as e:
+            log_and_flush(logging.DEBUG, f"handle_tree_click toggle failed: {e}")
             
     def toggle_item_selection(self, item_id, side):
         """Toggle selection state of an item and handle parent/child logic with root safety."""
@@ -2599,111 +2739,102 @@ class FolderCompareSync_class:
             log_and_flush(logging.DEBUG, f"Tree building with root paths completed in {elapsed_time:.3f} seconds")
             
     def populate_tree(self, tree, structure, parent_id, side, current_path):
-        """
-        Recursively populate tree with structure using stable alphabetical ordering.
-        
-        Purpose:
-        --------
-        Creates stable tree structure that maintains consistent ordering without
-        any custom sorting to comply with mandatory features. Uses simple alphabetical
-        ordering for predictable results.
-        """
+        """Recursively populate tree with structure and tag compressed/sparse items."""
         if self.limit_exceeded:
             return
-        
-        # Use simple alphabetical sorting for stable, predictable ordering  # v000.0002 changed - removed sorting
-        sorted_items = sorted(structure.items()) # v000.0002 changed - removed sorting
-        
-        # Import the MissingFolder class (defined in build_trees_with_root_paths)
+    
+        sorted_items = sorted(structure.items())
+    
         for name, content in sorted_items:
-            # Build the full relative path for this item
-            item_rel_path = current_path + ('/' if current_path else '') + name
-            
-            # Check if content is a MissingFolder (defined in the calling method)
-            is_missing_folder = hasattr(content, 'contents')
-            
-            if isinstance(content, dict) or is_missing_folder:
-                # This is a folder (either real or missing)
-                if is_missing_folder:
-                    # Missing folder - NO checkbox, just plain text with [MISSING]
-                    item_text = f"{name}/ [MISSING]"
-                    item_id = tree.insert(parent_id, tk.END, text=item_text, open=False,
-                                        values=("", "", "", "", "Missing"), tags=('missing',))
-                    # Recursively populate children from the missing folder's contents
-                    self.populate_tree(tree, content.contents, item_id, side, item_rel_path) # v000.0002 changed - removed sorting
-                else:
-                    # Real folder - has checkbox
-                    item_text = f"☐ {name}/"
-                    
-                    # v000.0006 ---------- START CODE BLOCK - facilitate folder timestamp and smart status display
-                    # v000.0006 added - Get folder metadata for timestamp display and smart status
-                    result = self.comparison_results.get(item_rel_path)
-                    folder_metadata = None
-                    date_created_str = ""
-                    date_modified_str = ""
-                    status = "Folder"
-                    
-                    if result:
-                        # Get the folder metadata from the appropriate side
-                        if side.lower() == C.LEFT_SIDE_LOWERCASE and result.left_item:
-                            folder_metadata = result.left_item
-                        elif side.lower() == C.RIGHT_SIDE_LOWERCASE and result.right_item:
-                            folder_metadata = result.right_item
-                        
-                        # v000.0006 added - Format folder timestamps if available
-                        if folder_metadata and folder_metadata.is_folder:
-                            date_created_str = self.format_timestamp(folder_metadata.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                            date_modified_str = self.format_timestamp(folder_metadata.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                        
-                        # v000.0006 added - Determine smart status for folders
-                        if result.is_different and result.differences:
-                            # Check if folder is different ONLY due to timestamps
-                            timestamp_only_differences = {'date_created', 'date_modified'}
-                            if result.differences.issubset(timestamp_only_differences):
-                                status = "Folder (timestamp)"
-                            elif result.differences:
-                                # Other differences exist (existence, contents, etc.)
-                                status = "Folder"
-                    # v000.0006 ---------- END CODE BLOCK - facilitate folder timestamp and smart status display                 
-                    # v000.0006 changed - Insert folder with timestamp data and smart status
-                    item_id = tree.insert(parent_id, tk.END, text=item_text, open=False,
-                                        values=("", date_created_str, date_modified_str, "", status))
-                    # Recursively populate children
-                    self.populate_tree(tree, content, item_id, side, item_rel_path) # v000.0002 changed - removed sorting
-                                                                                    
-                
-                # Store path mapping for both real and missing folders
-                path_map = self.path_to_item_left if side.lower() == C.LEFT_SIDE_LOWERCASE else self.path_to_item_right
-                path_map[item_rel_path] = item_id
-                
+            item_rel_path = os.path.join(current_path, name) if current_path else name
+            abs_path = os.path.join(self.left_folder.get() if side.lower() == C.LEFT_SIDE_LOWERCASE else self.right_folder.get(),
+                                    item_rel_path)
+    
+            tags = []
+            is_dir = isinstance(content, dict) or getattr(content, 'is_folder', False)
+    
+            # Determine status/values for row (use existing helpers where available)
+            if is_dir:
+                item_text = f"☐ {item_rel_path}/" if parent_id else f"☐ {item_rel_path}"
+                values = ("", "", "", "", "Folder")
+                # Folder compression default -> blue+italic
+                try:
+                    comp_default = is_folder_compression_default_on(abs_path)[0]
+                    if comp_default is True:
+                        tags.append('compressed')
+                except Exception:
+                    pass
+    
+                # Insert folder row
+                item_id = tree.insert(parent_id, tk.END, text=item_text, values=values, tags=tuple(tags))
+                # Recurse
+                if isinstance(content, dict):
+                    self.populate_tree(tree, content, item_id, side, item_rel_path)
+                elif hasattr(content, 'contents'):  # if a small container object
+                    self.populate_tree(tree, content.contents, item_id, side, item_rel_path)
             else:
-                # This is a file
-                if content is None:
-                    # Missing file - NO checkbox, just plain text with [MISSING]
-                    item_text = f"{name} [MISSING]"
-                    item_id = tree.insert(parent_id, tk.END, text=item_text, 
-                                        values=("", "", "", "", "Missing"), tags=('missing',))
-                else:
-                    # Existing file - has checkbox and shows ALL metadata
-                    size_str = self.format_size(content.size) if content.size else ""
-                    date_created_str = self.format_timestamp(content.date_created, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                    date_modified_str = self.format_timestamp(content.date_modified, include_timezone=False) # v001.0011 changed [use centralized format_timestamp method]
-                    sha512_str = content.sha512[:16] + "..." if content.sha512 else ""
-                    
-                    # Determine status using proper path lookup
-                    result = self.comparison_results.get(item_rel_path)
-                    status = "Different" if result and result.is_different else "Same"
-                    
-                    item_text = f"☐ {name}"
-                    item_id = tree.insert(parent_id, tk.END, text=item_text,
-                                        values=(size_str, date_created_str, date_modified_str, sha512_str, status))
-                
-                # Store path mapping for both missing and existing files
-                path_map = self.path_to_item_left if side.lower() == C.LEFT_SIDE_LOWERCASE else self.path_to_item_right
-                path_map[item_rel_path] = item_id
-                                        
-        # Configure missing item styling using configurable color
-        tree.tag_configure('missing', foreground=C.MISSING_ITEM_COLOR)
+                # File
+                item_text = f"☐ {name}"
+                size_str = ""
+                date_created_str = ""
+                date_modified_str = ""
+                sha512_str = ""
+                status = ""
+    
+                # Try to find comparison result for this rel path to fill values as before
+                result_map = self.filtered_results if self.is_filtered else self.comparison_results
+                result = result_map.get(item_rel_path)
+    
+                if result:
+                    # Prefer metadata from the current side when present
+                    md = result.left_item if side.lower() == C.LEFT_SIDE_LOWERCASE else result.right_item
+                    if md:
+                        try:
+                            if md.size is not None:
+                                size_str = self.format_size(md.size)
+                            if md.date_created:
+                                date_created_str = self.format_timestamp(md.date_created)
+                            if md.date_modified:
+                                date_modified_str = self.format_timestamp(md.date_modified)
+                            if md.sha512:
+                                sha512_str = (md.sha512[:16] + "...")
+                        except Exception:
+                            pass
+                    # Keep existing status computation if present
+                    try:
+                        status = "Different" if result.is_different else "Same"
+                    except Exception:
+                        status = ""
+    
+                # Determine tags: compressed (blue) and sparse (red)
+                try:
+                    is_comp = is_file_compressed(abs_path)[0]
+                    if is_comp is True:
+                        tags.append('compressed')
+                except Exception:
+                    pass
+                try:
+                    is_sparse = is_sparse_file(abs_path)
+                    if is_sparse is True:
+                        tags.append('sparse')
+                except Exception:
+                    pass
+    
+                item_id = tree.insert(parent_id, tk.END, text=item_text,
+                                      values=(size_str, date_created_str, date_modified_str, sha512_str, status),
+                                      tags=tuple(tags))
+    
+            # Configure tags once (idempotent)
+            try:
+                # Create an italic tree font lazily for compressed folders/files
+                if not hasattr(self, "scaled_tree_font_italic"):
+                    base_font = tkfont.nametofont("TkTextFont")
+                    self.scaled_tree_font_italic = base_font.copy()
+                    self.scaled_tree_font_italic.configure(slant="italic")
+                tree.tag_configure('compressed', foreground='blue', font=self.scaled_tree_font_italic)
+                tree.tag_configure('sparse', foreground='red')
+            except Exception:
+                pass
 
     def get_item_path(self, tree, item_id):
         """
