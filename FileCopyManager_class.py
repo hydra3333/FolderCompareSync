@@ -913,7 +913,10 @@ class FileCopyManager_class:
             try:
                 # Create file handle with proper access rights
                 file_handle = None
-                wintypes.DWORD(
+                # Create file handle with proper access rights
+                file_handle = win32file.CreateFileW(
+                    ctypes.c_wchar_p(temp_path),
+                    wintypes.DWORD(
                         win32con.GENERIC_READ
                         | win32con.GENERIC_WRITE
                         | win32con.FILE_WRITE_DATA 
